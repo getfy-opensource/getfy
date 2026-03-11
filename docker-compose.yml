@@ -65,9 +65,6 @@ services:
       retries: 30
 
   queue:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: getfy_app:latest
     restart: unless-stopped
     command: ["php", "artisan", "queue:work", "--sleep=3", "--tries=3", "--timeout=0"]
@@ -100,9 +97,6 @@ services:
         condition: service_healthy
 
   scheduler:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: getfy_app:latest
     restart: unless-stopped
     command: ["php", "artisan", "schedule:work"]
