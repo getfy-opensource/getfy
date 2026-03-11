@@ -1,19 +1,3 @@
-FROM node:20-bookworm-slim AS node_builder
-
-WORKDIR /app
-
-COPY package.json package-lock.json vite.config.js ./
-COPY resources ./resources
-COPY public ./public
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 make g++ \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN rm -rf public/build \
-    && npm ci --no-audit --no-fund \
-    && npm run build
-
 FROM php:8.2-cli-alpine AS php_base
 
 RUN apk add --no-cache \
@@ -38,7 +22,6 @@ FROM php_base AS app
 
 COPY . .
 COPY --from=vendor /var/www/html/vendor ./vendor
-COPY --from=node_builder /app/public/build ./public/build
 COPY docker/entrypoint.sh /usr/local/bin/getfy-entrypoint
 
 RUN chmod +x /usr/local/bin/getfy-entrypoint \
