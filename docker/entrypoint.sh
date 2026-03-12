@@ -14,15 +14,29 @@ if [ ! -f .env ]; then
   cp .env.example .env
 fi
 
+rm -f public/hot 2>/dev/null || true
+
 php -r '
 $envFile = ".env";
+$content = file_exists($envFile) ? (string) file_get_contents($envFile) : "";
+$setupDoneInEnv = (bool) preg_match("/^\\s*DOCKER_SETUP_DONE\\s*=\\s*[\"\\x27]?true[\"\\x27]?\\s*(?:#|$)/mi", $content);
+$setupDoneShared = is_file(".docker/setup.done");
+$setupDone = $setupDoneInEnv || $setupDoneShared;
+
+$existingAppUrl = null;
+if (preg_match("/^\\s*APP_URL\\s*=\\s*(.+)\\s*$/mi", $content, $m)) {
+    $existingAppUrl = trim((string) ($m[1] ?? ""), " \\t\\n\\r\\0\\x0B\\\"\\x27");
+}
+$sharedAppUrl = trim((string) @file_get_contents(".docker/app.url"));
+$appUrl = $setupDone ? ($sharedAppUrl !== "" ? $sharedAppUrl : $existingAppUrl) : ((getenv("GETFY_APP_URL") ?: getenv("APP_URL")) ?: "http://localhost");
 $vars = [
     "APP_NAME" => getenv("APP_NAME") ?: "Getfy",
     "APP_ENV" => getenv("APP_ENV") ?: "local",
     "APP_DEBUG" => getenv("APP_DEBUG") ?: "false",
-    "APP_URL" => getenv("APP_URL") ?: "http://localhost",
+    "APP_URL" => $appUrl ?: null,
     "APP_KEY" => getenv("APP_KEY") ?: (trim((string) @file_get_contents(".docker/app.key")) ?: ""),
     "APP_INSTALLED" => getenv("APP_INSTALLED") ?: "true",
+    "DOCKER_SETUP_DONE" => $setupDone ? "true" : null,
     "APP_AUTO_MIGRATE" => getenv("APP_AUTO_MIGRATE") ?: "false",
     "DB_CONNECTION" => getenv("DB_CONNECTION") ?: "mysql",
     "DB_HOST" => getenv("DB_HOST") ?: "mysql",
@@ -38,7 +52,6 @@ $vars = [
     "REDIS_PORT" => getenv("REDIS_PORT") ?: "6379",
     "REDIS_PASSWORD" => getenv("REDIS_PASSWORD") ?: "null",
 ];
-$content = file_exists($envFile) ? (string) file_get_contents($envFile) : "";
 foreach ($vars as $key => $value) {
     if ($value === null) {
         continue;

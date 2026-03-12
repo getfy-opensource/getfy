@@ -10,9 +10,15 @@ class DockerSetupController extends Controller
 {
     public function show(Request $request): View
     {
-        $host = $request->getHost();
-        $scheme = $request->isSecure() ? 'https' : 'http';
-        $port = $request->getPort();
+        $forwardedProto = (string) $request->headers->get('x-forwarded-proto', '');
+        $scheme = str_contains(strtolower($forwardedProto), 'https') ? 'https' : ($request->isSecure() ? 'https' : 'http');
+
+        $forwardedHost = (string) $request->headers->get('x-forwarded-host', '');
+        $host = trim(explode(',', $forwardedHost)[0] ?? '');
+        $host = $host !== '' ? $host : $request->getHost();
+
+        $forwardedPort = (string) $request->headers->get('x-forwarded-port', '');
+        $port = ctype_digit($forwardedPort) ? (int) $forwardedPort : $request->getPort();
         $defaultPort = $scheme === 'https' ? 443 : 80;
         $suggestedUrl = $scheme . '://' . $host . (($port !== $defaultPort && $port !== 0) ? (':' . $port) : '');
 
@@ -52,6 +58,13 @@ class DockerSetupController extends Controller
             'DOCKER_SETUP_DONE' => 'true',
             'APP_INSTALLED' => 'true',
         ]);
+
+        $dockerDir = base_path('.docker');
+        if (! is_dir($dockerDir)) {
+            mkdir($dockerDir, 0777, true);
+        }
+        file_put_contents($dockerDir . DIRECTORY_SEPARATOR . 'app.url', $url);
+        file_put_contents($dockerDir . DIRECTORY_SEPARATOR . 'setup.done', 'true');
 
         return redirect('/login')->with('success', 'Configuração inicial salva.');
     }

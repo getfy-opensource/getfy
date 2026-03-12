@@ -13,7 +13,7 @@ services:
     environment:
       APP_ENV: ${GETFY_APP_ENV:-local}
       APP_DEBUG: ${GETFY_APP_DEBUG:-true}
-      APP_URL: ${GETFY_APP_URL:-http://localhost}
+      GETFY_APP_URL: ${GETFY_APP_URL:-http://localhost}
       PORT: "80"
       APP_INSTALLED: ${GETFY_APP_INSTALLED:-true}
       APP_AUTO_MIGRATE: ${GETFY_APP_AUTO_MIGRATE:-false}
@@ -75,7 +75,7 @@ services:
     environment:
       APP_ENV: ${GETFY_APP_ENV:-local}
       APP_DEBUG: ${GETFY_APP_DEBUG:-true}
-      APP_URL: ${GETFY_APP_URL:-http://localhost}
+      GETFY_APP_URL: ${GETFY_APP_URL:-http://localhost}
       APP_INSTALLED: ${GETFY_APP_INSTALLED:-true}
       APP_AUTO_MIGRATE: ${GETFY_APP_AUTO_MIGRATE:-false}
       DB_CONNECTION: ${GETFY_DB_CONNECTION:-mysql}
@@ -107,7 +107,7 @@ services:
     environment:
       APP_ENV: ${GETFY_APP_ENV:-local}
       APP_DEBUG: ${GETFY_APP_DEBUG:-true}
-      APP_URL: ${GETFY_APP_URL:-http://localhost}
+      GETFY_APP_URL: ${GETFY_APP_URL:-http://localhost}
       APP_INSTALLED: ${GETFY_APP_INSTALLED:-true}
       APP_AUTO_MIGRATE: ${GETFY_APP_AUTO_MIGRATE:-false}
       DB_CONNECTION: ${GETFY_DB_CONNECTION:-mysql}

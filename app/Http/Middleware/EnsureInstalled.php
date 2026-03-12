@@ -15,6 +15,7 @@ class EnsureInstalled
     public function handle(Request $request, Closure $next): Response
     {
         if ($request->is('up') || $request->is('install') || $request->is('install/*')
+            || $request->is('docker-setup') || $request->is('docker-setup/*')
             || $request->is('manifest.json') || $request->is('painel-sw.js')) {
             return $next($request);
         }
