@@ -167,3 +167,8 @@ Se o seu painel não suportar `docker-compose.yml`, a alternativa mais simples �
 - Arquivos em `public/storage` não aparecem: `storage:link` pode falhar em hospedagens sem symlink. Se acontecer, crie manualmente um link/symlink de `public/storage` → `storage/app/public` (ou use um painel que suporte isso).
 - Rotinas automáticas não rodam: configure o cron pela URL `/cron?token=...` a cada minuto.
 
+Se você deseja apoiar o desenvolvimento diretamente:
+| Pix | Chave |
+|---|---|
+| Aleatória | `ce05f7d1-27db-4d46-bca5-0a80c621349a` |
+
