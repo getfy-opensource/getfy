@@ -46,16 +46,7 @@ Este modo é o mais indicado quando você não tem acesso a SSH/terminal.
 
 Dica para leigos: se o painel permitir “Extrair ZIP” no servidor, envie o `.zip` e use a opção de extrair para evitar upload demorado.
 
-### 3) Ajustar o “diretório público” (DocumentRoot)
-
-O ideal é que o domínio aponte para a pasta `public/` do projeto. Se você tiver essa opção no painel (Hostinger/cPanel/Plesk):
-
-1. Configure o DocumentRoot para `.../public`.
-2. Acesse `https://SEU_DOMINIO/install`.
-
-Se você não tiver como apontar para `public/`, você ainda pode manter o projeto na raiz: existe um `index.php` na raiz que encaminha para `public/index.php`.
-
-### 4) Dar permissões de escrita
+### 3) Dar permissões de escrita
 
 Garanta que estas pastas sejam graváveis pelo PHP:
 
@@ -64,7 +55,7 @@ Garanta que estas pastas sejam graváveis pelo PHP:
 
 Se sua hospedagem tiver “Permissões” no gerenciador de arquivos, use 775 (ou 777 se não houver alternativa, apenas durante a instalação).
 
-### 5) Rodar o instalador pelo navegador
+### 4) Rodar o instalador pelo navegador
 
 1. Abra: `https://SEU_DOMINIO/install`
 2. Preencha a URL do sistema (ex.: `https://seudominio.com`), os dados do banco (host/porta/banco/usuário/senha) e o “Session driver” (em hospedagem compartilhada, use `file` na maioria dos casos).
@@ -72,7 +63,7 @@ Se sua hospedagem tiver “Permissões” no gerenciador de arquivos, use 775 (o
 
 Ao terminar, o instalador marca `APP_INSTALLED=true` no `.env` e desativa o instalador automaticamente (a pasta `public/install` é renomeada para `public/.install`).
 
-### 6) Criar o primeiro administrador
+### 5) Criar o primeiro administrador
 
 Depois de instalar, acesse:
 
@@ -80,7 +71,7 @@ Depois de instalar, acesse:
 
 Se já existir um usuário administrador, essa tela redireciona para o login.
 
-### 7) Configurar o cron (importante em hospedagem compartilhada)
+### 6) Configurar o cron (importante em hospedagem compartilhada)
 
 Para rotinas automáticas (fila/agendamentos), configure uma chamada a cada minuto:
 
