@@ -41,13 +41,19 @@ return new class extends Migration
     {
         $driver = Schema::getConnection()->getDriverName();
 
-        if ($driver !== 'mysql' && $driver !== 'mariadb') {
+        if ($driver === 'mysql' || $driver === 'mariadb') {
+            DB::transaction(function () {
+                $this->runUpMySQL();
+            });
             return;
         }
 
-        DB::transaction(function () {
-            $this->runUpMySQL();
-        });
+        if ($driver === 'pgsql') {
+            DB::transaction(function () {
+                $this->runUpPostgreSQL();
+            });
+            return;
+        }
     }
 
     private function runUpMySQL(): void
@@ -201,6 +207,87 @@ return new class extends Migration
                 DB::statement("ALTER TABLE `{$table}` ADD UNIQUE `{$def['name']}` (`{$colsList}`)");
             } else {
                 DB::statement("ALTER TABLE `{$table}` ADD INDEX `{$def['name']}` (`{$colsList}`)");
+            }
+        }
+    }
+
+    /**
+     * PostgreSQL: convert products.id from bigint to varchar(36) UUID.
+     * Uses ALTER COLUMN TYPE with USING cast (PG supports transactional DDL).
+     */
+    private function runUpPostgreSQL(): void
+    {
+        $col = DB::selectOne(
+            "SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'products' AND column_name = 'id'"
+        );
+        if ($col && in_array($col->data_type, ['character', 'character varying'])) {
+            return;
+        }
+
+        // Build UUID mapping for existing products (empty on fresh installs)
+        $mapping = [];
+        foreach (DB::table('products')->pluck('id') as $oldId) {
+            $mapping[$oldId] = (string) Str::uuid();
+        }
+
+        // Drop all FK constraints
+        foreach (self::PRODUCT_FK_TABLES as $table => $columns) {
+            if (! Schema::hasTable($table)) {
+                continue;
+            }
+            foreach ($columns as $column) {
+                DB::statement("ALTER TABLE \"{$table}\" DROP CONSTRAINT IF EXISTS \"{$table}_{$column}_foreign\"");
+            }
+        }
+
+        // Convert products.id from bigint to varchar(36)
+        DB::statement('ALTER TABLE "products" DROP CONSTRAINT IF EXISTS "products_pkey"');
+        DB::statement('ALTER TABLE "products" ALTER COLUMN "id" DROP DEFAULT');
+        DB::statement('ALTER TABLE "products" ALTER COLUMN "id" TYPE VARCHAR(36) USING "id"::text');
+
+        // Replace old bigint IDs with UUIDs
+        foreach ($mapping as $oldId => $newUuid) {
+            DB::table('products')->where('id', (string) $oldId)->update(['id' => $newUuid]);
+        }
+
+        DB::statement('ALTER TABLE "products" ALTER COLUMN "id" SET NOT NULL');
+        DB::statement('ALTER TABLE "products" ADD PRIMARY KEY ("id")');
+        DB::statement('DROP SEQUENCE IF EXISTS "products_id_seq"');
+
+        // Convert FK columns to varchar(36) and update with UUIDs
+        foreach (self::PRODUCT_FK_TABLES as $table => $columns) {
+            if (! Schema::hasTable($table)) {
+                continue;
+            }
+            foreach ($columns as $column) {
+                if (! Schema::hasColumn($table, $column)) {
+                    continue;
+                }
+                DB::statement("ALTER TABLE \"{$table}\" ALTER COLUMN \"{$column}\" TYPE VARCHAR(36) USING \"{$column}\"::text");
+                foreach ($mapping as $oldId => $newUuid) {
+                    DB::table($table)->where($column, (string) $oldId)->update([$column => $newUuid]);
+                }
+            }
+        }
+
+        // Recreate FK constraints
+        foreach (self::PRODUCT_FK_TABLES as $table => $columns) {
+            if (! Schema::hasTable($table)) {
+                continue;
+            }
+            foreach ($columns as $column) {
+                if (! Schema::hasColumn($table, $column)) {
+                    continue;
+                }
+                Schema::table($table, function (Blueprint $t) use ($table, $column) {
+                    $isNullable = $column === 'related_product_id' || (isset(self::NULLABLE_PRODUCT_COLUMNS[$table]) && in_array($column, self::NULLABLE_PRODUCT_COLUMNS[$table], true));
+                    $fk = $t->foreign($column)->references('id')->on('products');
+                    if ($isNullable) {
+                        $fk->nullOnDelete();
+                    } else {
+                        $fk->cascadeOnDelete();
+                    }
+                });
             }
         }
     }

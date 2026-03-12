@@ -14,7 +14,7 @@ return new class extends Migration
             $table->engine = 'InnoDB';
             $table->id();
             // products.id é UUID (CHAR 36) nesta base; users.id é bigint unsigned
-            $table->uuid('product_id');
+            $table->string('product_id', 36);
             $table->unsignedBigInteger('user_id');
             $table->string('type', 64)->index();
             $table->string('title');

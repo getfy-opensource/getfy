@@ -214,6 +214,7 @@ Route::middleware(['auth', 'role:admin|infoprodutor'])->group(function () {
     Route::get('/relatorios', [\App\Http\Controllers\RelatoriosController::class, 'index'])->name('relatorios.index');
     Route::get('/configuracoes', [\App\Http\Controllers\SettingsController::class, 'index'])->name('settings.index');
     Route::put('/configuracoes', [\App\Http\Controllers\SettingsController::class, 'update'])->name('settings.update');
+    Route::post('/configuracoes/branding/upload', [\App\Http\Controllers\SettingsController::class, 'uploadBranding'])->name('settings.branding.upload');
     Route::post('/configuracoes/email/test', [\App\Http\Controllers\EmailTestController::class, 'test'])->name('settings.email.test');
     Route::post('/configuracoes/email/connection-test', [\App\Http\Controllers\EmailTestController::class, 'connectionTest'])->name('settings.email.connection-test');
     Route::post('/configuracoes/email/send-test', [\App\Http\Controllers\EmailTestController::class, 'sendTest'])->name('settings.email.send-test');

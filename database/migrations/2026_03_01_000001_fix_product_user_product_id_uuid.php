@@ -15,6 +15,26 @@ return new class extends Migration
     public function up(): void
     {
         $driver = Schema::getConnection()->getDriverName();
+
+        if ($driver === 'pgsql') {
+            if (! Schema::hasTable('product_user') || ! Schema::hasColumn('product_user', 'product_id')) {
+                return;
+            }
+            $col = DB::selectOne("SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'product_user' AND column_name = 'product_id'");
+            if (! $col || in_array($col->data_type, ['character', 'character varying'])) {
+                return;
+            }
+            DB::statement('ALTER TABLE "product_user" DROP CONSTRAINT IF EXISTS "product_user_product_id_foreign"');
+            DB::statement('ALTER TABLE "product_user" DROP CONSTRAINT IF EXISTS "product_user_product_id_user_id_unique"');
+            DB::statement('ALTER TABLE "product_user" ALTER COLUMN "product_id" TYPE VARCHAR(36) USING "product_id"::text');
+            DB::table('product_user')->whereNotIn('product_id', DB::table('products')->select('id'))->delete();
+            Schema::table('product_user', function (Blueprint $t) {
+                $t->foreign('product_id')->references('id')->on('products')->cascadeOnDelete();
+                $t->unique(['product_id', 'user_id']);
+            });
+            return;
+        }
+
         if ($driver !== 'mysql' && $driver !== 'mariadb') {
             return;
         }

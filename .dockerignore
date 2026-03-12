@@ -1,0 +1,37 @@
+# Dependencies
+/vendor
+/node_modules
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+/.idea
+/.vscode
+/.fleet
+/.zed
+/.nova
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Storage
+/storage/logs/*
+/storage/framework/cache/*
+/storage/framework/sessions/*
+/storage/framework/views/*
+!/storage/framework/.gitignore
+
+# Build artifacts
+/public/hot
+
+# Stack de deploy (contém credenciais)
+/docker/getfy-stack.yml
+
+# Misc
+*.log
+.phpunit.result.cache
+/.phpunit.cache
