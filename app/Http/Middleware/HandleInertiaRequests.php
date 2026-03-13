@@ -171,6 +171,8 @@ class HandleInertiaRequests extends Middleware
             'api-applications.create' => 'Nova aplicação API',
             'api-applications.edit' => 'Editar aplicação API',
             'conquistas.index' => 'Conquistas',
+            'meus-pedidos.index' => 'Meus Pedidos',
+            'member-area.index' => 'Área de Membros',
         ];
 
         return $name ? ($titles[$name] ?? null) : null;

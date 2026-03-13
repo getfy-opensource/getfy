@@ -89,19 +89,25 @@ class MemberAreaAppController extends Controller
                 'id' => $s->id,
                 'title' => $s->title,
                 'cover_mode' => $s->cover_mode ?? 'vertical',
-                'modules' => $s->modules->map(fn ($m) => [
-                    'id' => $m->id,
-                    'title' => $m->title,
-                    'thumbnail' => $m->thumbnail,
-                    'show_title_on_cover' => $m->show_title_on_cover ?? true,
-                    'lessons' => $m->lessons->map(fn (MemberLesson $l) => [
-                        'id' => $l->id,
-                        'title' => $l->title,
-                        'type' => $l->type,
-                        'duration_seconds' => $l->duration_seconds,
-                        'is_completed' => $this->isLessonCompleted($user->id, $l->id),
-                    ])->values()->all(),
-                ])->values()->all(),
+                'modules' => $s->modules->map(function ($m) use ($user) {
+                    $unlocksAt = $m->dripUnlocksAt($user->id);
+                    $isLocked = $unlocksAt !== null;
+                    return [
+                        'id' => $m->id,
+                        'title' => $m->title,
+                        'thumbnail' => $m->thumbnail,
+                        'show_title_on_cover' => $m->show_title_on_cover ?? true,
+                        'is_locked' => $isLocked,
+                        'unlocks_at' => $unlocksAt?->toIso8601String(),
+                        'lessons' => $isLocked ? [] : $m->lessons->map(fn (MemberLesson $l) => [
+                            'id' => $l->id,
+                            'title' => $l->title,
+                            'type' => $l->type,
+                            'duration_seconds' => $l->duration_seconds,
+                            'is_completed' => $this->isLessonCompleted($user->id, $l->id),
+                        ])->values()->all(),
+                    ];
+                })->values()->all(),
             ])->values()->all(),
             'base_url' => $this->baseUrlForRequest($product, $request),
             'slug' => $slug,
@@ -116,6 +122,16 @@ class MemberAreaAppController extends Controller
             abort(404);
         }
         $user = $request->user();
+
+        // Drip content: bloqueia acesso se módulo ainda não liberado
+        $unlocksAt = $module->dripUnlocksAt($user->id);
+        if ($unlocksAt !== null) {
+            if ($request->header('X-Inertia')) {
+                return redirect()->back()->with('error', 'Este módulo será liberado em '.$unlocksAt->format('d/m/Y').'.');
+            }
+            abort(403, 'Conteúdo ainda não liberado.');
+        }
+
         $module->load(['section', 'lessons' => fn ($q) => $q->orderBy('position')]);
         $lessons = $module->lessons->map(fn (MemberLesson $l) => [
             'id' => $l->id,
@@ -160,12 +176,17 @@ class MemberAreaAppController extends Controller
             'id' => $s->id,
             'title' => $s->title,
             'cover_mode' => $s->cover_mode ?? 'vertical',
-            'modules' => $s->modules->map(fn ($m) => [
-                'id' => $m->id,
-                'title' => $m->title,
-                'thumbnail' => $m->thumbnail,
-                'show_title_on_cover' => $m->show_title_on_cover ?? true,
-            ])->values()->all(),
+            'modules' => $s->modules->map(function ($m) use ($user) {
+                $unlocksAt = $m->dripUnlocksAt($user->id);
+                return [
+                    'id' => $m->id,
+                    'title' => $m->title,
+                    'thumbnail' => $m->thumbnail,
+                    'show_title_on_cover' => $m->show_title_on_cover ?? true,
+                    'is_locked' => $unlocksAt !== null,
+                    'unlocks_at' => $unlocksAt?->toIso8601String(),
+                ];
+            })->values()->all(),
         ])->values()->all();
 
         $config = $product->member_area_config;
@@ -221,6 +242,19 @@ class MemberAreaAppController extends Controller
             abort(404);
         }
         $user = $request->user();
+
+        // Drip content: bloqueia acesso se módulo da aula ainda não liberado
+        $lesson->loadMissing('module');
+        if ($lesson->module) {
+            $unlocksAt = $lesson->module->dripUnlocksAt($user->id);
+            if ($unlocksAt !== null) {
+                if ($request->header('X-Inertia')) {
+                    return redirect()->back()->with('error', 'Este conteúdo será liberado em '.$unlocksAt->format('d/m/Y').'.');
+                }
+                abort(403, 'Conteúdo ainda não liberado.');
+            }
+        }
+
         $this->progressService->ensureLessonStarted($lesson, $user);
         $lesson->load('module.section');
 
@@ -793,12 +827,18 @@ class MemberAreaAppController extends Controller
         $sectionType = $s->section_type ?? 'courses';
 
         if ($sectionType === 'courses') {
+            $unlocksAt = $m->dripUnlocksAt($user->id);
+            $isLocked = $unlocksAt !== null;
+
             return [
                 'id' => $m->id,
                 'title' => $m->title,
                 'thumbnail' => $m->thumbnail,
                 'show_title_on_cover' => $m->show_title_on_cover ?? true,
-                'lessons' => $m->lessons->map(fn (MemberLesson $l) => [
+                'is_locked' => $isLocked,
+                'unlocks_at' => $unlocksAt?->toIso8601String(),
+                'release_after_days' => $m->release_after_days,
+                'lessons' => $isLocked ? [] : $m->lessons->map(fn (MemberLesson $l) => [
                     'id' => $l->id,
                     'title' => $l->title,
                     'type' => $l->type,

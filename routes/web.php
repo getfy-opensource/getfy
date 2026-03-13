@@ -311,10 +311,17 @@ Route::middleware(['auth', 'role:admin|infoprodutor'])->group(function () {
     Route::put('/produtos/{produto}/member-builder/community-pages/{page}', [\App\Http\Controllers\MemberBuilderController::class, 'updateCommunityPage'])->name('member-builder.community-pages.update');
     Route::delete('/produtos/{produto}/member-builder/community-pages/{page}', [\App\Http\Controllers\MemberBuilderController::class, 'destroyCommunityPage'])->name('member-builder.community-pages.destroy');
     Route::post('/produtos/{produto}/member-builder/send-push', [\App\Http\Controllers\MemberBuilderController::class, 'sendPushNotification'])->name('member-builder.send-push');
+
+    // Drip content: desbloqueio manual
+    Route::get('/produtos/{produto}/member-builder/modules/{module}/unlocks', [\App\Http\Controllers\MemberBuilderController::class, 'moduleUnlocks'])->name('member-builder.modules.unlocks');
+    Route::post('/produtos/{produto}/member-builder/modules/{module}/unlock', [\App\Http\Controllers\MemberBuilderController::class, 'unlockModuleForUser'])->name('member-builder.modules.unlock');
+    Route::delete('/produtos/{produto}/member-builder/modules/{module}/unlock/{user}', [\App\Http\Controllers\MemberBuilderController::class, 'lockModuleForUser'])->name('member-builder.modules.lock');
 });
 
 Route::middleware(['auth', 'role:aluno'])->group(function () {
     Route::get('/area-membros', [\App\Http\Controllers\MemberAreaController::class, 'index'])->name('member-area.index');
+    Route::get('/meus-pedidos', [\App\Http\Controllers\MeusPedidosController::class, 'index'])->name('meus-pedidos.index');
+    Route::get('/meus-pedidos/{order}/recibo', [\App\Http\Controllers\MeusPedidosController::class, 'recibo'])->name('meus-pedidos.recibo');
 });
 
 // Área de membros por produto (path: /m/{slug})

@@ -127,7 +127,8 @@ class UpsellController extends Controller
         if (! empty($url) && is_string($url)) {
             return $url;
         }
-        $next = ($order->user_id && User::find($order->user_id)) ? 'member-area' : 'login';
+        $hasMemberArea = $order->product && in_array($order->product->type, [Product::TYPE_AREA_MEMBROS, Product::TYPE_APLICATIVO], true);
+        $next = ($hasMemberArea && $order->user_id && User::find($order->user_id)) ? 'member-area' : 'login';
 
         return route('checkout.thank-you', ['next' => $next, 'order_id' => $order->id]);
     }
@@ -144,17 +145,23 @@ class UpsellController extends Controller
         $orderId = $request->integer('order_id', 0);
         $conversionPixels = Product::defaultConversionPixels();
         $orderAmount = 0;
+        $productType = null;
         if ($orderId > 0) {
             $order = Order::with('product')->find($orderId);
             if ($order && $order->product) {
                 $conversionPixels = $order->product->conversion_pixels ?? $conversionPixels;
                 $orderAmount = (float) $order->amount;
+                $productType = $order->product->type;
                 $accessLink = $accessEmailService->getAccessLinkForOrder($order);
                 if ($accessLink !== '') {
                     $redirectUrl = $accessLink;
                     $redirectLabel = $order->product->type === Product::TYPE_LINK
                         ? 'Acessar conteúdo'
                         : 'Acessar área de membros';
+                } elseif ($productType === Product::TYPE_LINK_PAGAMENTO) {
+                    // Produto somente link de pagamento — direciona para meus pedidos
+                    $redirectUrl = route('meus-pedidos.index');
+                    $redirectLabel = 'Ver meus pedidos';
                 }
             }
         }
@@ -456,6 +463,7 @@ class UpsellController extends Controller
                 'status' => 'pending',
                 'gateway' => null,
                 'gateway_id' => null,
+                'payment_method' => $gateway === 'pix' ? 'pix' : null,
             ]);
             OrderItem::create([
                 'order_id' => $newOrder->id,

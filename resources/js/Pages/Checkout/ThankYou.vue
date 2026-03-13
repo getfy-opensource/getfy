@@ -9,8 +9,8 @@ defineOptions({ layout: null });
 const conversionPixelsRef = ref(null);
 
 const props = defineProps({
-    redirect_url: { type: String, default: '/' },
-    redirect_label: { type: String, default: 'Acessar área de membros' },
+    redirect_url: { type: String, default: null },
+    redirect_label: { type: String, default: null },
     conversion_pixels: { type: Object, default: () => ({}) },
     order_id: { type: Number, default: null },
     order_amount: { type: Number, default: 0 },
@@ -37,9 +37,10 @@ onMounted(() => {
                 Obrigado pela sua compra
             </h1>
             <p class="mt-2 text-sm text-zinc-600">
-                Seu pedido foi registrado. Acesse o conteúdo pelo link abaixo.
+                {{ redirect_url ? 'Seu pedido foi registrado. Acesse o conteúdo pelo link abaixo.' : 'Seu pedido foi registrado com sucesso!' }}
             </p>
             <a
+                v-if="redirect_url"
                 :href="redirect_url"
                 class="mt-6 inline-flex w-full justify-center rounded-xl bg-[var(--color-primary,#0ea5e9)] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 transition-opacity"
             >

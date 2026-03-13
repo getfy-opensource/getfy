@@ -29,6 +29,9 @@ import {
     ExternalLink,
     X,
     Trophy,
+    Lock,
+    Unlock,
+    Clock,
 } from 'lucide-vue-next';
 
 const props = defineProps({
@@ -217,6 +220,60 @@ function deleteCommunityPage(pageId) {
 }
 
 const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200';
+
+// ─── Drip Content ──────────────────────────────────────────
+function updateModuleDrip(moduleId, days) {
+    const value = Math.max(0, Math.min(365, parseInt(days, 10) || 0));
+    axios.put(`${base.value}/modules/${moduleId}`, { release_after_days: value }, {
+        headers: { 'X-CSRF-TOKEN': csrfToken(), Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+    }).catch(() => {});
+}
+
+const unlockModal = reactive({ open: false, moduleId: null, moduleTitle: '', unlocks: [], loading: false });
+const unlockForm = reactive({ user_id: '' });
+
+async function openUnlockModal(mod) {
+    unlockModal.moduleId = mod.id;
+    unlockModal.moduleTitle = mod.title;
+    unlockModal.open = true;
+    unlockModal.loading = true;
+    unlockForm.user_id = '';
+    try {
+        const { data } = await axios.get(`${base.value}/modules/${mod.id}/unlocks`, {
+            headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        unlockModal.unlocks = data.unlocks ?? [];
+    } catch {
+        unlockModal.unlocks = [];
+    } finally {
+        unlockModal.loading = false;
+    }
+}
+
+async function doUnlock() {
+    if (!unlockForm.user_id) return;
+    try {
+        await axios.post(`${base.value}/modules/${unlockModal.moduleId}/unlock`, { user_id: unlockForm.user_id }, {
+            headers: { 'X-CSRF-TOKEN': csrfToken(), Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        unlockForm.user_id = '';
+        await openUnlockModal({ id: unlockModal.moduleId, title: unlockModal.moduleTitle });
+    } catch (e) {
+        alert(e.response?.data?.message ?? 'Erro ao desbloquear.');
+    }
+}
+
+async function doLock(userId) {
+    if (!confirm('Remover desbloqueio manual?')) return;
+    try {
+        await axios.delete(`${base.value}/modules/${unlockModal.moduleId}/unlock/${userId}`, {
+            headers: { 'X-CSRF-TOKEN': csrfToken(), Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        await openUnlockModal({ id: unlockModal.moduleId, title: unlockModal.moduleTitle });
+    } catch {
+        alert('Erro ao remover desbloqueio.');
+    }
+}
 </script>
 
 <template>
@@ -393,6 +450,29 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                         <Button size="sm" variant="outline" class="!py-1 !text-xs" @click="addLesson(mod.id)">+ Aula</Button>
                                         <button type="button" class="text-red-600 hover:underline" @click="deleteModule(mod.id)"><Trash2 class="h-3 w-3" /></button>
                                     </div>
+                                </div>
+                                <!-- Drip content: liberar após X dias -->
+                                <div v-if="(section.section_type ?? 'courses') === 'courses'" class="flex items-center gap-2 py-1 pl-2">
+                                    <Clock class="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+                                    <label class="text-xs text-zinc-500 dark:text-zinc-400 whitespace-nowrap">Liberar após</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max="365"
+                                        :value="mod.release_after_days ?? 0"
+                                        class="w-16 rounded border border-zinc-300 bg-white px-2 py-0.5 text-xs dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"
+                                        @change="(e) => updateModuleDrip(mod.id, e.target.value)"
+                                    />
+                                    <span class="text-xs text-zinc-500 dark:text-zinc-400">dias</span>
+                                    <button
+                                        v-if="(mod.release_after_days ?? 0) > 0"
+                                        type="button"
+                                        class="ml-1 flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-sky-600 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-900/30"
+                                        @click="openUnlockModal(mod)"
+                                        title="Gerenciar desbloqueios manuais"
+                                    >
+                                        <Unlock class="h-3 w-3" /> Desbloqueios
+                                    </button>
                                 </div>
                                 <div v-for="lesson in mod.lessons" :key="lesson.id" class="flex items-center justify-between py-0.5 pl-2 text-xs text-zinc-500">
                                     <span>— {{ lesson.title }}</span>
@@ -639,5 +719,51 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
         </div>
     </div>
     </div>
+
+    <!-- Modal: Desbloqueio manual de módulo -->
+    <Teleport to="body">
+    <div v-if="unlockModal.open" class="fixed inset-0 z-[100020] flex items-center justify-center bg-black/50" @click.self="unlockModal.open = false">
+        <div class="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-zinc-900">
+            <div class="mb-4 flex items-center justify-between">
+                <h3 class="text-sm font-semibold">
+                    <Lock class="mr-1 inline h-4 w-4 text-amber-500" />
+                    Desbloqueios manuais — {{ unlockModal.moduleTitle }}
+                </h3>
+                <button type="button" class="text-zinc-400 hover:text-zinc-600" @click="unlockModal.open = false"><X class="h-5 w-5" /></button>
+            </div>
+
+            <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+                Desbloqueia este módulo imediatamente para um aluno, ignorando o prazo de liberação.
+            </p>
+
+            <!-- Formulário de desbloqueio -->
+            <div class="mb-4 flex gap-2">
+                <select v-model="unlockForm.user_id" :class="inputClass" class="flex-1">
+                    <option value="">Selecione um aluno...</option>
+                    <option v-for="u in produto.product_users" :key="u.id" :value="u.id">{{ u.name }} ({{ u.email }})</option>
+                </select>
+                <Button size="sm" @click="doUnlock" :disabled="!unlockForm.user_id">
+                    <Unlock class="h-4 w-4" /> Desbloquear
+                </Button>
+            </div>
+
+            <!-- Lista de desbloqueios -->
+            <div v-if="unlockModal.loading" class="py-4 text-center text-xs text-zinc-500">Carregando...</div>
+            <div v-else-if="unlockModal.unlocks.length" class="max-h-60 space-y-2 overflow-y-auto">
+                <div v-for="u in unlockModal.unlocks" :key="u.id" class="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-2 text-xs dark:bg-zinc-800/50">
+                    <div>
+                        <span class="font-medium">{{ u.user?.name ?? 'Aluno removido' }}</span>
+                        <span class="ml-1 text-zinc-500">{{ u.user?.email }}</span>
+                        <span class="ml-2 text-zinc-400">{{ u.created_at }}</span>
+                        <span v-if="u.unlocked_by" class="ml-1 text-zinc-400">(por {{ u.unlocked_by.name }})</span>
+                    </div>
+                    <button type="button" class="text-red-500 hover:underline" @click="doLock(u.user?.id)">Remover</button>
+                </div>
+            </div>
+            <p v-else class="py-2 text-center text-xs text-zinc-500">Nenhum desbloqueio manual.</p>
+        </div>
+    </div>
+    </Teleport>
+
     </Teleport>
 </template>
