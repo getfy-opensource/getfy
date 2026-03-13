@@ -1,11 +1,11 @@
 <script setup>
 import { ref, computed } from 'vue';
-import { useForm } from '@inertiajs/vue3';
+import { useForm, usePage } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import Button from '@/components/ui/Button.vue';
-import { Mail, Languages, Banknote, HardDrive, Clock, AlertCircle, Trash2, RefreshCw, Upload, Download } from 'lucide-vue-next';
-import IntegrationCard from '@/Components/IntegrationCard.vue';
-import EmailProviderSidebar from '@/Components/EmailProviderSidebar.vue';
+import { Mail, Languages, Banknote, HardDrive, Clock, AlertCircle, Trash2, RefreshCw, Upload, Download, Palette } from 'lucide-vue-next';
+import IntegrationCard from '@/components/IntegrationCard.vue';
+import EmailProviderSidebar from '@/components/EmailProviderSidebar.vue';
 
 defineOptions({ layout: LayoutInfoprodutor });
 
@@ -48,11 +48,18 @@ const props = defineProps({
     },
 });
 
-const allowedTabs = ['email', 'storage', 'traducoes', 'moedas', 'cron', 'update'];
-const activeTab = ref('email');
+const page = usePage();
+const isMaster = computed(() => page.props.auth?.user?.role === 'admin');
+
+const allowedTabs = computed(() => {
+    const base = ['email', 'storage', 'traducoes', 'moedas', 'cron', 'update'];
+    if (isMaster.value) base.unshift('marca');
+    return base;
+});
+const activeTab = ref(isMaster.value ? 'marca' : 'email');
 if (typeof window !== 'undefined') {
     const t = new URLSearchParams(window.location.search).get('tab');
-    if (allowedTabs.includes(t)) activeTab.value = t;
+    if (allowedTabs.value.includes(t)) activeTab.value = t;
 }
 
 const defaultTranslations = () => ({
@@ -64,6 +71,16 @@ const defaultTranslations = () => ({
 const defaultCurrencies = () => [...(props.settings.currencies ?? [])];
 
 const form = useForm({
+    // Branding
+    app_name: props.settings.app_name ?? '',
+    app_description: props.settings.app_description ?? '',
+    theme_primary: props.settings.theme_primary ?? '#00cc00',
+    app_logo: props.settings.app_logo ?? '',
+    app_logo_dark: props.settings.app_logo_dark ?? '',
+    app_logo_icon: props.settings.app_logo_icon ?? '',
+    app_logo_icon_dark: props.settings.app_logo_icon_dark ?? '',
+    app_favicon: props.settings.app_favicon ?? '',
+    // Email
     smtp_host: props.settings.smtp_host ?? '',
     smtp_port: props.settings.smtp_port ?? '587',
     smtp_username: props.settings.smtp_username ?? '',
@@ -102,7 +119,8 @@ const sendResult = vueRef({ status: null, message: '' });
 const connectionTesting = vueRef(false);
 const sendTestSending = vueRef(false);
 
-const tabs = [
+const allTabs = [
+    { id: 'marca', label: 'Marca', icon: Palette, masterOnly: true },
     { id: 'email', label: 'E‑MAIL', icon: Mail },
     { id: 'storage', label: 'Storage', icon: HardDrive },
     { id: 'traducoes', label: 'Traduções', icon: Languages },
@@ -110,6 +128,7 @@ const tabs = [
     { id: 'cron', label: 'Cron', icon: Clock },
     { id: 'update', label: 'Update', icon: Download },
 ];
+const tabs = computed(() => allTabs.filter(t => !t.masterOnly || isMaster.value));
 
 const updateCheckLoading = ref(false);
 const updateCheckResult = ref(null);
@@ -524,6 +543,48 @@ const cronCurlLine = computed(() => {
     return `* * * * * curl -fsS "${props.cron_url}" > /dev/null 2>&1`;
 });
 
+// Branding file upload helper
+const brandingUploading = ref({});
+async function uploadBrandingFile(field) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/png,image/jpeg,image/gif,image/svg+xml,image/webp,image/x-icon,.ico';
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        brandingUploading.value[field] = true;
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('field', field);
+        try {
+            const response = await fetch('/configuracoes/branding/upload', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content,
+                    'Accept': 'application/json',
+                },
+                body: formData,
+            });
+            if (response.ok) {
+                const data = await response.json();
+                form[field] = data.url;
+            } else {
+                const err = await response.json().catch(() => ({}));
+                alert(err.message || 'Erro ao fazer upload.');
+            }
+        } catch {
+            alert('Erro de rede ao fazer upload.');
+        } finally {
+            brandingUploading.value[field] = false;
+        }
+    };
+    input.click();
+}
+
+function removeBrandingImage(field) {
+    form[field] = '';
+}
+
 const inputClass =
     'block w-full rounded-xl border-2 border-zinc-200 bg-white px-4 py-2.5 text-zinc-900 placeholder-zinc-400 transition focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500';
 const selectClass =
@@ -564,6 +625,259 @@ const selectClass =
         </nav>
 
         <form v-show="activeTab !== 'update' && activeTab !== 'cron'" class="w-full max-w-full space-y-6" @submit.prevent="form.put('/configuracoes')">
+            <!-- Aba Marca -->
+            <Transition
+                enter-active-class="transition duration-200 ease-out"
+                enter-from-class="opacity-0"
+                enter-to-class="opacity-100"
+                leave-active-class="transition duration-150 ease-in"
+                leave-from-class="opacity-100"
+                leave-to-class="opacity-0"
+            >
+                <div v-show="activeTab === 'marca'" class="space-y-6">
+                    <!-- Nome e Descrição -->
+                    <section class="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
+                        <div class="border-b border-zinc-200 bg-zinc-50 px-6 py-5 dark:border-zinc-700 dark:bg-zinc-800">
+                            <h2 class="text-base font-semibold text-zinc-900 dark:text-white">Identidade da marca</h2>
+                            <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                                Personalize o nome, cor e descrição da sua plataforma.
+                            </p>
+                        </div>
+                        <div class="space-y-5 p-6">
+                            <div>
+                                <label class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Nome da plataforma</label>
+                                <input
+                                    v-model="form.app_name"
+                                    type="text"
+                                    :class="inputClass"
+                                    placeholder="Minha Plataforma"
+                                />
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Descrição</label>
+                                <textarea
+                                    v-model="form.app_description"
+                                    rows="3"
+                                    :class="inputClass"
+                                    placeholder="Uma breve descrição da sua plataforma..."
+                                />
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Cor primária</label>
+                                <div class="flex items-center gap-3">
+                                    <input
+                                        v-model="form.theme_primary"
+                                        type="color"
+                                        class="h-10 w-14 cursor-pointer rounded-lg border-2 border-zinc-200 p-1 dark:border-zinc-600"
+                                    />
+                                    <input
+                                        v-model="form.theme_primary"
+                                        type="text"
+                                        :class="inputClass"
+                                        class="max-w-[160px]"
+                                        placeholder="#00cc00"
+                                    />
+                                    <div
+                                        class="h-10 w-10 rounded-lg border border-zinc-200 dark:border-zinc-600"
+                                        :style="{ backgroundColor: form.theme_primary }"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Logos -->
+                    <section class="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
+                        <div class="border-b border-zinc-200 bg-zinc-50 px-6 py-5 dark:border-zinc-700 dark:bg-zinc-800">
+                            <h2 class="text-base font-semibold text-zinc-900 dark:text-white">Logotipos</h2>
+                            <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                                Faça upload das logos que aparecerão no painel, checkout e área de membros.
+                            </p>
+                        </div>
+                        <div class="grid gap-6 p-6 sm:grid-cols-2">
+                            <!-- Logo horizontal (claro) -->
+                            <div>
+                                <label class="mb-2 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Logo horizontal (fundo claro)</label>
+                                <p class="mb-2 text-xs text-zinc-400 dark:text-zinc-500">Recomendado: 400×100 px, formato PNG com fundo transparente</p>
+                                <div class="relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-300 bg-white p-4 dark:border-zinc-600 dark:bg-zinc-900">
+                                    <img
+                                        v-if="form.app_logo"
+                                        :src="form.app_logo"
+                                        alt="Logo"
+                                        class="mb-3 max-h-16 max-w-full object-contain"
+                                    />
+                                    <div class="flex gap-2">
+                                        <button
+                                            type="button"
+                                            class="rounded-lg bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
+                                            :disabled="brandingUploading.app_logo"
+                                            @click="uploadBrandingFile('app_logo')"
+                                        >
+                                            <Upload class="mr-1 inline h-3 w-3" />
+                                            {{ brandingUploading.app_logo ? 'Enviando...' : 'Upload' }}
+                                        </button>
+                                        <button
+                                            v-if="form.app_logo"
+                                            type="button"
+                                            class="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
+                                            @click="removeBrandingImage('app_logo')"
+                                        >
+                                            <Trash2 class="mr-1 inline h-3 w-3" />
+                                            Remover
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Logo horizontal (escuro) -->
+                            <div>
+                                <label class="mb-2 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Logo horizontal (fundo escuro)</label>
+                                <p class="mb-2 text-xs text-zinc-400 dark:text-zinc-500">Recomendado: 400×100 px, formato PNG com fundo transparente</p>
+                                <div class="relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-800 p-4 dark:border-zinc-600">
+                                    <img
+                                        v-if="form.app_logo_dark"
+                                        :src="form.app_logo_dark"
+                                        alt="Logo escuro"
+                                        class="mb-3 max-h-16 max-w-full object-contain"
+                                    />
+                                    <div class="flex gap-2">
+                                        <button
+                                            type="button"
+                                            class="rounded-lg bg-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-zinc-600"
+                                            :disabled="brandingUploading.app_logo_dark"
+                                            @click="uploadBrandingFile('app_logo_dark')"
+                                        >
+                                            <Upload class="mr-1 inline h-3 w-3" />
+                                            {{ brandingUploading.app_logo_dark ? 'Enviando...' : 'Upload' }}
+                                        </button>
+                                        <button
+                                            v-if="form.app_logo_dark"
+                                            type="button"
+                                            class="rounded-lg bg-red-900/30 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-900/50"
+                                            @click="removeBrandingImage('app_logo_dark')"
+                                        >
+                                            <Trash2 class="mr-1 inline h-3 w-3" />
+                                            Remover
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Ícone (claro) -->
+                            <div>
+                                <label class="mb-2 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Ícone / Logo quadrado (fundo claro)</label>
+                                <p class="mb-2 text-xs text-zinc-400 dark:text-zinc-500">Recomendado: 512×512 px, formato PNG com fundo transparente</p>
+                                <div class="relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-300 bg-white p-4 dark:border-zinc-600 dark:bg-zinc-900">
+                                    <img
+                                        v-if="form.app_logo_icon"
+                                        :src="form.app_logo_icon"
+                                        alt="Ícone"
+                                        class="mb-3 h-16 w-16 object-contain"
+                                    />
+                                    <div class="flex gap-2">
+                                        <button
+                                            type="button"
+                                            class="rounded-lg bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
+                                            :disabled="brandingUploading.app_logo_icon"
+                                            @click="uploadBrandingFile('app_logo_icon')"
+                                        >
+                                            <Upload class="mr-1 inline h-3 w-3" />
+                                            {{ brandingUploading.app_logo_icon ? 'Enviando...' : 'Upload' }}
+                                        </button>
+                                        <button
+                                            v-if="form.app_logo_icon"
+                                            type="button"
+                                            class="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
+                                            @click="removeBrandingImage('app_logo_icon')"
+                                        >
+                                            <Trash2 class="mr-1 inline h-3 w-3" />
+                                            Remover
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Ícone (escuro) -->
+                            <div>
+                                <label class="mb-2 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Ícone / Logo quadrado (fundo escuro)</label>
+                                <p class="mb-2 text-xs text-zinc-400 dark:text-zinc-500">Recomendado: 512×512 px, formato PNG com fundo transparente</p>
+                                <div class="relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-800 p-4 dark:border-zinc-600">
+                                    <img
+                                        v-if="form.app_logo_icon_dark"
+                                        :src="form.app_logo_icon_dark"
+                                        alt="Ícone escuro"
+                                        class="mb-3 h-16 w-16 object-contain"
+                                    />
+                                    <div class="flex gap-2">
+                                        <button
+                                            type="button"
+                                            class="rounded-lg bg-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-zinc-600"
+                                            :disabled="brandingUploading.app_logo_icon_dark"
+                                            @click="uploadBrandingFile('app_logo_icon_dark')"
+                                        >
+                                            <Upload class="mr-1 inline h-3 w-3" />
+                                            {{ brandingUploading.app_logo_icon_dark ? 'Enviando...' : 'Upload' }}
+                                        </button>
+                                        <button
+                                            v-if="form.app_logo_icon_dark"
+                                            type="button"
+                                            class="rounded-lg bg-red-900/30 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-900/50"
+                                            @click="removeBrandingImage('app_logo_icon_dark')"
+                                        >
+                                            <Trash2 class="mr-1 inline h-3 w-3" />
+                                            Remover
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Favicon -->
+                    <section class="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
+                        <div class="border-b border-zinc-200 bg-zinc-50 px-6 py-5 dark:border-zinc-700 dark:bg-zinc-800">
+                            <h2 class="text-base font-semibold text-zinc-900 dark:text-white">Favicon</h2>
+                            <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                                O ícone que aparece na aba do navegador. Recomendado: 32x32 ou 64x64 pixels.
+                            </p>
+                        </div>
+                        <div class="p-6">
+                            <div class="flex items-center gap-4">
+                                <div class="flex h-16 w-16 items-center justify-center rounded-xl border-2 border-dashed border-zinc-300 bg-white dark:border-zinc-600 dark:bg-zinc-900">
+                                    <img
+                                        v-if="form.app_favicon"
+                                        :src="form.app_favicon"
+                                        alt="Favicon"
+                                        class="h-8 w-8 object-contain"
+                                    />
+                                    <Palette v-else class="h-6 w-6 text-zinc-400" />
+                                </div>
+                                <div class="flex gap-2">
+                                    <button
+                                        type="button"
+                                        class="rounded-lg bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
+                                        :disabled="brandingUploading.app_favicon"
+                                        @click="uploadBrandingFile('app_favicon')"
+                                    >
+                                        <Upload class="mr-1 inline h-3 w-3" />
+                                        {{ brandingUploading.app_favicon ? 'Enviando...' : 'Upload' }}
+                                    </button>
+                                    <button
+                                        v-if="form.app_favicon"
+                                        type="button"
+                                        class="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
+                                        @click="removeBrandingImage('app_favicon')"
+                                    >
+                                        <Trash2 class="mr-1 inline h-3 w-3" />
+                                        Remover
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </Transition>
+
             <!-- Aba E-MAIL -->
             <Transition
                 enter-active-class="transition duration-200 ease-out"

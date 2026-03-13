@@ -621,6 +621,7 @@ class CheckoutController extends Controller
                 'status' => 'pending',
                 'gateway' => null,
                 'gateway_id' => null,
+                'payment_method' => 'pix',
             ]));
             $order->load('orderItems');
             event(new OrderPending($order));
@@ -716,6 +717,7 @@ class CheckoutController extends Controller
                     'status' => 'pending',
                     'gateway' => null,
                     'gateway_id' => null,
+                    'payment_method' => 'pix',
                 ]));
                 $order->load('orderItems');
                 event(new OrderPending($order));
@@ -822,6 +824,7 @@ class CheckoutController extends Controller
                     'status' => 'pending',
                     'gateway' => null,
                     'gateway_id' => null,
+                    'payment_method' => 'pix',
                 ]));
                 $order->load('orderItems');
                 event(new OrderPending($order));
@@ -960,6 +963,7 @@ class CheckoutController extends Controller
                 'status' => 'pending',
                 'gateway' => null,
                 'gateway_id' => null,
+                'payment_method' => 'card',
             ]));
             $order->load('orderItems');
             event(new OrderPending($order));
@@ -1043,7 +1047,8 @@ class CheckoutController extends Controller
                         if (! empty($customRedirect) && is_string($customRedirect)) {
                             $redirectUrl = $customRedirect;
                         } else {
-                            $next = ($order->user_id && User::find($order->user_id)) ? 'member-area' : 'login';
+                            $hasMemberArea = $order->product && in_array($order->product->type, [Product::TYPE_AREA_MEMBROS, Product::TYPE_APLICATIVO], true);
+                            $next = ($hasMemberArea && $order->user_id && User::find($order->user_id)) ? 'member-area' : 'login';
                             $redirectUrl = route('checkout.thank-you', ['order_id' => $order->id, 'next' => $next]);
                         }
                     }
@@ -1090,6 +1095,7 @@ class CheckoutController extends Controller
                 'status' => 'pending',
                 'gateway' => null,
                 'gateway_id' => null,
+                'payment_method' => 'boleto',
             ]));
             $order->load('orderItems');
             event(new OrderPending($order));
@@ -1168,6 +1174,7 @@ class CheckoutController extends Controller
         $order = $createOrderAndItems(array_merge($orderPayload, [
             'status' => 'completed',
             'gateway' => 'manual',
+            'payment_method' => 'manual',
         ]));
         $updateCheckoutSession($order);
         $order->load('orderItems');
@@ -1400,7 +1407,8 @@ class CheckoutController extends Controller
                 if (! empty($customRedirect) && is_string($customRedirect)) {
                     $redirectUrl = $customRedirect;
                 } else {
-                    $next = ($order->user_id && User::find($order->user_id)) ? 'member-area' : 'login';
+                    $hasMemberArea = $order->product && in_array($order->product->type, [Product::TYPE_AREA_MEMBROS, Product::TYPE_APLICATIVO], true);
+                    $next = ($hasMemberArea && $order->user_id && User::find($order->user_id)) ? 'member-area' : 'login';
                     $redirectUrl = route('checkout.thank-you', ['order_id' => $order->id, 'next' => $next]);
                 }
             }

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\PanelPushSubscription;
+use App\Models\Setting;
 use App\Services\MemberAreaResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,8 +24,9 @@ class PanelPwaController extends Controller
             ]);
         }
 
-        $appName = config('getfy.app_name', 'Getfy');
-        $themeColor = config('getfy.theme_primary', '#0ea5e9');
+        $tenantId = auth()->user()?->tenant_id;
+        $appName = Setting::get('app_name', config('getfy.app_name', 'Getfy'), $tenantId);
+        $themeColor = Setting::get('theme_primary', config('getfy.theme_primary', '#0ea5e9'), $tenantId);
 
         $icons = [];
         $addIconVariants = function (string $src, string $sizes) use (&$icons): void {
@@ -44,7 +46,7 @@ class PanelPwaController extends Controller
             $addIconVariants($icon512Url, '512x512');
         }
         if (empty($icons)) {
-            $fallbackIcon = (string) config('getfy.app_logo_icon', 'https://cdn.getfy.cloud/collapsed-logo.png');
+            $fallbackIcon = (string) Setting::get('app_logo_icon', config('getfy.app_logo_icon', 'https://cdn.getfy.cloud/collapsed-logo.png'), $tenantId);
             $addIconVariants($fallbackIcon, '192x192');
             $addIconVariants($fallbackIcon, '512x512');
         } elseif ($has512 && ! $has192) {

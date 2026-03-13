@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Setting;
+use App\Services\StorageService;
 use App\Support\CheckoutTranslations;
 use App\Support\DockerSetupState;
 use Illuminate\Http\Request;
@@ -72,6 +73,15 @@ class SettingsController extends Controller
                 'storage_s3_region' => Setting::get('storage_s3_region', 'us-east-1', $tenantId),
                 'storage_s3_endpoint' => Setting::get('storage_s3_endpoint', '', $tenantId),
                 'storage_s3_url' => Setting::get('storage_s3_url', '', $tenantId),
+                // Branding
+                'app_name' => Setting::get('app_name', config('getfy.app_name'), $tenantId),
+                'app_description' => Setting::get('app_description', '', $tenantId),
+                'theme_primary' => Setting::get('theme_primary', config('getfy.theme_primary'), $tenantId),
+                'app_logo' => Setting::get('app_logo', config('getfy.app_logo'), $tenantId),
+                'app_logo_dark' => Setting::get('app_logo_dark', config('getfy.app_logo_dark'), $tenantId),
+                'app_logo_icon' => Setting::get('app_logo_icon', config('getfy.app_logo_icon'), $tenantId),
+                'app_logo_icon_dark' => Setting::get('app_logo_icon_dark', config('getfy.app_logo_icon_dark'), $tenantId),
+                'app_favicon' => Setting::get('app_favicon', '', $tenantId),
             ],
         ]);
     }
@@ -112,6 +122,15 @@ class SettingsController extends Controller
             'storage_s3_region' => ['nullable', 'string', 'max:64'],
             'storage_s3_endpoint' => ['nullable', 'string', 'max:512'],
             'storage_s3_url' => ['nullable', 'string', 'max:512'],
+            // Branding
+            'app_name' => ['nullable', 'string', 'max:100'],
+            'app_description' => ['nullable', 'string', 'max:500'],
+            'theme_primary' => ['nullable', 'string', 'max:20'],
+            'app_logo' => ['nullable', 'string', 'max:1024'],
+            'app_logo_dark' => ['nullable', 'string', 'max:1024'],
+            'app_logo_icon' => ['nullable', 'string', 'max:1024'],
+            'app_logo_icon_dark' => ['nullable', 'string', 'max:1024'],
+            'app_favicon' => ['nullable', 'string', 'max:1024'],
         ]);
 
         $tenantId = auth()->user()->tenant_id;
@@ -122,7 +141,8 @@ class SettingsController extends Controller
             'sendgrid_mail_from_address', 'sendgrid_mail_from_name',
         ];
         $alwaysSetKeys = ['email_provider'];
-        $brandingKeys = ['theme_primary', 'app_name', 'app_logo', 'app_logo_dark', 'app_logo_icon', 'app_logo_icon_dark'];
+        $brandingKeys = ['theme_primary', 'app_name', 'app_description', 'app_logo', 'app_logo_dark', 'app_logo_icon', 'app_logo_icon_dark', 'app_favicon'];
+        $isAdmin = auth()->user()->role === 'admin';
         // Handle passwords separately (encrypt)
         if (array_key_exists('smtp_password', $validated) && $validated['smtp_password'] !== null && $validated['smtp_password'] !== '') {
             Setting::set('smtp_password', encrypt($validated['smtp_password']), $tenantId);
@@ -147,7 +167,10 @@ class SettingsController extends Controller
                 continue;
             }
             if (in_array($key, $brandingKeys, true)) {
-                continue; // branding hardcoded in config/getfy.php - never save
+                if ($isAdmin) {
+                    Setting::set($key, $value ?? '', $tenantId);
+                }
+                continue;
             }
 
             if (in_array($key, $alwaysSetKeys, true) || in_array($key, $emailKeys, true)) {
@@ -164,5 +187,34 @@ class SettingsController extends Controller
         }
 
         return back()->with('success', 'Configurações salvas.');
+    }
+
+    /**
+     * Upload a branding asset (logo, icon, favicon).
+     */
+    public function uploadBranding(Request $request)
+    {
+        // Apenas o admin (master) pode alterar branding
+        if (auth()->user()->role !== 'admin') {
+            abort(403);
+        }
+
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:png,jpg,jpeg,gif,svg,webp,ico', 'max:2048'],
+            'field' => ['required', 'string', 'in:app_logo,app_logo_dark,app_logo_icon,app_logo_icon_dark,app_favicon'],
+        ]);
+
+        $tenantId = auth()->user()->tenant_id;
+        $storage = app(StorageService::class);
+        $path = $storage->putFile('branding', $request->file('file'));
+
+        if (! $path) {
+            return response()->json(['error' => 'Falha ao fazer upload do arquivo.'], 500);
+        }
+
+        $url = $storage->url($path);
+        Setting::set($request->input('field'), $url, $tenantId);
+
+        return response()->json(['url' => $url]);
     }
 }

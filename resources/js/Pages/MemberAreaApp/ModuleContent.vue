@@ -5,7 +5,7 @@ import MemberAreaAppLayout from '@/Layouts/MemberAreaAppLayout.vue';
 import Button from '@/components/ui/Button.vue';
 import MemberAreaVideoPlayer from '@/components/MemberAreaVideoPlayer.vue';
 import { formatLessonDescription } from '@/lib/utils';
-import { Link as LinkIcon, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-vue-next';
+import { Link as LinkIcon, CheckCircle, ChevronLeft, ChevronRight, Lock } from 'lucide-vue-next';
 
 defineOptions({ layout: MemberAreaAppLayout });
 
@@ -115,6 +115,17 @@ function scrollCarousel(sectionId, direction) {
     const el = carouselRefs.value[sectionId];
     if (!el) return;
     el.scrollBy({ left: 272 * direction, behavior: 'smooth' });
+}
+
+function formatUnlockDate(isoDate) {
+    if (!isoDate) return '';
+    const d = new Date(isoDate);
+    const now = new Date();
+    const diffMs = d - now;
+    const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+    if (diffDays <= 0) return 'Em breve';
+    if (diffDays === 1) return 'Amanhã';
+    return `em ${diffDays} dias`;
 }
 </script>
 
@@ -267,21 +278,39 @@ function scrollCarousel(sectionId, direction) {
                         :ref="(el) => setCarouselRef(section.id, el)"
                         class="no-scrollbar flex gap-4 overflow-x-auto"
                     >
-                        <Link
-                            v-for="mod in section.modules"
-                            :key="mod.id"
-                            :href="`/m/${slug}/modulo/${mod.id}`"
-                            class="flex w-64 shrink-0 flex-col rounded-xl overflow-hidden bg-zinc-800/50 text-left transition hover:bg-zinc-800"
-                            :class="{ 'ring-2 ring-[var(--ma-primary)]/50': mod.id === module.id }"
-                        >
-                            <div :class="[(section.cover_mode === 'horizontal' ? 'aspect-video' : 'aspect-[2/3]'), 'relative w-full bg-zinc-700 flex items-center justify-center overflow-hidden']">
-                                <img v-if="mod.thumbnail" :src="mod.thumbnail" :alt="mod.title" class="absolute inset-0 h-full w-full object-cover" />
-                                <svg v-else class="h-12 w-12 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                                <div v-if="mod.show_title_on_cover !== false" class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-3 pb-3 pt-8">
-                                    <p class="truncate text-base font-medium text-white">{{ mod.title }}</p>
+                        <template v-for="mod in section.modules" :key="mod.id">
+                            <!-- Módulo bloqueado (drip) -->
+                            <div
+                                v-if="mod.is_locked"
+                                class="flex w-64 shrink-0 flex-col rounded-xl overflow-hidden bg-zinc-800/50 text-left opacity-70"
+                            >
+                                <div :class="[(section.cover_mode === 'horizontal' ? 'aspect-video' : 'aspect-[2/3]'), 'relative w-full bg-zinc-700 flex items-center justify-center overflow-hidden']">
+                                    <img v-if="mod.thumbnail" :src="mod.thumbnail" :alt="mod.title" class="absolute inset-0 h-full w-full object-cover brightness-50" />
+                                    <div class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/40 p-4">
+                                        <Lock class="h-8 w-8 text-white/80" />
+                                        <span class="text-center text-sm font-medium text-white/90">Disponível {{ formatUnlockDate(mod.unlocks_at) }}</span>
+                                    </div>
+                                    <div v-if="mod.show_title_on_cover !== false" class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-3 pb-3 pt-8">
+                                        <p class="truncate text-base font-medium text-white">{{ mod.title }}</p>
+                                    </div>
                                 </div>
                             </div>
-                        </Link>
+                            <!-- Módulo liberado -->
+                            <Link
+                                v-else
+                                :href="`/m/${slug}/modulo/${mod.id}`"
+                                class="flex w-64 shrink-0 flex-col rounded-xl overflow-hidden bg-zinc-800/50 text-left transition hover:bg-zinc-800"
+                                :class="{ 'ring-2 ring-[var(--ma-primary)]/50': mod.id === module.id }"
+                            >
+                                <div :class="[(section.cover_mode === 'horizontal' ? 'aspect-video' : 'aspect-[2/3]'), 'relative w-full bg-zinc-700 flex items-center justify-center overflow-hidden']">
+                                    <img v-if="mod.thumbnail" :src="mod.thumbnail" :alt="mod.title" class="absolute inset-0 h-full w-full object-cover" />
+                                    <svg v-else class="h-12 w-12 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                    <div v-if="mod.show_title_on_cover !== false" class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-3 pb-3 pt-8">
+                                        <p class="truncate text-base font-medium text-white">{{ mod.title }}</p>
+                                    </div>
+                                </div>
+                            </Link>
+                        </template>
                     </div>
                 </div>
             </div>

@@ -161,7 +161,7 @@ class DashboardController extends Controller
 
         if ($isHourly) {
             $rows = $query
-                ->selectRaw('HOUR(created_at) as hora, SUM(amount) as total')
+                ->selectRaw('EXTRACT(HOUR FROM created_at) as hora, SUM(amount) as total')
                 ->groupBy('hora')
                 ->orderBy('hora')
                 ->get()
@@ -179,7 +179,7 @@ class DashboardController extends Controller
         }
 
         $rows = $query
-            ->selectRaw('DATE(created_at) as data, SUM(amount) as total')
+            ->selectRaw('CAST(created_at AS DATE) as data, SUM(amount) as total')
             ->groupBy('data')
             ->orderBy('data')
             ->get();

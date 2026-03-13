@@ -38,6 +38,35 @@ return new class extends Migration
     public function up(): void
     {
         $driver = Schema::getConnection()->getDriverName();
+
+        if ($driver === 'pgsql') {
+            foreach (self::TABLES as $table => $columns) {
+                if (! Schema::hasTable($table)) {
+                    continue;
+                }
+                foreach ($columns as $column) {
+                    if (! Schema::hasColumn($table, $column)) {
+                        continue;
+                    }
+                    $col = DB::selectOne("SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? AND column_name = ?", [$table, $column]);
+                    if (! $col || in_array($col->data_type, ['character', 'character varying'])) {
+                        continue;
+                    }
+                    DB::statement("ALTER TABLE \"{$table}\" DROP CONSTRAINT IF EXISTS \"{$table}_{$column}_foreign\"");
+                    DB::statement("ALTER TABLE \"{$table}\" ALTER COLUMN \"{$column}\" TYPE VARCHAR(36) USING \"{$column}\"::text");
+                    $nullable = isset(self::NULLABLE_COLUMNS[$table]) && in_array($column, self::NULLABLE_COLUMNS[$table], true);
+                    $orphans = DB::table($table)->whereNotNull($column)->whereNotIn($column, DB::table('products')->select('id'))->count();
+                    if ($orphans === 0) {
+                        Schema::table($table, function (Blueprint $t) use ($column, $nullable) {
+                            $fk = $t->foreign($column)->references('id')->on('products');
+                            ($nullable || $column === 'related_product_id') ? $fk->nullOnDelete() : $fk->cascadeOnDelete();
+                        });
+                    }
+                }
+            }
+            return;
+        }
+
         if ($driver !== 'mysql' && $driver !== 'mariadb') {
             return;
         }

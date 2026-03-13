@@ -49,10 +49,10 @@ $vars = [
     "APP_AUTO_MIGRATE" => getenv("APP_AUTO_MIGRATE") ?: "false",
     "CRON_SECRET" => $cronSecret ?: null,
     "DB_CONNECTION" => getenv("DB_CONNECTION") ?: "mysql",
-    "DB_HOST" => getenv("DB_HOST") ?: "mysql",
-    "DB_PORT" => getenv("DB_PORT") ?: "3306",
+    "DB_HOST" => getenv("DB_HOST") ?: ((getenv("DB_CONNECTION") ?: "mysql") === "pgsql" ? "postgres" : "mysql"),
+    "DB_PORT" => getenv("DB_PORT") ?: ((getenv("DB_CONNECTION") ?: "mysql") === "pgsql" ? "5432" : "3306"),
     "DB_DATABASE" => getenv("DB_DATABASE") ?: "getfy",
-    "DB_USERNAME" => getenv("DB_USERNAME") ?: "getfy",
+    "DB_USERNAME" => getenv("DB_USERNAME") ?: ((getenv("DB_CONNECTION") ?: "mysql") === "pgsql" ? "postgres" : "getfy"),
     "DB_PASSWORD" => getenv("DB_PASSWORD") ?: "getfy",
     "CACHE_STORE" => getenv("CACHE_STORE") ?: "redis",
     "QUEUE_CONNECTION" => getenv("QUEUE_CONNECTION") ?: "redis",
@@ -84,15 +84,30 @@ foreach ($vars as $key => $value) {
 file_put_contents($envFile, $content);
 '
 
-DB_HOST="${DB_HOST:-mysql}"
-DB_PORT="${DB_PORT:-3306}"
-DB_DATABASE="${DB_DATABASE:-getfy}"
-DB_USERNAME="${DB_USERNAME:-${MYSQL_USER:-getfy}}"
-DB_PASSWORD="${DB_PASSWORD:-${MYSQL_PASSWORD:-getfy}}"
+DB_CONNECTION="${DB_CONNECTION:-mysql}"
 
+if [ "$DB_CONNECTION" = "pgsql" ]; then
+  DB_HOST="${DB_HOST:-postgres}"
+  DB_PORT="${DB_PORT:-5432}"
+  DB_DATABASE="${DB_DATABASE:-getfy}"
+  DB_USERNAME="${DB_USERNAME:-postgres}"
+  DB_PASSWORD="${DB_PASSWORD:-getfy}"
+  DB_DSN="pgsql:host=${DB_HOST};port=${DB_PORT};dbname=${DB_DATABASE}"
+  DB_LABEL="PostgreSQL"
+else
+  DB_HOST="${DB_HOST:-mysql}"
+  DB_PORT="${DB_PORT:-3306}"
+  DB_DATABASE="${DB_DATABASE:-getfy}"
+  DB_USERNAME="${DB_USERNAME:-${MYSQL_USER:-getfy}}"
+  DB_PASSWORD="${DB_PASSWORD:-${MYSQL_PASSWORD:-getfy}}"
+  DB_DSN="mysql:host=${DB_HOST};port=${DB_PORT};dbname=${DB_DATABASE}"
+  DB_LABEL="MySQL"
+fi
+
+echo "Aguardando ${DB_LABEL} em ${DB_HOST}:${DB_PORT}..."
 DB_OK=0
 for i in $(seq 1 60); do
-  if php -r "try { new PDO('mysql:host=${DB_HOST};port=${DB_PORT};dbname=${DB_DATABASE}', '${DB_USERNAME}', '${DB_PASSWORD}', [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]); } catch (Throwable \$e) { exit(1); }" >/dev/null 2>&1; then
+  if php -r "try { new PDO('${DB_DSN}', '${DB_USERNAME}', '${DB_PASSWORD}', [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]); } catch (Throwable \$e) { exit(1); }" >/dev/null 2>&1; then
     DB_OK=1
     break
   fi
@@ -100,7 +115,7 @@ for i in $(seq 1 60); do
 done
 
 if [ "$DB_OK" -ne 1 ]; then
-  echo "MySQL indisponível. Verifique DB_HOST/DB_PORT e o serviço mysql no compose."
+  echo "${DB_LABEL} indisponível. Verifique DB_HOST/DB_PORT e o serviço de banco no compose."
   exit 1
 fi
 

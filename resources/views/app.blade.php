@@ -3,6 +3,11 @@
     $isMemberArea = str_starts_with($path, 'm/') || request()->attributes->get('member_area_slug');
     $isCheckout = str_starts_with($path, 'c/') || str_starts_with($path, 'checkout') || str_starts_with($path, 'api-checkout');
     $skipPanelPwa = $isMemberArea || $isCheckout;
+    $tenantId = auth()->user()?->tenant_id;
+    $brandThemeColor = \App\Models\Setting::get('theme_primary', config('getfy.theme_primary', '#0ea5e9'), $tenantId);
+    $brandFavicon = \App\Models\Setting::get('app_favicon', '', $tenantId);
+    $brandIcon = \App\Models\Setting::get('app_logo_icon', 'https://cdn.getfy.cloud/collapsed-logo.png', $tenantId);
+    $brandAppName = \App\Models\Setting::get('app_name', config('app.name', 'Getfy'), $tenantId);
 @endphp
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
@@ -13,11 +18,11 @@
         (function(){try{var s=localStorage.getItem('theme');var t=s||'dark';document.documentElement.classList.toggle('dark',t==='dark');}catch(_){}})();
     </script>
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{{ config('app.name', 'Getfy') }}</title>
+    <title>{{ $brandAppName }}</title>
     @unless($skipPanelPwa)
-    <link rel="icon" href="https://cdn.getfy.cloud/collapsed-logo.png" type="image/png">
+    <link rel="icon" href="{{ $brandFavicon ?: $brandIcon }}" type="image/png">
     <link rel="manifest" href="{{ url('/manifest.json') }}">
-    <meta name="theme-color" content="{{ config('getfy.theme_primary', '#0ea5e9') }}">
+    <meta name="theme-color" content="{{ $brandThemeColor }}">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">

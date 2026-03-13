@@ -343,7 +343,7 @@ onUnmounted(() => {
                                     {{ statusBadgeLabel(v.status) }}
                                 </span>
                                 <span class="text-xs text-zinc-500 dark:text-zinc-400">
-                                    {{ v.gateway_label ?? '–' }}
+                                    {{ v.gateway_label ?? '–' }}<template v-if="v.payment_method_label && v.payment_method_label !== '–'"> · {{ v.payment_method_label }}</template>
                                 </span>
                             </div>
                         </td>

@@ -15,6 +15,21 @@ return new class extends Migration
     public function up(): void
     {
         $driver = Schema::getConnection()->getDriverName();
+
+        if ($driver === 'pgsql') {
+            if (! Schema::hasTable('checkout_sessions') || ! Schema::hasColumn('checkout_sessions', 'product_id')) {
+                return;
+            }
+            $col = DB::selectOne("SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'checkout_sessions' AND column_name = 'product_id'");
+            if (! $col || in_array($col->data_type, ['character', 'character varying'])) {
+                return;
+            }
+            DB::statement('ALTER TABLE "checkout_sessions" DROP CONSTRAINT IF EXISTS "checkout_sessions_product_id_foreign"');
+            DB::statement('ALTER TABLE "checkout_sessions" ALTER COLUMN "product_id" TYPE VARCHAR(36) USING "product_id"::text');
+            Schema::table('checkout_sessions', fn (Blueprint $t) => $t->foreign('product_id')->references('id')->on('products')->cascadeOnDelete());
+            return;
+        }
+
         if ($driver !== 'mysql' && $driver !== 'mariadb') {
             return;
         }

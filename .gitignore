@@ -24,5 +24,4 @@ Homestead.yaml
 Thumbs.db
 /docs
 /Docs Gateways
-docs
-Docs Gateways
+/docker/getfy-stack.yml

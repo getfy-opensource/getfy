@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Models\MemberNotification;
 use App\Models\MemberPushSubscription;
 use App\Models\PanelNotification;
+use App\Models\Setting;
 use App\Plugins\PluginRegistry;
 use App\Services\SalesAchievementsService;
 use App\Services\StorageService;
@@ -45,12 +46,14 @@ class HandleInertiaRequests extends Middleware
         $tenantId = $user?->tenant_id;
 
         $appSettings = $user ? [
-            'app_name' => config('getfy.app_name'),
-            'theme_primary' => config('getfy.theme_primary'),
-            'app_logo' => config('getfy.app_logo'),
-            'app_logo_dark' => config('getfy.app_logo_dark'),
-            'app_logo_icon' => config('getfy.app_logo_icon'),
-            'app_logo_icon_dark' => config('getfy.app_logo_icon_dark'),
+            'app_name' => Setting::get('app_name', config('getfy.app_name'), $tenantId),
+            'theme_primary' => Setting::get('theme_primary', config('getfy.theme_primary'), $tenantId),
+            'app_logo' => Setting::get('app_logo', config('getfy.app_logo'), $tenantId),
+            'app_logo_dark' => Setting::get('app_logo_dark', config('getfy.app_logo_dark'), $tenantId),
+            'app_logo_icon' => Setting::get('app_logo_icon', config('getfy.app_logo_icon'), $tenantId),
+            'app_logo_icon_dark' => Setting::get('app_logo_icon_dark', config('getfy.app_logo_icon_dark'), $tenantId),
+            'app_favicon' => Setting::get('app_favicon', '', $tenantId),
+            'app_description' => Setting::get('app_description', '', $tenantId),
         ] : null;
 
         $pageTitle = $this->pageTitleForRoute($request->route()?->getName());
@@ -168,6 +171,8 @@ class HandleInertiaRequests extends Middleware
             'api-applications.create' => 'Nova aplicação API',
             'api-applications.edit' => 'Editar aplicação API',
             'conquistas.index' => 'Conquistas',
+            'meus-pedidos.index' => 'Meus Pedidos',
+            'member-area.index' => 'Área de Membros',
         ];
 
         return $name ? ($titles[$name] ?? null) : null;

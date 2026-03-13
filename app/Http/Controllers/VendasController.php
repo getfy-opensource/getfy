@@ -40,6 +40,7 @@ class VendasController extends Controller
             ->through(function (Order $o) {
                 $arr = $o->toArray();
                 $arr['gateway_label'] = $this->gatewayLabel($o->gateway);
+                $arr['payment_method_label'] = $this->paymentMethodLabel($o->payment_method, $o->gateway);
                 $arr['product_display_name'] = $this->productDisplayName($o);
                 $arr['checkout_url'] = url('/c/' . $o->getCheckoutSlug());
                 $arr['payment_type_label'] = $this->paymentTypeLabel($o);
@@ -60,23 +61,40 @@ class VendasController extends Controller
             ->sum('amount');
 
         $vendasPix = (clone $statsQuery)
-            ->whereIn('gateway', ['spacepag', 'sapcepag'])
+            ->where(function ($q) {
+                $q->where('payment_method', 'pix')
+                    ->orWhere(function ($q2) {
+                        $q2->whereNull('payment_method')
+                            ->whereIn('gateway', ['spacepag', 'sapcepag']);
+                    });
+            })
             ->count();
 
         $vendasCartao = (clone $statsQuery)
             ->where(function ($q) {
-                $q->where('gateway', 'card')
-                    ->orWhereRaw("LOWER(gateway) LIKE '%card%'")
-                    ->orWhereRaw("LOWER(gateway) LIKE '%cartao%'")
-                    ->orWhereRaw("LOWER(gateway) LIKE '%cartão%'")
-                    ->orWhereRaw("LOWER(gateway) LIKE '%credito%'");
+                $q->where('payment_method', 'card')
+                    ->orWhere(function ($q2) {
+                        $q2->whereNull('payment_method')
+                            ->where(function ($q3) {
+                                $q3->where('gateway', 'card')
+                                    ->orWhereRaw("LOWER(gateway) LIKE '%card%'")
+                                    ->orWhereRaw("LOWER(gateway) LIKE '%cartao%'")
+                                    ->orWhereRaw("LOWER(gateway) LIKE '%credito%'");
+                            });
+                    });
             })
             ->count();
 
         $vendasBoleto = (clone $statsQuery)
             ->where(function ($q) {
-                $q->where('gateway', 'boleto')
-                    ->orWhereRaw("LOWER(gateway) LIKE '%boleto%'");
+                $q->where('payment_method', 'boleto')
+                    ->orWhere(function ($q2) {
+                        $q2->whereNull('payment_method')
+                            ->where(function ($q3) {
+                                $q3->where('gateway', 'boleto')
+                                    ->orWhereRaw("LOWER(gateway) LIKE '%boleto%'");
+                            });
+                    });
             })
             ->count();
 
@@ -269,14 +287,41 @@ class VendasController extends Controller
 
     private function gatewayLabel(?string $gateway): string
     {
+        return match ($gateway) {
+            'stripe' => 'Stripe',
+            'mercadopago' => 'Mercado Pago',
+            'asaas' => 'Asaas',
+            'efi' => 'Efí',
+            'pushinpay' => 'PushinPay',
+            'spacepag', 'sapcepag' => 'SpacePag',
+            'manual' => 'Manual',
+            null, '' => '–',
+            default => ucfirst($gateway),
+        };
+    }
+
+    private function paymentMethodLabel(?string $paymentMethod, ?string $gateway): string
+    {
+        // Se a coluna payment_method existe, usar diretamente
+        if ($paymentMethod) {
+            return match ($paymentMethod) {
+                'pix' => 'PIX',
+                'card' => 'Cartão',
+                'boleto' => 'Boleto',
+                'manual' => 'Manual',
+                default => ucfirst($paymentMethod),
+            };
+        }
+
+        // Fallback para pedidos antigos sem payment_method: inferir do gateway
         if ($gateway === null || $gateway === '') {
-            return 'Outro';
+            return '–';
         }
         $g = strtolower($gateway);
         if (in_array($g, ['spacepag', 'sapcepag'], true) || str_contains($g, 'pix')) {
             return 'PIX';
         }
-        if ($g === 'card' || str_contains($g, 'cartao') || str_contains($g, 'cartão') || str_contains($g, 'credito')) {
+        if ($g === 'card' || str_contains($g, 'cartao') || str_contains($g, 'credito')) {
             return 'Cartão';
         }
         if ($g === 'boleto' || str_contains($g, 'boleto')) {
@@ -286,7 +331,7 @@ class VendasController extends Controller
             return 'Manual';
         }
 
-        return ucfirst($gateway);
+        return '–';
     }
 
     private function productDisplayName(Order $order): string

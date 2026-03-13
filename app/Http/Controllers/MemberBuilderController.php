@@ -6,6 +6,7 @@ use App\Models\MemberAreaDomain;
 use App\Models\MemberComment;
 use App\Models\MemberCommunityPage;
 use App\Models\MemberCommunityPost;
+use App\Models\MemberContentUnlock;
 use App\Models\MemberInternalProduct;
 use App\Models\MemberLesson;
 use App\Models\MemberModule;
@@ -109,6 +110,7 @@ class MemberBuilderController extends Controller
                         'position' => $m->position,
                         'thumbnail' => $m->thumbnail,
                         'show_title_on_cover' => $m->show_title_on_cover ?? true,
+                        'release_after_days' => $m->release_after_days ?? 0,
                         'lessons' => $m->lessons->map(fn (MemberLesson $l) => [
                             'id' => $l->id,
                             'title' => $l->title,
@@ -474,6 +476,7 @@ class MemberBuilderController extends Controller
             $validated = $request->validate([
                 'title' => ['required', 'string', 'max:255'],
                 'show_title_on_cover' => ['nullable', 'boolean'],
+                'release_after_days' => ['nullable', 'integer', 'min:0', 'max:365'],
             ]);
             $max = MemberModule::where('member_section_id', $section->id)->max('position') ?? 0;
             $module = MemberModule::create([
@@ -482,6 +485,7 @@ class MemberBuilderController extends Controller
                 'title' => $validated['title'],
                 'position' => $max + 1,
                 'show_title_on_cover' => $validated['show_title_on_cover'] ?? true,
+                'release_after_days' => $validated['release_after_days'] ?? 0,
             ]);
         } elseif ($sectionType === 'products') {
             $validated = $request->validate([
@@ -539,6 +543,7 @@ class MemberBuilderController extends Controller
                 'position' => $module->position,
                 'thumbnail' => $module->thumbnail,
                 'show_title_on_cover' => $module->show_title_on_cover ?? true,
+                'release_after_days' => $module->release_after_days ?? 0,
                 'lessons' => $module->relationLoaded('lessons') ? $module->lessons->map(fn (MemberLesson $l) => [
                     'id' => $l->id,
                     'title' => $l->title,
@@ -584,6 +589,7 @@ class MemberBuilderController extends Controller
                 'position' => ['sometimes', 'integer', 'min:0'],
                 'thumbnail' => ['nullable', 'string', 'max:500'],
                 'show_title_on_cover' => ['sometimes', 'boolean'],
+                'release_after_days' => ['sometimes', 'integer', 'min:0', 'max:365'],
             ]);
         } elseif ($sectionType === 'products') {
             $validated = $request->validate([
@@ -1227,5 +1233,83 @@ class MemberBuilderController extends Controller
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    // ─── Drip Content: desbloqueio manual ───────────────────────────
+
+    /**
+     * Lista os desbloqueios manuais de um módulo.
+     */
+    public function moduleUnlocks(Request $request, Product $produto, MemberModule $module): JsonResponse
+    {
+        $this->authorizeProduct($produto);
+        if ($module->product_id !== $produto->id) {
+            abort(404);
+        }
+
+        $unlocks = MemberContentUnlock::where('member_module_id', $module->id)
+            ->with(['user:id,name,email', 'unlockedByUser:id,name'])
+            ->latest()
+            ->get()
+            ->map(fn (MemberContentUnlock $u) => [
+                'id' => $u->id,
+                'user' => $u->user ? ['id' => $u->user->id, 'name' => $u->user->name, 'email' => $u->user->email] : null,
+                'unlocked_by' => $u->unlockedByUser ? ['id' => $u->unlockedByUser->id, 'name' => $u->unlockedByUser->name] : null,
+                'created_at' => $u->created_at->format('d/m/Y H:i'),
+            ])
+            ->values()
+            ->all();
+
+        return response()->json(['unlocks' => $unlocks]);
+    }
+
+    /**
+     * Desbloqueia manualmente um módulo para um aluno específico.
+     */
+    public function unlockModuleForUser(Request $request, Product $produto, MemberModule $module): JsonResponse
+    {
+        $this->authorizeProduct($produto);
+        if ($module->product_id !== $produto->id) {
+            abort(404);
+        }
+
+        $validated = $request->validate([
+            'user_id' => ['required', 'exists:users,id'],
+        ]);
+
+        // Verifica se o aluno tem acesso ao produto
+        $user = User::find($validated['user_id']);
+        if (! $user->products()->where('products.id', $produto->id)->exists()) {
+            return response()->json(['message' => 'Este aluno não tem acesso a este produto.'], 422);
+        }
+
+        MemberContentUnlock::updateOrCreate(
+            [
+                'user_id' => $validated['user_id'],
+                'member_module_id' => $module->id,
+            ],
+            [
+                'unlocked_by' => $request->user()->id,
+            ]
+        );
+
+        return response()->json(['message' => 'Módulo desbloqueado para o aluno.']);
+    }
+
+    /**
+     * Remove o desbloqueio manual (re-bloqueia pelo drip original).
+     */
+    public function lockModuleForUser(Request $request, Product $produto, MemberModule $module, User $user): JsonResponse
+    {
+        $this->authorizeProduct($produto);
+        if ($module->product_id !== $produto->id) {
+            abort(404);
+        }
+
+        MemberContentUnlock::where('user_id', $user->id)
+            ->where('member_module_id', $module->id)
+            ->delete();
+
+        return response()->json(['message' => 'Desbloqueio manual removido.']);
     }
 }

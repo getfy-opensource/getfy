@@ -232,7 +232,7 @@ class RelatoriosController extends Controller
         }
 
         $rows = $query
-            ->selectRaw('DATE(created_at) as data, SUM(amount) as total')
+            ->selectRaw('CAST(created_at AS DATE) as data, SUM(amount) as total')
             ->groupBy('data')
             ->orderBy('data')
             ->get();

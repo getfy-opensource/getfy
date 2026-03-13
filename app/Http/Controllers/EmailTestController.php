@@ -58,7 +58,7 @@ class EmailTestController extends Controller
         Mail::purge('smtp');
 
         try {
-            $appName = config('getfy.app_name');
+            $appName = Setting::get('app_name', config('getfy.app_name'), $tenantId);
             $body = "<p>Este é um e-mail de teste enviado por {$appName}.</p>";
             Mail::mailer('smtp')->to($validated['test_to'])->send(new \App\Mail\TestEmail('E‑mail de teste - '.$appName, $body));
             return response()->json(['success' => true]);

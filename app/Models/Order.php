@@ -12,7 +12,7 @@ class Order extends Model
         'tenant_id', 'user_id', 'product_id', 'product_offer_id', 'subscription_plan_id',
         'api_application_id', 'api_checkout_session_id',
         'status', 'amount', 'email', 'cpf', 'phone', 'customer_ip', 'coupon_code',
-        'gateway', 'gateway_id', 'approved_manually', 'metadata', 'period_start', 'period_end', 'is_renewal',
+        'gateway', 'gateway_id', 'payment_method', 'approved_manually', 'metadata', 'period_start', 'period_end', 'is_renewal',
     ];
 
     protected function casts(): array
