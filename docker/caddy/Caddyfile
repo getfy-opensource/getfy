@@ -1,0 +1,5 @@
+:80 {
+	reverse_proxy app:80
+}
+
+import /etc/getfy/Caddyfile.domains

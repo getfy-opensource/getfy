@@ -86,6 +86,7 @@ class DockerSetupController extends Controller
         }
         file_put_contents($dockerDir . DIRECTORY_SEPARATOR . 'app.url', $url);
         file_put_contents($dockerDir . DIRECTORY_SEPARATOR . 'setup.done', 'true');
+        file_put_contents($dockerDir . DIRECTORY_SEPARATOR . 'Caddyfile.domains', $host . " {\n\treverse_proxy app:80\n}\n");
 
         return redirect('/login')->with('success', 'Configuração inicial salva.');
     }

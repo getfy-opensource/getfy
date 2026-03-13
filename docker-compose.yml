@@ -1,12 +1,30 @@
 services:
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "${GETFY_HTTP_PORT:-80}:80"
+      - "${GETFY_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - getfy_env:/etc/getfy
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    command:
+      [
+        "sh",
+        "-lc",
+        "touch /etc/getfy/Caddyfile.domains; (last=\"\"; while true; do cur=\"$$(sha256sum /etc/getfy/Caddyfile.domains 2>/dev/null | awk '{print $$1}')\"; if [ \"$$cur\" != \"$$last\" ]; then last=\"$$cur\"; caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>/dev/null || true; fi; sleep 2; done) & caddy run --config /etc/caddy/Caddyfile --adapter caddyfile",
+      ]
+
   app:
     build:
       context: .
       dockerfile: Dockerfile
     image: getfy_app:latest
     restart: unless-stopped
-    ports:
-      - "${GETFY_HTTP_PORT:-80}:80"
     volumes:
       - getfy_storage:/var/www/html/storage
       - getfy_env:/var/www/html/.docker
@@ -135,4 +153,8 @@ volumes:
   getfy_storage:
     driver: local
   getfy_env:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
     driver: local

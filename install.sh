@@ -5,6 +5,7 @@ REPO_URL="${GETFY_REPO_URL:-https://github.com/getfy-opensource/getfy.git}"
 BRANCH="${GETFY_BRANCH:-main}"
 INSTALL_DIR="${GETFY_DIR:-/opt/getfy}"
 HTTP_PORT="${GETFY_HTTP_PORT:-80}"
+HTTPS_PORT="${GETFY_HTTPS_PORT:-443}"
 
 if [ "$(uname -s)" != "Linux" ]; then
   echo "Este instalador é para Linux." >&2
@@ -98,6 +99,17 @@ if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "(^|:)$HTTP_PORT$"; then
   echo "Aviso: porta $HTTP_PORT parece estar em uso. Se o compose falhar, mude GETFY_HTTP_PORT." >&2
 fi
 
+if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "(^|:)$HTTPS_PORT$"; then
+  echo "Aviso: porta $HTTPS_PORT parece estar em uso. Se o compose falhar, mude GETFY_HTTPS_PORT." >&2
+fi
+
+if command -v ufw >/dev/null 2>&1; then
+  if $SUDO ufw status 2>/dev/null | grep -q "Status: active"; then
+    $SUDO ufw allow "$HTTP_PORT/tcp" >/dev/null 2>&1 || true
+    $SUDO ufw allow "$HTTPS_PORT/tcp" >/dev/null 2>&1 || true
+  fi
+fi
+
 if [ -f ".docker/stack.env" ]; then
   $SUDO sh docker/up.sh
 else
@@ -117,4 +129,3 @@ echo "Getfy iniciado via Docker."
 echo "Abra: http://$IP:$HTTP_PORT/docker-setup"
 echo ""
 echo "Se você adicionou seu usuário ao grupo docker, reabra o SSH para aplicar."
-
