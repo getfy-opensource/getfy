@@ -5,7 +5,7 @@ REPO_URL="${GETFY_REPO_URL:-https://github.com/getfy-opensource/getfy.git}"
 BRANCH="${GETFY_BRANCH:-main}"
 INSTALL_DIR="${GETFY_DIR:-/opt/getfy}"
 HTTP_PORT="${GETFY_HTTP_PORT:-80}"
-HTTPS_PORT="${GETFY_HTTPS_PORT:-443}"
+SWAP_MODE="${GETFY_SWAP_MODE:-auto}"
 
 if [ "$(uname -s)" != "Linux" ]; then
   echo "Este instalador é para Linux." >&2
@@ -36,6 +36,45 @@ export DEBIAN_FRONTEND=noninteractive
 
 $SUDO apt-get update -y
 $SUDO apt-get install -y ca-certificates curl git gnupg lsb-release
+
+if [ "$SWAP_MODE" != "off" ]; then
+  MEM_KB="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+  SWAP_KB="$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+  MEM_GB=$(( (MEM_KB + 1048575) / 1048576 ))
+
+  SHOULD_CREATE_SWAP=0
+  if [ "$SWAP_MODE" = "on" ]; then
+    SHOULD_CREATE_SWAP=1
+  elif [ "$SWAP_MODE" = "auto" ]; then
+    if [ "$SWAP_KB" -eq 0 ] && [ "$MEM_GB" -gt 0 ] && [ "$MEM_GB" -le 8 ]; then
+      SHOULD_CREATE_SWAP=1
+    fi
+  fi
+
+  if [ "$SHOULD_CREATE_SWAP" -eq 1 ]; then
+    if ! swapon --show 2>/dev/null | awk 'NR>1 {print $1}' | grep -q '^/swapfile$'; then
+      if [ ! -f /swapfile ]; then
+        SWAP_GB=4
+        if [ "$MEM_GB" -le 2 ]; then
+          SWAP_GB=2
+        fi
+
+        if command -v fallocate >/dev/null 2>&1; then
+          $SUDO fallocate -l "${SWAP_GB}G" /swapfile
+        else
+          $SUDO dd if=/dev/zero of=/swapfile bs=1M count=$((SWAP_GB * 1024)) status=progress
+        fi
+        $SUDO chmod 600 /swapfile
+        $SUDO mkswap /swapfile >/dev/null
+      fi
+
+      $SUDO swapon /swapfile || true
+      if ! grep -Eq '^\s*/swapfile\s+' /etc/fstab; then
+        echo "/swapfile none swap sw 0 0" | $SUDO tee -a /etc/fstab >/dev/null
+      fi
+    fi
+  fi
+fi
 
 if ! command -v docker >/dev/null 2>&1; then
   $SUDO install -m 0755 -d /etc/apt/keyrings
@@ -97,17 +136,6 @@ $SUDO chmod +x docker/up.sh >/dev/null 2>&1 || true
 
 if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "(^|:)$HTTP_PORT$"; then
   echo "Aviso: porta $HTTP_PORT parece estar em uso. Se o compose falhar, mude GETFY_HTTP_PORT." >&2
-fi
-
-if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "(^|:)$HTTPS_PORT$"; then
-  echo "Aviso: porta $HTTPS_PORT parece estar em uso. Se o compose falhar, mude GETFY_HTTPS_PORT." >&2
-fi
-
-if command -v ufw >/dev/null 2>&1; then
-  if $SUDO ufw status 2>/dev/null | grep -q "Status: active"; then
-    $SUDO ufw allow "$HTTP_PORT/tcp" >/dev/null 2>&1 || true
-    $SUDO ufw allow "$HTTPS_PORT/tcp" >/dev/null 2>&1 || true
-  fi
 fi
 
 if [ -f ".docker/stack.env" ]; then

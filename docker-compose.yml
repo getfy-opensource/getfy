@@ -1,30 +1,12 @@
 services:
-  proxy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "${GETFY_HTTP_PORT:-80}:80"
-      - "${GETFY_HTTPS_PORT:-443}:443"
-    volumes:
-      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - getfy_env:/etc/getfy
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - app
-    command:
-      [
-        "sh",
-        "-lc",
-        "touch /etc/getfy/Caddyfile.domains; (last=\"\"; while true; do cur=\"$$(sha256sum /etc/getfy/Caddyfile.domains 2>/dev/null | awk '{print $$1}')\"; if [ \"$$cur\" != \"$$last\" ]; then last=\"$$cur\"; caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>/dev/null || true; fi; sleep 2; done) & caddy run --config /etc/caddy/Caddyfile --adapter caddyfile",
-      ]
-
   app:
     build:
       context: .
       dockerfile: Dockerfile
     image: getfy_app:latest
     restart: unless-stopped
+    ports:
+      - "${GETFY_HTTP_PORT:-80}:80"
     volumes:
       - getfy_storage:/var/www/html/storage
       - getfy_env:/var/www/html/.docker
@@ -44,7 +26,7 @@ services:
       REDIS_HOST: ${GETFY_REDIS_HOST:-redis}
       REDIS_PORT: ${GETFY_REDIS_PORT:-6379}
       CACHE_STORE: ${GETFY_CACHE_STORE:-redis}
-      QUEUE_CONNECTION: ${GETFY_QUEUE_CONNECTION:-redis}
+      QUEUE_CONNECTION: ${GETFY_QUEUE_CONNECTION:-database}
       SESSION_DRIVER: ${GETFY_SESSION_DRIVER:-file}
       GETFY_DOCKER: "true"
       GETFY_RUN_SETUP: "true"
@@ -57,13 +39,19 @@ services:
   mysql:
     image: mysql:8.0
     restart: unless-stopped
+    command:
+      - "--innodb-buffer-pool-size=${GETFY_MYSQL_INNODB_BUFFER_POOL_SIZE:-256M}"
+      - "--innodb-log-file-size=${GETFY_MYSQL_INNODB_LOG_FILE_SIZE:-64M}"
+      - "--innodb-buffer-pool-instances=${GETFY_MYSQL_INNODB_BUFFER_POOL_INSTANCES:-1}"
+      - "--max-connections=${GETFY_MYSQL_MAX_CONNECTIONS:-50}"
+      - "--table-open-cache=${GETFY_MYSQL_TABLE_OPEN_CACHE:-200}"
+      - "--thread-cache-size=${GETFY_MYSQL_THREAD_CACHE_SIZE:-16}"
     environment:
       MYSQL_ROOT_PASSWORD: ${GETFY_MYSQL_ROOT_PASSWORD:-root}
       MYSQL_DATABASE: ${GETFY_MYSQL_DATABASE:-${GETFY_DB_DATABASE:-getfy}}
       MYSQL_USER: ${GETFY_MYSQL_USER:-${GETFY_DB_USERNAME:-getfy}}
       MYSQL_PASSWORD: ${GETFY_MYSQL_PASSWORD:-${GETFY_DB_PASSWORD:-getfy}}
-    ports:
-      - "3307:3306"
+      MYSQL_INITDB_SKIP_TZINFO: ${GETFY_MYSQL_SKIP_TZINFO:-1}
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -75,8 +63,12 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    command:
+      - "redis-server"
+      - "--maxmemory"
+      - "${GETFY_REDIS_MAXMEMORY:-128mb}"
+      - "--maxmemory-policy"
+      - "${GETFY_REDIS_MAXMEMORY_POLICY:-allkeys-lru}"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -86,7 +78,16 @@ services:
   queue:
     image: getfy_app:latest
     restart: unless-stopped
-    command: ["php", "artisan", "queue:work", "--sleep=3", "--tries=3", "--timeout=0"]
+    command:
+      - "php"
+      - "artisan"
+      - "queue:work"
+      - "--sleep=3"
+      - "--tries=3"
+      - "--timeout=0"
+      - "--memory=${GETFY_QUEUE_WORKER_MEMORY:-128}"
+      - "--max-time=${GETFY_QUEUE_WORKER_MAX_TIME:-3600}"
+      - "--max-jobs=${GETFY_QUEUE_WORKER_MAX_JOBS:-1000}"
     volumes:
       - getfy_storage:/var/www/html/storage
       - getfy_env:/var/www/html/.docker
@@ -105,7 +106,7 @@ services:
       REDIS_HOST: ${GETFY_REDIS_HOST:-redis}
       REDIS_PORT: ${GETFY_REDIS_PORT:-6379}
       CACHE_STORE: ${GETFY_CACHE_STORE:-redis}
-      QUEUE_CONNECTION: ${GETFY_QUEUE_CONNECTION:-redis}
+      QUEUE_CONNECTION: ${GETFY_QUEUE_CONNECTION:-database}
       SESSION_DRIVER: ${GETFY_SESSION_DRIVER:-file}
       GETFY_DOCKER: "true"
       GETFY_RUN_SETUP: "false"
@@ -137,7 +138,7 @@ services:
       REDIS_HOST: ${GETFY_REDIS_HOST:-redis}
       REDIS_PORT: ${GETFY_REDIS_PORT:-6379}
       CACHE_STORE: ${GETFY_CACHE_STORE:-redis}
-      QUEUE_CONNECTION: ${GETFY_QUEUE_CONNECTION:-redis}
+      QUEUE_CONNECTION: ${GETFY_QUEUE_CONNECTION:-database}
       SESSION_DRIVER: ${GETFY_SESSION_DRIVER:-file}
       GETFY_DOCKER: "true"
       GETFY_RUN_SETUP: "false"
@@ -153,8 +154,4 @@ volumes:
   getfy_storage:
     driver: local
   getfy_env:
-    driver: local
-  caddy_data:
-    driver: local
-  caddy_config:
     driver: local
