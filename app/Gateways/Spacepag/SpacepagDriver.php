@@ -168,14 +168,14 @@ class SpacepagDriver implements GatewayDriver
     private function timeoutSeconds(array $credentials): int
     {
         $v = $credentials['timeout'] ?? null;
-        $n = is_numeric($v) ? (int) $v : 30;
+        $n = is_numeric($v) ? (int) $v : 20;
         return min(120, max(5, $n));
     }
 
     private function connectTimeoutSeconds(array $credentials): int
     {
         $v = $credentials['connect_timeout'] ?? null;
-        $n = is_numeric($v) ? (int) $v : 10;
+        $n = is_numeric($v) ? (int) $v : 5;
         return min(60, max(2, $n));
     }
 

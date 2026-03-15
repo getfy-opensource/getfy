@@ -31,6 +31,12 @@ class RunScheduleFallback
             return;
         }
 
+        $defaultQueue = (string) config('queue.default', 'sync');
+        $connections = config('queue.connections', []);
+        if (! is_array($connections) || ! array_key_exists($defaultQueue, $connections)) {
+            return;
+        }
+
         $scheduleHeartbeat = Cache::get('schedule_heartbeat');
         if (self::isHeartbeatRecent($scheduleHeartbeat, 5)) {
             return;
@@ -42,7 +48,11 @@ class RunScheduleFallback
         }
 
         Cache::put(self::CACHE_KEY, now()->toIso8601String(), now()->addMinutes(5));
-        Artisan::call('schedule:run');
+        try {
+            Artisan::call('schedule:run');
+        } catch (\Throwable) {
+            return;
+        }
     }
 
     private static function isHeartbeatRecent(?string $value, int $minutes = 5): bool

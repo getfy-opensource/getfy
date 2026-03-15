@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Route;
 
 class PaymentService
 {
+    private const PAYMENT_TOTAL_TIMEOUT_SECONDS = 25;
+
     /**
      * Create a PIX payment for the order. Tries gateways in redundancy order until one succeeds.
      *
@@ -24,8 +26,12 @@ class PaymentService
         $tenantId = $order->tenant_id;
         $orderSlugs = $this->getGatewayOrderForMethod($tenantId, 'pix', $product, $gatewayConfigOverride);
         $lastException = null;
+        $deadline = microtime(true) + self::PAYMENT_TOTAL_TIMEOUT_SECONDS;
 
         foreach ($orderSlugs as $gatewaySlug) {
+            if (microtime(true) > $deadline) {
+                break;
+            }
             $credential = GatewayCredential::forTenant($tenantId)
                 ->where('gateway_slug', $gatewaySlug)
                 ->where('is_connected', true)
@@ -42,6 +48,7 @@ class PaymentService
                 continue;
             }
             try {
+                $startedAt = microtime(true);
                 $postbackUrl = route('webhooks.spacepag');
                 if ($gatewaySlug === 'efi') {
                     $postbackUrl = route('webhooks.efi.pix');
@@ -70,12 +77,16 @@ class PaymentService
                     'gateway' => $gatewaySlug,
                     'order_id' => $order->id,
                     'message' => $e->getMessage(),
+                    'duration_ms' => isset($startedAt) ? (int) round((microtime(true) - $startedAt) * 1000) : null,
                 ]);
                 $lastException = $e;
             }
         }
 
-        throw $lastException ?? new \RuntimeException('Nenhum gateway PIX configurado ou disponível.');
+        if ($lastException) {
+            throw $lastException;
+        }
+        throw new \RuntimeException('Nenhum gateway PIX configurado ou disponível.');
     }
 
     /**
@@ -91,8 +102,12 @@ class PaymentService
         $tenantId = $order->tenant_id;
         $orderSlugs = $this->getGatewayOrderForMethod($tenantId, 'card', $product, $gatewayConfigOverride);
         $lastException = null;
+        $deadline = microtime(true) + self::PAYMENT_TOTAL_TIMEOUT_SECONDS;
 
         foreach ($orderSlugs as $gatewaySlug) {
+            if (microtime(true) > $deadline) {
+                break;
+            }
             $credential = GatewayCredential::forTenant($tenantId)
                 ->where('gateway_slug', $gatewaySlug)
                 ->where('is_connected', true)
@@ -109,6 +124,7 @@ class PaymentService
                 continue;
             }
             try {
+                $startedAt = microtime(true);
                 $result = $driver->createCardPayment(
                     $credentials,
                     (float) $order->amount,
@@ -134,12 +150,16 @@ class PaymentService
                     'gateway' => $gatewaySlug,
                     'order_id' => $order->id,
                     'message' => $e->getMessage(),
+                    'duration_ms' => isset($startedAt) ? (int) round((microtime(true) - $startedAt) * 1000) : null,
                 ]);
                 $lastException = $e;
             }
         }
 
-        throw $lastException ?? new \RuntimeException('Nenhum gateway de cartão configurado ou disponível.');
+        if ($lastException) {
+            throw $lastException;
+        }
+        throw new \RuntimeException('Nenhum gateway de cartão configurado ou disponível.');
     }
 
     /**
@@ -154,8 +174,12 @@ class PaymentService
         $tenantId = $order->tenant_id;
         $orderSlugs = $this->getGatewayOrderForMethod($tenantId, 'boleto', $product, $gatewayConfigOverride);
         $lastException = null;
+        $deadline = microtime(true) + self::PAYMENT_TOTAL_TIMEOUT_SECONDS;
 
         foreach ($orderSlugs as $gatewaySlug) {
+            if (microtime(true) > $deadline) {
+                break;
+            }
             $credential = GatewayCredential::forTenant($tenantId)
                 ->where('gateway_slug', $gatewaySlug)
                 ->where('is_connected', true)
@@ -172,6 +196,7 @@ class PaymentService
                 continue;
             }
             try {
+                $startedAt = microtime(true);
                 $notificationUrl = $gatewaySlug === 'efi'
                     ? url('/webhooks/gateways/efi/notification')
                     : $this->webhookUrlForGateway($gatewaySlug);
@@ -199,12 +224,16 @@ class PaymentService
                     'gateway' => $gatewaySlug,
                     'order_id' => $order->id,
                     'message' => $e->getMessage(),
+                    'duration_ms' => isset($startedAt) ? (int) round((microtime(true) - $startedAt) * 1000) : null,
                 ]);
                 $lastException = $e;
             }
         }
 
-        throw $lastException ?? new \RuntimeException('Nenhum gateway de boleto configurado ou disponível.');
+        if ($lastException) {
+            throw $lastException;
+        }
+        throw new \RuntimeException('Nenhum gateway de boleto configurado ou disponível.');
     }
 
     /**

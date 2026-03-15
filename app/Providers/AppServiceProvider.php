@@ -42,6 +42,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->ensureRuntimeDirectories();
         $this->fallbackRedisToDatabase();
+        $this->fallbackInvalidQueueConnectionToSync();
         if (DockerSetupState::isDocker() && class_exists(\Illuminate\Support\Facades\Vite::class)) {
             \Illuminate\Support\Facades\Vite::useHotFile(storage_path('framework/vite.hot'));
         }
@@ -134,6 +135,19 @@ class AppServiceProvider extends ServiceProvider
             if (config('queue.default') === 'redis') {
                 config(['queue.default' => 'database']);
             }
+        }
+    }
+
+    private function fallbackInvalidQueueConnectionToSync(): void
+    {
+        $default = (string) config('queue.default', 'sync');
+        $connections = config('queue.connections', []);
+        if (! is_array($connections) || $connections === []) {
+            config(['queue.default' => 'sync']);
+            return;
+        }
+        if (! array_key_exists($default, $connections)) {
+            config(['queue.default' => 'sync']);
         }
     }
 }

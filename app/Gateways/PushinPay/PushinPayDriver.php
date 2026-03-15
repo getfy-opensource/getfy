@@ -28,6 +28,18 @@ class PushinPayDriver implements GatewayDriver
         return $token;
     }
 
+    private function http(string $token, int $timeoutSeconds = 20): \Illuminate\Http\Client\PendingRequest
+    {
+        $timeoutSeconds = min(120, max(5, $timeoutSeconds));
+        $connectTimeoutSeconds = min(60, max(2, (int) ceil($timeoutSeconds / 4)));
+
+        return Http::withToken($token)
+            ->acceptJson()
+            ->asJson()
+            ->timeout($timeoutSeconds)
+            ->withOptions(['connect_timeout' => $connectTimeoutSeconds]);
+    }
+
     /**
      * @param  array<string, string>  $credentials
      */
@@ -39,9 +51,7 @@ class PushinPayDriver implements GatewayDriver
         }
         $baseUrl = $this->getBaseUrl($credentials);
         try {
-            $response = Http::withToken($token)
-                ->acceptJson()
-                ->get($baseUrl . '/transactions', ['per_page' => 1]);
+            $response = $this->http($token)->get($baseUrl . '/transactions', ['per_page' => 1]);
             if ($response->successful()) {
                 return true;
             }
@@ -80,10 +90,7 @@ class PushinPayDriver implements GatewayDriver
             'value' => $valueCentavos,
             'webhook_url' => $postbackUrl,
         ];
-        $response = Http::withToken($token)
-            ->acceptJson()
-            ->asJson()
-            ->post($baseUrl . '/pix/cashIn', $body);
+        $response = $this->http($token)->post($baseUrl . '/pix/cashIn', $body);
 
         if (! $response->successful()) {
             $message = $response->json('message', 'Não foi possível gerar o PIX.');
@@ -127,9 +134,7 @@ class PushinPayDriver implements GatewayDriver
         }
         $baseUrl = $this->getBaseUrl($credentials);
         try {
-            $response = Http::withToken($token)
-                ->acceptJson()
-                ->get($baseUrl . '/transactions/' . $transactionId);
+            $response = $this->http($token)->get($baseUrl . '/transactions/' . $transactionId);
 
             if (! $response->successful()) {
                 if ($response->status() === 404) {

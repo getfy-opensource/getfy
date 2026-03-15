@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Http;
 class SapcepagDriver implements GatewayDriver
 {
     private const BASE_URL = 'https://api.spacepag.com.br/v1';
+    private const TIMEOUT = 20;
+    private const CONNECT_TIMEOUT = 5;
 
     public function testConnection(array $credentials): bool
     {
@@ -44,6 +46,10 @@ class SapcepagDriver implements GatewayDriver
         ];
 
         $response = Http::withToken($token)
+            ->acceptJson()
+            ->asJson()
+            ->timeout(self::TIMEOUT)
+            ->withOptions(['connect_timeout' => self::CONNECT_TIMEOUT])
             ->post(self::BASE_URL . '/cob', $body);
 
         if (! $response->successful()) {
@@ -97,6 +103,9 @@ class SapcepagDriver implements GatewayDriver
         }
 
         $response = Http::withToken($token)
+            ->acceptJson()
+            ->timeout(self::TIMEOUT)
+            ->withOptions(['connect_timeout' => self::CONNECT_TIMEOUT])
             ->get(self::BASE_URL . '/transactions/cob/' . $transactionId);
 
         if (! $response->successful()) {
@@ -117,7 +126,11 @@ class SapcepagDriver implements GatewayDriver
             return null;
         }
 
-        $response = Http::post(self::BASE_URL . '/auth', [
+        $response = Http::acceptJson()
+            ->asJson()
+            ->timeout(self::TIMEOUT)
+            ->withOptions(['connect_timeout' => self::CONNECT_TIMEOUT])
+            ->post(self::BASE_URL . '/auth', [
             'public_key' => $publicKey,
             'secret_key' => $secretKey,
         ]);

@@ -31,7 +31,7 @@ class AsaasDriver implements GatewayDriver
     /**
      * @param  array<string, string>  $credentials
      */
-    private function http(array $credentials, int $timeout = 30): \Illuminate\Http\Client\PendingRequest
+    private function http(array $credentials, int $timeout = 20): \Illuminate\Http\Client\PendingRequest
     {
         $apiKey = $this->getApiKey($credentials);
         if ($apiKey === null) {
@@ -41,7 +41,7 @@ class AsaasDriver implements GatewayDriver
             'access_token' => $apiKey,
             'Content-Type' => 'application/json',
             'User-Agent' => config('app.name', 'Checkout'),
-        ])->acceptJson()->timeout($timeout);
+        ])->acceptJson()->timeout($timeout)->withOptions(['connect_timeout' => min(60, max(2, (int) ceil($timeout / 4)))]);
     }
 
     /**

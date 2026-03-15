@@ -22,9 +22,13 @@
 - Corrige venda no cartão (Mercado Pago) ficando como pendente após aprovação.
 - Corrige instabilidade/timeouts ao gerar PIX no Spacepag em alguns servidores (retry/IPv4 e timeouts configuráveis).
 - Corrige atualização automática em VPS/Docker quando o Git bloqueia o repositório por "dubious ownership".
+- Corrige atualização automática no Docker quando vendor/bin/composer não existe.
+- Corrige erro 500 em produção quando QUEUE_CONNECTION está inválido (ex.: file).
 - Corrige instalador Docker quando há alterações locais no repositório (stash obrigatório antes do checkout).
 - Corrige editor de checkout resetando gateways selecionados por método de pagamento ao salvar.
 - Bloqueia acesso ao /docker-setup após a configuração inicial do domínio.
+- Evita erro 500 no checkout quando falha ao gerar pagamento e a ordem não pode ser deletada.
+- Reduz lentidão do checkout em falhas de gateways com timeouts menores e limite total por tentativa.
 - Corrige dropdown de ações na listagem de vendas (/vendas) para abrir sobre a tabela.
 - Corrige preview do editor de checkout para respeitar oferta/plano ao renderizar.
 - Corrige player de vídeo da área de membros (CSP do YouTube, fullscreen e fallback).

@@ -33,12 +33,37 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class CheckoutController extends Controller
 {
+    private function rollbackFailedOrder(Order $order, \Throwable $originalError): void
+    {
+        try {
+            $order->delete();
+            return;
+        } catch (\Throwable $deleteError) {
+            Log::warning('Checkout: failed to delete order after payment failure', [
+                'order_id' => $order->id,
+                'delete_error' => $deleteError->getMessage(),
+                'original_error' => $originalError->getMessage(),
+            ]);
+        }
+
+        try {
+            $order->update(['status' => 'cancelled']);
+        } catch (\Throwable $updateError) {
+            Log::warning('Checkout: failed to mark order cancelled after payment failure', [
+                'order_id' => $order->id,
+                'update_error' => $updateError->getMessage(),
+                'original_error' => $originalError->getMessage(),
+            ]);
+        }
+    }
+
     /**
      * Resolve checkout context by slug: offer first, then plan, then product (legacy).
      *
@@ -672,7 +697,7 @@ class CheckoutController extends Controller
 
                 return $this->idempotencyReturn($idempotencyKey, redirect()->route('checkout.pix', ['token' => $pixToken]));
             } catch (\Throwable $e) {
-                $order->delete();
+                $this->rollbackFailedOrder($order, $e);
                 if ($request->expectsJson()) {
                     return response()->json([
                         'success' => false,
@@ -788,7 +813,7 @@ class CheckoutController extends Controller
                     ]);
                     return $this->idempotencyReturn($idempotencyKey, redirect()->route('checkout.pix', ['token' => $pixToken]));
                 } catch (\Throwable $e) {
-                    $order->delete();
+                    $this->rollbackFailedOrder($order, $e);
                     if ($request->expectsJson()) {
                         return response()->json([
                             'success' => false,
@@ -938,7 +963,7 @@ class CheckoutController extends Controller
 
                     return $this->idempotencyReturn($idempotencyKey, redirect()->route('checkout.pix', ['token' => $pixToken]));
                 } catch (\Throwable $e) {
-                    $order->delete();
+                    $this->rollbackFailedOrder($order, $e);
                     if ($request->expectsJson()) {
                         return response()->json([
                             'success' => false,
@@ -1074,7 +1099,7 @@ class CheckoutController extends Controller
                 }
                 return $this->idempotencyReturn($idempotencyKey, back()->with('success', 'Pagamento com cartão recebido. Você receberá a confirmação por e-mail.'));
             } catch (\Throwable $e) {
-                $order->delete();
+                $this->rollbackFailedOrder($order, $e);
                 if ($request->expectsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
                     return response()->json([
                         'success' => false,
@@ -1154,7 +1179,7 @@ class CheckoutController extends Controller
                 }
                 return $this->idempotencyReturn($idempotencyKey, redirect()->route('checkout.boleto', ['token' => $boletoToken]));
             } catch (\Throwable $e) {
-                $order->delete();
+                $this->rollbackFailedOrder($order, $e);
                 if ($request->expectsJson()) {
                     return response()->json([
                         'success' => false,
