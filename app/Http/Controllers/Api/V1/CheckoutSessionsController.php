@@ -63,7 +63,7 @@ class CheckoutSessionsController extends Controller
             'product_offer_id' => $validated['product_offer_id'] ?? null,
             'subscription_plan_id' => $validated['subscription_plan_id'] ?? null,
             'metadata' => $validated['metadata'] ?? [],
-            'return_url' => $validated['return_url'] ?? null,
+            'return_url' => $validated['return_url'] ?? ($app->default_return_url ?: null),
             'expires_at' => $expiresAt,
         ]);
 

@@ -32,6 +32,38 @@ use Minishlink\WebPush\Subscription;
 
 class MemberBuilderController extends Controller
 {
+    private function normalizeLessonContentFiles(mixed $input): array
+    {
+        if (! is_array($input)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($input as $item) {
+            if (is_string($item)) {
+                $url = trim($item);
+                if ($url !== '' && filter_var($url, FILTER_VALIDATE_URL)) {
+                    $out[] = ['url' => $url, 'name' => 'Material'];
+                }
+                continue;
+            }
+            if (! is_array($item)) {
+                continue;
+            }
+            $url = isset($item['url']) ? trim((string) $item['url']) : '';
+            $name = isset($item['name']) ? trim((string) $item['name']) : '';
+            if ($url === '' || ! filter_var($url, FILTER_VALIDATE_URL)) {
+                continue;
+            }
+            $out[] = [
+                'url' => $url,
+                'name' => $name !== '' ? mb_substr($name, 0, 255) : 'Material',
+            ];
+        }
+
+        return array_slice($out, 0, 30);
+    }
+
     public function __construct(
         protected MemberCommentService $commentService,
         protected GamificationService $gamificationService
@@ -109,6 +141,8 @@ class MemberBuilderController extends Controller
                         'position' => $m->position,
                         'thumbnail' => $m->thumbnail,
                         'show_title_on_cover' => $m->show_title_on_cover ?? true,
+                        'release_after_days' => $m->release_after_days,
+                        'release_at_date' => $m->release_at_date?->format('Y-m-d'),
                         'lessons' => $m->lessons->map(fn (MemberLesson $l) => [
                             'id' => $l->id,
                             'title' => $l->title,
@@ -116,6 +150,9 @@ class MemberBuilderController extends Controller
                             'type' => $l->type,
                             'content_url' => $l->content_url,
                             'link_title' => $l->link_title,
+                            'content_files' => $l->content_files,
+                            'release_after_days' => $l->release_after_days,
+                            'release_at_date' => $l->release_at_date?->format('Y-m-d'),
                             'content_text' => \App\Support\HtmlSanitizer::sanitize($l->content_text),
                             'duration_seconds' => $l->duration_seconds,
                             'is_free' => $l->is_free,
@@ -474,7 +511,17 @@ class MemberBuilderController extends Controller
             $validated = $request->validate([
                 'title' => ['required', 'string', 'max:255'],
                 'show_title_on_cover' => ['nullable', 'boolean'],
+                'release_after_days' => ['nullable', 'integer', 'min:1', 'max:3650'],
+                'release_at_date' => ['nullable', 'date_format:Y-m-d'],
             ]);
+            if (! empty($validated['release_at_date'] ?? null)) {
+                $validated['release_after_days'] = null;
+            } elseif (empty($validated['release_after_days'] ?? null)) {
+                $validated['release_after_days'] = null;
+                $validated['release_at_date'] = null;
+            } else {
+                $validated['release_at_date'] = null;
+            }
             $max = MemberModule::where('member_section_id', $section->id)->max('position') ?? 0;
             $module = MemberModule::create([
                 'member_section_id' => $section->id,
@@ -482,6 +529,8 @@ class MemberBuilderController extends Controller
                 'title' => $validated['title'],
                 'position' => $max + 1,
                 'show_title_on_cover' => $validated['show_title_on_cover'] ?? true,
+                'release_after_days' => $validated['release_after_days'] ?? null,
+                'release_at_date' => $validated['release_at_date'] ?? null,
             ]);
         } elseif ($sectionType === 'products') {
             $validated = $request->validate([
@@ -539,6 +588,8 @@ class MemberBuilderController extends Controller
                 'position' => $module->position,
                 'thumbnail' => $module->thumbnail,
                 'show_title_on_cover' => $module->show_title_on_cover ?? true,
+                'release_after_days' => $module->release_after_days,
+                'release_at_date' => $module->release_at_date?->format('Y-m-d'),
                 'lessons' => $module->relationLoaded('lessons') ? $module->lessons->map(fn (MemberLesson $l) => [
                     'id' => $l->id,
                     'title' => $l->title,
@@ -584,7 +635,23 @@ class MemberBuilderController extends Controller
                 'position' => ['sometimes', 'integer', 'min:0'],
                 'thumbnail' => ['nullable', 'string', 'max:500'],
                 'show_title_on_cover' => ['sometimes', 'boolean'],
+                'release_after_days' => ['nullable', 'integer', 'min:1', 'max:3650'],
+                'release_at_date' => ['nullable', 'date_format:Y-m-d'],
             ]);
+            if (array_key_exists('release_at_date', $validated) || array_key_exists('release_after_days', $validated)) {
+                $date = $validated['release_at_date'] ?? null;
+                $days = $validated['release_after_days'] ?? null;
+                if (! empty($date)) {
+                    $validated['release_at_date'] = $date;
+                    $validated['release_after_days'] = null;
+                } elseif (! empty($days)) {
+                    $validated['release_after_days'] = (int) $days;
+                    $validated['release_at_date'] = null;
+                } else {
+                    $validated['release_after_days'] = null;
+                    $validated['release_at_date'] = null;
+                }
+            }
         } elseif ($sectionType === 'products') {
             $validated = $request->validate([
                 'title' => ['sometimes', 'string', 'max:255'],
@@ -647,11 +714,28 @@ class MemberBuilderController extends Controller
             'type' => ['required', 'string', 'in:video,link,pdf,text'],
             'content_url' => ['nullable', 'string', 'max:2000'],
             'link_title' => ['nullable', 'string', 'max:255'],
+            'content_files' => ['nullable', 'array', 'max:30'],
+            'content_files.*.url' => ['nullable', 'string', 'url', 'max:2000'],
+            'content_files.*.name' => ['nullable', 'string', 'max:255'],
+            'release_after_days' => ['nullable', 'integer', 'min:1', 'max:3650'],
+            'release_at_date' => ['nullable', 'date_format:Y-m-d'],
             'content_text' => ['nullable', 'string'],
             'duration_seconds' => ['nullable', 'integer', 'min:0'],
             'is_free' => ['boolean'],
             'watermark_enabled' => ['boolean'],
         ]);
+        if (! empty($validated['release_at_date'] ?? null)) {
+            $validated['release_after_days'] = null;
+        } elseif (empty($validated['release_after_days'] ?? null)) {
+            $validated['release_after_days'] = null;
+            $validated['release_at_date'] = null;
+        } else {
+            $validated['release_at_date'] = null;
+        }
+        $contentFiles = $this->normalizeLessonContentFiles($request->input('content_files'));
+        if (($validated['type'] ?? null) === 'pdf' && empty($validated['content_url']) && count($contentFiles) > 0) {
+            $validated['content_url'] = $contentFiles[0]['url'];
+        }
         $max = MemberLesson::where('member_module_id', $module->id)->max('position') ?? 0;
         MemberLesson::create([
             'member_module_id' => $module->id,
@@ -661,6 +745,9 @@ class MemberBuilderController extends Controller
             'type' => $validated['type'],
             'content_url' => $validated['content_url'] ?? null,
             'link_title' => $validated['link_title'] ?? null,
+            'content_files' => $validated['type'] === 'pdf' ? ($contentFiles !== [] ? $contentFiles : null) : null,
+            'release_after_days' => $validated['release_after_days'] ?? null,
+            'release_at_date' => $validated['release_at_date'] ?? null,
             'content_text' => $validated['content_text'] ?? null,
             'duration_seconds' => $validated['duration_seconds'] ?? null,
             'is_free' => $request->boolean('is_free', false),
@@ -684,6 +771,11 @@ class MemberBuilderController extends Controller
             'type' => ['sometimes', 'string', 'in:video,link,pdf,text'],
             'content_url' => ['nullable', 'string', 'max:2000'],
             'link_title' => ['nullable', 'string', 'max:255'],
+            'content_files' => ['nullable', 'array', 'max:30'],
+            'content_files.*.url' => ['nullable', 'string', 'url', 'max:2000'],
+            'content_files.*.name' => ['nullable', 'string', 'max:255'],
+            'release_after_days' => ['nullable', 'integer', 'min:1', 'max:3650'],
+            'release_at_date' => ['nullable', 'date_format:Y-m-d'],
             'content_text' => ['nullable', 'string'],
             'duration_seconds' => ['nullable', 'integer', 'min:0'],
             'is_free' => ['boolean'],
@@ -694,6 +786,36 @@ class MemberBuilderController extends Controller
         }
         if (array_key_exists('watermark_enabled', $validated)) {
             $validated['watermark_enabled'] = $request->boolean('watermark_enabled');
+        }
+        if (array_key_exists('release_at_date', $validated) || array_key_exists('release_after_days', $validated)) {
+            $date = $validated['release_at_date'] ?? null;
+            $days = $validated['release_after_days'] ?? null;
+            if (! empty($date)) {
+                $validated['release_at_date'] = $date;
+                $validated['release_after_days'] = null;
+            } elseif (! empty($days)) {
+                $validated['release_after_days'] = (int) $days;
+                $validated['release_at_date'] = null;
+            } else {
+                $validated['release_after_days'] = null;
+                $validated['release_at_date'] = null;
+            }
+        }
+        $type = $validated['type'] ?? $lesson->type;
+        $contentFiles = $this->normalizeLessonContentFiles($request->input('content_files'));
+        if ($type === 'pdf') {
+            if (count($contentFiles) > 0) {
+                $validated['content_files'] = $contentFiles;
+                if (empty($validated['content_url'])) {
+                    $validated['content_url'] = $contentFiles[0]['url'];
+                }
+            } elseif (array_key_exists('content_files', $validated)) {
+                $validated['content_files'] = null;
+            }
+        } else {
+            if (array_key_exists('content_files', $validated)) {
+                $validated['content_files'] = null;
+            }
         }
         $lesson->update($validated);
         if ($request->expectsJson()) {

@@ -79,6 +79,14 @@ const showPhone = computed(() => customerFields.value.phone === true);
 const showCouponByConfig = computed(() => customerFields.value.coupon === true);
 const showCouponField = computed(() => showCouponByConfig.value || Boolean(props.prefillCoupon));
 const orderBumpColor = computed(() => props.config?.appearance?.order_bump_color || '#F59E0B');
+const footerConfig = computed(() => props.config?.footer ?? {});
+const footerEnabled = computed(() => footerConfig.value?.enabled === true);
+const footerLogoUrl = computed(() => String(footerConfig.value?.logo_url ?? '').trim());
+const footerText = computed(() => String(footerConfig.value?.text ?? '').trim());
+const footerSupportEmail = computed(() => String(footerConfig.value?.support_email ?? '').trim());
+const showFooterCustom = computed(
+    () => footerEnabled.value && (footerLogoUrl.value !== '' || footerText.value !== '' || footerSupportEmail.value !== '')
+);
 
 /** Gateway do método cartão (primeiro método com id === 'card' em available_payment_methods). */
 const cardGatewaySlug = computed(() => {
@@ -1740,6 +1748,25 @@ function submit() {
             </button>
         </form>
         <footer class="mt-8 hidden border-t border-gray-100 pt-6 sm:block">
+            <div v-if="showFooterCustom" class="mb-6 text-center">
+                <img
+                    v-if="footerLogoUrl"
+                    :src="footerLogoUrl"
+                    alt=""
+                    class="mx-auto h-8 w-auto object-contain"
+                    loading="lazy"
+                />
+                <p v-if="footerText" class="mt-2 text-sm font-medium text-gray-700">
+                    {{ footerText }}
+                </p>
+                <a
+                    v-if="footerSupportEmail"
+                    :href="`mailto:${footerSupportEmail}`"
+                    class="mt-1 inline-block text-sm font-medium text-gray-600 underline decoration-gray-300 underline-offset-2 hover:text-gray-800"
+                >
+                    {{ footerSupportEmail }}
+                </a>
+            </div>
             <p class="flex items-center justify-center gap-2 text-sm text-gray-500">
                 <Shield class="h-4 w-4 shrink-0" aria-hidden="true" />
                 Compra 100% segura

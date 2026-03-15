@@ -36,6 +36,10 @@ class AlunosController extends Controller
             $filter = 'todos';
         }
 
+        $search = $request->query('q');
+        $search = is_string($search) ? trim($search) : '';
+        $search = $search !== '' ? $search : null;
+
         $productIdsFilter = $request->query('product_ids');
         $productIdsFilter = is_array($productIdsFilter)
             ? $productIdsFilter
@@ -64,6 +68,13 @@ class AlunosController extends Controller
             if (! empty($validProductIds)) {
                 $baseAlunosQuery->whereHas('products', fn ($q) => $q->whereIn('products.id', $validProductIds));
             }
+        }
+
+        if ($search !== null) {
+            $like = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $search) . '%';
+            $baseAlunosQuery->where(function ($q) use ($like) {
+                $q->where('users.name', 'like', $like)->orWhere('users.email', 'like', $like);
+            });
         }
 
         $alunos = (clone $baseAlunosQuery)
@@ -126,6 +137,7 @@ class AlunosController extends Controller
             'stats' => $stats,
             'filter' => $filter,
             'product_ids_filter' => $productIdsFilter,
+            'q' => $search,
         ]);
     }
 

@@ -106,6 +106,7 @@ Route::post('/renovar', [\App\Http\Controllers\RenewalController::class, 'proces
 Route::get('/api-checkout/{token}', [\App\Http\Controllers\ApiCheckoutController::class, 'show'])->name('api-checkout.show')->where('token', '[a-zA-Z0-9\-]{36,64}');
 Route::post('/api-checkout/pay', [\App\Http\Controllers\ApiCheckoutController::class, 'process'])->name('api-checkout.process')->middleware('throttle:30,1');
 Route::get('/api-checkout/card-confirm', [\App\Http\Controllers\ApiCheckoutController::class, 'cardConfirm'])->name('api-checkout.card-confirm');
+Route::get('/api-checkout/obrigado', [\App\Http\Controllers\ApiCheckoutController::class, 'thankYou'])->name('api-checkout.thank-you');
 
 Route::get('/c/{slug}', [\App\Http\Controllers\CheckoutController::class, 'show'])->name('checkout.show')->where('slug', '[a-z0-9]{6,16}');
 Route::get('/checkout/pix', [\App\Http\Controllers\CheckoutController::class, 'pixPage'])->name('checkout.pix');

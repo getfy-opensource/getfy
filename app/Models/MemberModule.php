@@ -8,11 +8,28 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class MemberModule extends Model
 {
-    protected $fillable = ['member_section_id', 'product_id', 'title', 'position', 'thumbnail', 'show_title_on_cover', 'related_product_id', 'access_type', 'external_url'];
+    protected $fillable = [
+        'member_section_id',
+        'product_id',
+        'title',
+        'position',
+        'thumbnail',
+        'show_title_on_cover',
+        'related_product_id',
+        'access_type',
+        'external_url',
+        'release_after_days',
+        'release_at_date',
+    ];
 
     protected function casts(): array
     {
-        return ['position' => 'integer', 'show_title_on_cover' => 'boolean'];
+        return [
+            'position' => 'integer',
+            'show_title_on_cover' => 'boolean',
+            'release_after_days' => 'integer',
+            'release_at_date' => 'date:Y-m-d',
+        ];
     }
 
     public function section(): BelongsTo

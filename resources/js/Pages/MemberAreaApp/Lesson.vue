@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { Link, router } from '@inertiajs/vue3';
 import MemberAreaAppLayout from '@/Layouts/MemberAreaAppLayout.vue';
 import Button from '@/components/ui/Button.vue';
@@ -17,6 +17,24 @@ const props = defineProps({
     comments_require_approval: { type: Boolean, default: true },
     lesson_comments: { type: Array, default: () => [] },
 });
+
+function normalizePdfFiles(lesson) {
+    const list = Array.isArray(lesson?.content_files) ? lesson.content_files : [];
+    const normalized = list
+        .map((it) => {
+            if (typeof it === 'string') return { url: it, name: 'Material' };
+            const url = (it?.url ?? '').toString().trim();
+            if (!url) return null;
+            return { url, name: (it?.name ?? 'Material').toString().trim() || 'Material' };
+        })
+        .filter(Boolean);
+    if (normalized.length === 0 && lesson?.content_url) {
+        normalized.push({ url: lesson.content_url, name: 'Material' });
+    }
+    return normalized;
+}
+
+const pdfFiles = computed(() => normalizePdfFiles(props.lesson));
 
 const completed = ref(props.lesson.is_completed ?? false);
 const commentContent = ref('');
@@ -83,15 +101,23 @@ function formatCommentDate(iso) {
         <h1 class="text-2xl font-bold">{{ lesson.title }}</h1>
 
         <div class="rounded-xl border border-zinc-700 bg-zinc-800/50 overflow-hidden">
-            <template v-if="lesson.type === 'video' && lesson.content_url">
+            <template v-if="lesson.type === 'video'">
                 <MemberAreaVideoPlayer
+                    v-if="lesson.content_url"
                     :src="lesson.content_url"
                     :watermark-enabled="!!lesson.watermark_enabled"
                     :watermark-data="lesson.student ?? null"
                     @ended="markComplete"
                 />
+                <div
+                    v-if="lesson.content_text"
+                    class="prose prose-invert max-w-none border-t border-zinc-700 p-6"
+                    v-html="formatLessonDescription(lesson.content_text)"
+                />
+                <div v-if="!lesson.content_url && !lesson.content_text" class="p-8 text-center text-zinc-500">
+                    Conteúdo não disponível.
+                </div>
             </template>
-            <div v-if="lesson.type === 'video' && lesson.content_text" class="prose prose-invert max-w-none border-t border-zinc-700 p-6" v-html="formatLessonDescription(lesson.content_text)" />
             <template v-else-if="lesson.type === 'link' && lesson.content_url">
                 <div class="p-6">
                     <a :href="lesson.content_url" target="_blank" rel="noopener" class="inline-flex items-center gap-2 text-[var(--ma-primary)] hover:underline">
@@ -100,16 +126,26 @@ function formatCommentDate(iso) {
                     </a>
                 </div>
             </template>
-            <div v-if="lesson.type === 'link' && lesson.content_text" class="prose prose-invert max-w-none border-t border-zinc-700 p-6" v-html="formatLessonDescription(lesson.content_text)" />
-            <template v-else-if="lesson.type === 'pdf' && lesson.content_url">
+            <div v-else-if="lesson.type === 'link' && lesson.content_text" class="prose prose-invert max-w-none border-t border-zinc-700 p-6" v-html="formatLessonDescription(lesson.content_text)" />
+            <template v-else-if="lesson.type === 'pdf' && pdfFiles.length">
                 <div class="p-6">
-                    <a :href="lesson.content_url" download target="_blank" rel="noopener" class="inline-flex items-center gap-2 rounded-lg bg-[var(--ma-primary)] px-4 py-2.5 font-medium text-white transition hover:opacity-90">
-                        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                        Baixar material
-                    </a>
+                    <div class="space-y-2">
+                        <a
+                            v-for="(f, i) in pdfFiles"
+                            :key="`${f.url}-${i}`"
+                            :href="f.url"
+                            download
+                            target="_blank"
+                            rel="noopener"
+                            class="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--ma-primary)] px-4 py-2.5 font-medium text-white transition hover:opacity-90"
+                        >
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                            {{ f.name || 'Baixar material' }}
+                        </a>
+                    </div>
                 </div>
             </template>
-            <div v-if="lesson.type === 'pdf' && lesson.content_text" class="prose prose-invert max-w-none border-t border-zinc-700 p-6" v-html="formatLessonDescription(lesson.content_text)" />
+            <div v-else-if="lesson.type === 'pdf' && lesson.content_text" class="prose prose-invert max-w-none border-t border-zinc-700 p-6" v-html="formatLessonDescription(lesson.content_text)" />
             <template v-else-if="lesson.type === 'text' && lesson.content_text">
                 <div class="prose prose-invert max-w-none p-6" v-html="lesson.content_text" />
             </template>

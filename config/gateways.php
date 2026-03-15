@@ -22,6 +22,10 @@ return [
             'credential_keys' => [
                 ['key' => 'public_key', 'label' => 'Chave pública', 'type' => 'text'],
                 ['key' => 'secret_key', 'label' => 'Chave secreta', 'type' => 'password'],
+                ['key' => 'force_ipv4', 'label' => 'Forçar IPv4 (se houver timeout no servidor)', 'type' => 'boolean'],
+                ['key' => 'timeout', 'label' => 'Timeout (segundos)', 'type' => 'text'],
+                ['key' => 'connect_timeout', 'label' => 'Timeout de conexão (segundos)', 'type' => 'text'],
+                ['key' => 'base_url', 'label' => 'Base URL (opcional)', 'type' => 'text'],
             ],
         ],
         'efi' => [

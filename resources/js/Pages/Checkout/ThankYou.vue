@@ -11,6 +11,7 @@ const conversionPixelsRef = ref(null);
 const props = defineProps({
     redirect_url: { type: String, default: '/' },
     redirect_label: { type: String, default: 'Acessar área de membros' },
+    subtitle: { type: String, default: 'Seu pedido foi registrado. Acesse o conteúdo pelo link abaixo.' },
     conversion_pixels: { type: Object, default: () => ({}) },
     order_id: { type: Number, default: null },
     order_amount: { type: Number, default: 0 },
@@ -37,7 +38,7 @@ onMounted(() => {
                 Obrigado pela sua compra
             </h1>
             <p class="mt-2 text-sm text-zinc-600">
-                Seu pedido foi registrado. Acesse o conteúdo pelo link abaixo.
+                {{ subtitle }}
             </p>
             <a
                 :href="redirect_url"

@@ -27,7 +27,7 @@ class SecurityHeaders
                 "img-src 'self' data: https: blob:",
                 "font-src 'self' https://fonts.gstatic.com",
                 "connect-src 'self' https://api.stripe.com https://api.mercadopago.com wss:",
-                "frame-src 'self' https://js.stripe.com https://www.mercadopago.com",
+                "frame-src 'self' https://js.stripe.com https://www.mercadopago.com https://www.youtube-nocookie.com https://youtube-nocookie.com https://www.youtube.com https://youtube.com",
                 "media-src 'self' https: blob:",
             ]);
             $response->headers->set('Content-Security-Policy', $csp);

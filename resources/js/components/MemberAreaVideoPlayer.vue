@@ -18,6 +18,36 @@ let watermarkInterval = null;
 const POSITIONS = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center'];
 
 const providerType = computed(() => getVideoProviderType(props.src));
+const isMobile = ref(false);
+let mobileMql = null;
+function onMobileQueryChange(e) {
+    isMobile.value = !!e.matches;
+}
+const playerRef = ref(null);
+let onFullscreenChangeHandler = null;
+
+async function lockOrientationLandscape() {
+    try {
+        if (typeof screen === 'undefined') return;
+        if (!screen.orientation || typeof screen.orientation.lock !== 'function') return;
+        await screen.orientation.lock('landscape');
+    } catch (_) {}
+}
+function unlockOrientation() {
+    try {
+        if (typeof screen === 'undefined') return;
+        if (!screen.orientation || typeof screen.orientation.unlock !== 'function') return;
+        screen.orientation.unlock();
+    } catch (_) {}
+}
+function isPlayerFullscreen() {
+    if (typeof document === 'undefined') return false;
+    const el = playerRef.value;
+    if (!el) return false;
+    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    if (!fsEl) return false;
+    return fsEl === el || (typeof el.contains === 'function' && el.contains(fsEl));
+}
 
 // Vidstack 1.x aceita URL completa (YouTube, Vimeo ou nativo) no src do media-player
 const vidstackSrc = computed(() => {
@@ -56,6 +86,29 @@ const watermarkText = computed(() => {
 });
 
 onMounted(() => {
+    if (typeof window !== 'undefined' && 'matchMedia' in window) {
+        mobileMql = window.matchMedia('(max-width: 768px)');
+        isMobile.value = !!mobileMql.matches;
+        try {
+            mobileMql.addEventListener('change', onMobileQueryChange);
+        } catch (_) {
+            try {
+                mobileMql.addListener(onMobileQueryChange);
+            } catch (_) {}
+        }
+    }
+    if (typeof document !== 'undefined') {
+        onFullscreenChangeHandler = () => {
+            if (!isMobile.value) return;
+            if (isPlayerFullscreen()) {
+                setTimeout(() => lockOrientationLandscape(), 0);
+            } else {
+                unlockOrientation();
+            }
+        };
+        document.addEventListener('fullscreenchange', onFullscreenChangeHandler);
+        document.addEventListener('webkitfullscreenchange', onFullscreenChangeHandler);
+    }
     if (props.watermarkEnabled && watermarkText.value) {
         watermarkInterval = setInterval(() => {
             watermarkPosition.value = (watermarkPosition.value + 1) % POSITIONS.length;
@@ -64,6 +117,27 @@ onMounted(() => {
 });
 onUnmounted(() => {
     if (watermarkInterval) clearInterval(watermarkInterval);
+    if (typeof document !== 'undefined' && onFullscreenChangeHandler) {
+        document.removeEventListener('fullscreenchange', onFullscreenChangeHandler);
+        document.removeEventListener('webkitfullscreenchange', onFullscreenChangeHandler);
+        onFullscreenChangeHandler = null;
+    }
+    unlockOrientation();
+    if (mobileMql) {
+        try {
+            mobileMql.removeEventListener('change', onMobileQueryChange);
+        } catch (_) {
+            try {
+                mobileMql.removeListener(onMobileQueryChange);
+            } catch (_) {}
+        }
+    }
+});
+
+const effectivePlaysinline = computed(() => {
+    if (providerType.value !== 'native') return props.playsinline;
+    if (props.playsinline === false) return false;
+    return !isMobile.value;
 });
 
 function onEnded() {
@@ -82,10 +156,11 @@ function onContextMenu(e) {
     >
         <media-player
             v-if="src"
+            ref="playerRef"
             class="player"
             :src="vidstackSrc"
             :poster="posterUrl"
-            :playsinline="playsinline"
+            :playsinline="effectivePlaysinline"
             crossorigin
             @vds-ended="onEnded"
             @vds-end="onEnded"

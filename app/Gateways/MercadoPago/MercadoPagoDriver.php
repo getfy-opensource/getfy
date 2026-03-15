@@ -298,6 +298,10 @@ class MercadoPagoDriver implements GatewayDriver
             'description' => 'Pedido #' . $externalId,
             'external_reference' => (string) $externalId,
         ];
+        $notificationUrl = $this->validNotificationUrl(rtrim((string) config('app.url'), '/') . '/webhooks/gateways/mercadopago');
+        if ($notificationUrl !== '') {
+            $body['notification_url'] = $notificationUrl;
+        }
         $issuerRaw = $formData['issuerId'] ?? $formData['issuer_id'] ?? null;
         if ($issuerRaw !== null && $issuerRaw !== '' && is_numeric($issuerRaw)) {
             $body['issuer_id'] = (int) $issuerRaw;

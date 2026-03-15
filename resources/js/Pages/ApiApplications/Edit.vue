@@ -30,6 +30,7 @@ const form = useForm({
         crypto_redundancy: Array.isArray(pg.crypto_redundancy) ? pg.crypto_redundancy : [],
     },
     webhook_url: props.application.webhook_url ?? '',
+    default_return_url: props.application.default_return_url ?? '',
     webhook_secret: props.application.webhook_secret ?? '',
     allowed_ips: props.application.allowed_ips ?? '',
     is_active: props.application.is_active !== false,
@@ -287,6 +288,14 @@ function regenerateKey() {
                 <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">URL do webhook (opcional)</label>
                 <input v-model="form.webhook_url" type="url" class="mt-1 block w-full rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2" />
                 <p v-if="form.errors.webhook_url" class="mt-1 text-sm text-red-600">{{ form.errors.webhook_url }}</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">URL de retorno padrão (opcional)</label>
+                <input v-model="form.default_return_url" type="url" class="mt-1 block w-full rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2" />
+                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    Usada no Checkout Pro quando a sessão não enviar <span class="font-mono">return_url</span>.
+                </p>
+                <p v-if="form.errors.default_return_url" class="mt-1 text-sm text-red-600">{{ form.errors.default_return_url }}</p>
             </div>
             <div>
                 <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Webhook secret (opcional)</label>

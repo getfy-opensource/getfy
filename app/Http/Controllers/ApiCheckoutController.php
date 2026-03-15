@@ -238,7 +238,7 @@ class ApiCheckoutController extends Controller
                     'copy_paste' => $result['copy_paste'] ?? null,
                     'amount' => $amount,
                     'product_name' => $product?->name ?? 'Pagamento',
-                    'redirect_after_purchase' => $session->return_url,
+                    'redirect_after_purchase' => route('api-checkout.thank-you', ['order_id' => $order->id]),
                     'created_at' => time(),
                 ]);
                 return redirect()->route('checkout.pix', ['token' => $pixToken]);
@@ -268,7 +268,7 @@ class ApiCheckoutController extends Controller
                     'barcode' => $result['barcode'] ?? '',
                     'pdf_url' => $result['pdf_url'] ?? null,
                     'product_name' => $product?->name ?? 'Pagamento',
-                    'redirect_after_purchase' => $session->return_url,
+                    'redirect_after_purchase' => route('api-checkout.thank-you', ['order_id' => $order->id]),
                     'customer_name' => $customer['name'] ?? null,
                     'customer_email' => $email,
                     'customer_phone' => $customer['phone'] ?? null,
@@ -305,13 +305,14 @@ class ApiCheckoutController extends Controller
                     }
                     session()->put('api_checkout_card_confirm', [
                         'client_secret' => $result['client_secret'],
-                        'return_url' => $session->return_url ?: url()->current(),
+                        'return_url' => route('api-checkout.thank-you', ['order_id' => $order->id]),
                         'stripe_publishable_key' => $stripeKey,
                     ]);
                     return redirect()->route('api-checkout.card-confirm');
                 }
-                $redirectUrl = $session->return_url ?: route('api-checkout.show', $validated['session_token']);
-                return redirect()->to($redirectUrl)->with('success', 'Pagamento com cartão recebido. Você receberá a confirmação por e-mail.');
+                return redirect()
+                    ->route('api-checkout.thank-you', ['order_id' => $order->id])
+                    ->with('success', 'Pagamento com cartão recebido. Você receberá a confirmação por e-mail.');
             } catch (\Throwable $e) {
                 $order->delete();
                 return redirect()->back()->with('error', $e->getMessage() ?: 'Não foi possível processar o cartão.');
@@ -319,6 +320,38 @@ class ApiCheckoutController extends Controller
         }
 
         return redirect()->back()->with('error', 'Método não implementado.');
+    }
+
+    public function thankYou(Request $request): Response|RedirectResponse
+    {
+        $orderId = $request->integer('order_id', 0);
+        if ($orderId <= 0) {
+            return redirect('/')->with('error', 'Pedido inválido.');
+        }
+
+        $order = Order::with('apiApplication')->find($orderId);
+        if (! $order || ! $order->api_application_id) {
+            return redirect('/')->with('error', 'Pedido inválido.');
+        }
+
+        $returnUrl = null;
+        if ($order->api_checkout_session_id) {
+            $session = ApiCheckoutSession::find($order->api_checkout_session_id);
+            $returnUrl = $session?->return_url;
+        }
+        if (! is_string($returnUrl) || trim($returnUrl) === '') {
+            $returnUrl = $order->apiApplication?->default_return_url;
+        }
+        $returnUrl = is_string($returnUrl) ? trim($returnUrl) : '';
+        if ($returnUrl === '' || ! filter_var($returnUrl, FILTER_VALIDATE_URL)) {
+            $returnUrl = url('/');
+        }
+
+        return Inertia::render('ApiCheckout/ThankYou', [
+            'order_id' => $order->id,
+            'return_url' => $returnUrl,
+            'seconds' => 5,
+        ]);
     }
 
     /**

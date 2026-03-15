@@ -182,6 +182,31 @@ return new class extends Migration
             ))->NON_UNIQUE == 0;
             $toRestore[] = ['name' => $indexName, 'columns' => $columns, 'primary' => $isPrimary, 'unique' => $isUnique];
             if ($isPrimary) {
+                $fkCols = DB::select(
+                    'SELECT DISTINCT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND REFERENCED_TABLE_NAME IS NOT NULL',
+                    [$schema, $table]
+                );
+                foreach ($fkCols as $fkColRow) {
+                    $fkCol = $fkColRow->COLUMN_NAME;
+                    $hasIndex = DB::selectOne(
+                        'SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ? AND SEQ_IN_INDEX = 1 AND INDEX_NAME <> \'PRIMARY\' LIMIT 1',
+                        [$schema, $table, $fkCol]
+                    );
+                    if ($hasIndex) {
+                        continue;
+                    }
+                    $baseName = 'tmp_fk_' . $fkCol;
+                    $candidate = $baseName;
+                    $i = 1;
+                    while (DB::selectOne(
+                        'SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1',
+                        [$schema, $table, $candidate]
+                    )) {
+                        $candidate = $baseName . '_' . $i;
+                        $i++;
+                    }
+                    DB::statement("ALTER TABLE `{$table}` ADD INDEX `{$candidate}` (`{$fkCol}`)");
+                }
                 DB::statement("ALTER TABLE `{$table}` DROP PRIMARY KEY");
             } else {
                 DB::statement("ALTER TABLE `{$table}` DROP INDEX `{$indexName}`");

@@ -21,6 +21,9 @@ class MemberLesson extends Model
         'type',
         'content_url',
         'link_title',
+        'content_files',
+        'release_after_days',
+        'release_at_date',
         'content_text',
         'duration_seconds',
         'is_free',
@@ -34,6 +37,9 @@ class MemberLesson extends Model
             'duration_seconds' => 'integer',
             'is_free' => 'boolean',
             'watermark_enabled' => 'boolean',
+            'content_files' => 'array',
+            'release_after_days' => 'integer',
+            'release_at_date' => 'date:Y-m-d',
         ];
     }
 

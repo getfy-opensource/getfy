@@ -156,7 +156,7 @@ const checkoutSessionsBodyRows = [
     { field: 'product_offer_id', type: 'integer', required: 'Não', desc: 'ID da oferta do produto' },
     { field: 'subscription_plan_id', type: 'integer', required: 'Não', desc: 'ID do plano de assinatura' },
     { field: 'metadata', type: 'objeto', required: 'Não', desc: 'Dados livres (ex.: external_id) para uso no webhook' },
-    { field: 'return_url', type: 'string', required: 'Não', desc: 'URL para redirecionar após conclusão' },
+    { field: 'return_url', type: 'string', required: 'Não', desc: 'URL final para voltar ao seu site após concluir; se omitida, usa a URL de retorno padrão da aplicação' },
     { field: 'expires_in', type: 'integer', required: 'Não', desc: 'Minutos até expirar a sessão (5–1440; default: 30)' },
 ];
 const customerColumns = [
@@ -360,6 +360,7 @@ Content-Type: application/json
                         <li><strong class="text-zinc-200">Nome</strong> e identificação (slug).</li>
                         <li><strong class="text-zinc-200">Gateways por método:</strong> PIX, cartão, boleto (e opcionalmente PIX automático, cripto), com <strong>redundância</strong> (ordem de fallback).</li>
                         <li><strong class="text-zinc-200">Webhook URL</strong> (opcional): URL que receberá notificações de pagamento (order.completed, order.pending, order.refunded).</li>
+                        <li><strong class="text-zinc-200">URL de retorno padrão</strong> (opcional): usada no Checkout Pro quando a sessão não enviar <code class="rounded bg-white/10 px-1.5 py-0.5 text-teal-300">return_url</code>.</li>
                         <li><strong class="text-zinc-200">Webhook secret</strong> (opcional): usado para assinar o body do webhook (header <code class="rounded bg-white/10 px-1.5 py-0.5 text-teal-300">X-Getfy-Signature</code>). Recomendado em produção.</li>
                         <li><strong class="text-zinc-200">IPs permitidos</strong> (opcional): lista de IPs que podem usar a API key; vazio = todos permitidos.</li>
                         <li><strong class="text-zinc-200">Ativo:</strong> aplicações inativas retornam 403.</li>
@@ -387,7 +388,7 @@ Content-Type: application/json
                         <ol class="doc-ol">
                             <li>Sua plataforma redireciona o cliente para <code class="rounded bg-white/10 px-1 py-0.5">checkout_url</code> ou abre em nova aba.</li>
                             <li>Na Getfy o cliente vê valor, produto (se houver) e escolhe PIX ou boleto.</li>
-                            <li>Ao concluir (ou gerar PIX/boleto), é redirecionado para a página de confirmação ou para <code class="rounded bg-white/10 px-1 py-0.5">return_url</code> se informada.</li>
+                            <li>Após a confirmação do pagamento, a Getfy exibe uma página de confirmação e redireciona o cliente de volta para <code class="rounded bg-white/10 px-1 py-0.5">return_url</code> (ou para a URL de retorno padrão da aplicação).</li>
                         </ol>
                     </DocEndpoint>
                 </DocSection>

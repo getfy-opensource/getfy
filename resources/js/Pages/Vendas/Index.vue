@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { router } from '@inertiajs/vue3';
 import axios from 'axios';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
@@ -17,6 +17,8 @@ import {
     Mail,
     Download,
     CheckCircle,
+    Search,
+    X,
 } from 'lucide-vue-next';
 
 defineOptions({ layout: LayoutInfoprodutor });
@@ -25,6 +27,9 @@ const props = defineProps({
     vendas: { type: Object, default: () => ({ data: [], links: [] }) },
     stats: { type: Object, default: () => ({}) },
     status_filter: { type: String, default: 'todas' },
+    filters: { type: Object, default: () => ({}) },
+    products: { type: Array, default: () => [] },
+    offers: { type: Array, default: () => [] },
 });
 
 const vendasList = computed(() => props.vendas?.data ?? props.vendas ?? []);
@@ -33,6 +38,9 @@ const valuesVisible = ref(true);
 const sidebarOpen = ref(false);
 const selectedVenda = ref(null);
 const openMenuId = ref(null);
+const menuAnchorEl = ref(null);
+const menuEl = ref(null);
+const menuPos = ref({ top: 0, left: 0 });
 const resendingId = ref(null);
 const approvingId = ref(null);
 const toast = ref({ message: null, type: null });
@@ -44,8 +52,89 @@ const filterOptions = [
     { value: 'todas', label: 'Todas' },
 ];
 
+const periodOptions = [
+    { value: 'all', label: 'Todo período' },
+    { value: 'today', label: 'Hoje' },
+    { value: '7d', label: 'Últimos 7 dias' },
+    { value: '30d', label: 'Últimos 30 dias' },
+    { value: 'this_month', label: 'Este mês' },
+    { value: 'last_month', label: 'Mês passado' },
+    { value: 'custom', label: 'Personalizado' },
+];
+
+const paymentMethodOptions = [
+    { value: 'all', label: 'Todos métodos' },
+    { value: 'pix', label: 'PIX' },
+    { value: 'card', label: 'Cartão' },
+    { value: 'boleto', label: 'Boleto' },
+];
+
+const paymentStatusOptions = [
+    { value: 'all', label: 'Todos status' },
+    { value: 'completed', label: 'Pago' },
+    { value: 'pending', label: 'Pendente' },
+    { value: 'disputed', label: 'MED' },
+    { value: 'cancelled', label: 'Cancelado' },
+    { value: 'refunded', label: 'Reembolsado' },
+];
+
+const filterForm = ref({
+    q: props.filters?.q ?? '',
+    period: props.filters?.period ?? 'all',
+    date_from: props.filters?.date_from ?? '',
+    date_to: props.filters?.date_to ?? '',
+    product_id: props.filters?.product_id ?? '',
+    offer_id: props.filters?.offer_id ?? '',
+    payment_method: props.filters?.payment_method ?? 'all',
+    payment_status: props.filters?.payment_status ?? 'all',
+    utm_source: props.filters?.utm_source ?? '',
+    utm_medium: props.filters?.utm_medium ?? '',
+    utm_campaign: props.filters?.utm_campaign ?? '',
+});
+
+const advancedFiltersOpen = ref(false);
+let searchTimer = null;
+
+const offersForSelectedProduct = computed(() => {
+    const pid = filterForm.value.product_id;
+    if (!pid) return props.offers ?? [];
+    return (props.offers ?? []).filter((o) => String(o.product_id) === String(pid));
+});
+
+function buildQuery(overrides = {}) {
+    const f = { ...filterForm.value, ...overrides };
+    const q = { status_filter: props.status_filter, ...f };
+
+    const cleaned = {};
+    Object.entries(q).forEach(([k, v]) => {
+        if (v === null || v === undefined) return;
+        if (typeof v === 'string' && v.trim() === '') return;
+        if ((k === 'period' || k === 'payment_method' || k === 'payment_status') && v === 'all') return;
+        cleaned[k] = v;
+    });
+    if (cleaned.period !== 'custom') {
+        delete cleaned.date_from;
+        delete cleaned.date_to;
+    }
+    return cleaned;
+}
+
+function applyFilters(overrides = {}) {
+    router.get('/vendas', buildQuery(overrides), {
+        preserveState: false,
+        preserveScroll: true,
+        replace: true,
+    });
+}
+
+const menuVenda = computed(() => {
+    if (openMenuId.value == null) return null;
+    const list = vendasList.value ?? [];
+    return list.find((x) => x.id === openMenuId.value) ?? null;
+});
+
 function setFilter(value) {
-    router.get('/vendas', { status_filter: value }, { preserveState: false });
+    applyFilters({ status_filter: value });
 }
 
 function formatBRL(value) {
@@ -93,18 +182,62 @@ function closeSidebar() {
     selectedVenda.value = null;
 }
 
-function toggleMenu(id) {
-    openMenuId.value = openMenuId.value === id ? null : id;
+async function updateMenuPosition() {
+    const anchor = menuAnchorEl.value;
+    if (!anchor || openMenuId.value == null) return;
+
+    const rect = anchor.getBoundingClientRect();
+    const minMargin = 8;
+    const desiredWidth = 192;
+    const viewportW = window.innerWidth || 0;
+    const viewportH = window.innerHeight || 0;
+
+    let left = rect.right - desiredWidth;
+    left = Math.max(minMargin, Math.min(left, Math.max(minMargin, viewportW - desiredWidth - minMargin)));
+
+    let top = rect.bottom + 4;
+    top = Math.max(minMargin, Math.min(top, Math.max(minMargin, viewportH - minMargin)));
+
+    menuPos.value = { top, left };
+
+    await nextTick();
+    const menu = menuEl.value;
+    if (!menu) return;
+
+    const menuRect = menu.getBoundingClientRect();
+    const spaceBelow = viewportH - rect.bottom;
+    const spaceAbove = rect.top;
+    const shouldOpenUp = menuRect.height + 8 > spaceBelow && spaceAbove >= menuRect.height + 8;
+
+    if (shouldOpenUp) {
+        const newTop = Math.max(minMargin, rect.top - menuRect.height - 4);
+        menuPos.value = { top: newTop, left: menuPos.value.left };
+    }
+}
+
+async function toggleMenu(id, event) {
+    if (openMenuId.value === id) {
+        closeMenu();
+        return;
+    }
+    openMenuId.value = id;
+    menuAnchorEl.value = event?.currentTarget ?? null;
+    await nextTick();
+    await updateMenuPosition();
 }
 
 function closeMenu() {
     openMenuId.value = null;
+    menuAnchorEl.value = null;
 }
 
 function handleClickOutside(event) {
     if (openMenuId.value == null) return;
     const el = document.querySelector(`[data-venda-menu="${openMenuId.value}"]`);
-    if (el && !el.contains(event.target)) closeMenu();
+    const menu = menuEl.value;
+    if (el && el.contains(event.target)) return;
+    if (menu && menu.contains(event.target)) return;
+    closeMenu();
 }
 
 async function resendEmail(v) {
@@ -161,11 +294,55 @@ function showToast(message, type) {
 
 onMounted(() => {
     document.addEventListener('click', handleClickOutside);
+    window.addEventListener('resize', updateMenuPosition);
+    window.addEventListener('scroll', updateMenuPosition, true);
 });
 
 onUnmounted(() => {
     document.removeEventListener('click', handleClickOutside);
+    window.removeEventListener('resize', updateMenuPosition);
+    window.removeEventListener('scroll', updateMenuPosition, true);
     if (toastTimer) clearTimeout(toastTimer);
+    if (searchTimer) clearTimeout(searchTimer);
+});
+
+function onSearchInput() {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+        applyFilters();
+        searchTimer = null;
+    }, 350);
+}
+
+function onFilterChange() {
+    applyFilters();
+}
+
+function clearFilters() {
+    filterForm.value = {
+        q: '',
+        period: 'all',
+        date_from: '',
+        date_to: '',
+        product_id: '',
+        offer_id: '',
+        payment_method: 'all',
+        payment_status: 'all',
+        utm_source: '',
+        utm_medium: '',
+        utm_campaign: '',
+    };
+    applyFilters();
+}
+
+const exportCsvUrl = computed(() => {
+    const params = new URLSearchParams({ ...buildQuery(), format: 'csv' });
+    return `/vendas/export?${params.toString()}`;
+});
+
+const exportXlsUrl = computed(() => {
+    const params = new URLSearchParams({ ...buildQuery(), format: 'xls' });
+    return `/vendas/export?${params.toString()}`;
 });
 </script>
 
@@ -240,37 +417,188 @@ onUnmounted(() => {
                 class="inline-flex rounded-xl bg-zinc-100/80 p-1 dark:bg-zinc-800/80"
                 aria-label="Filtrar vendas"
             >
-            <button
-                v-for="opt in filterOptions"
-                :key="opt.value"
-                type="button"
-                :aria-current="status_filter === opt.value ? 'true' : undefined"
-                :class="[
-                    'rounded-lg px-4 py-2.5 text-sm font-medium transition-all duration-200',
-                    status_filter === opt.value
-                        ? 'bg-white text-[var(--color-primary)] shadow-sm dark:bg-zinc-700 dark:text-[var(--color-primary)]'
-                        : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white',
-                ]"
-                @click="setFilter(opt.value)"
-            >
-                {{ opt.label }}
-            </button>
-        </nav>
+                <button
+                    v-for="opt in filterOptions"
+                    :key="opt.value"
+                    type="button"
+                    :aria-current="status_filter === opt.value ? 'true' : undefined"
+                    :class="[
+                        'rounded-lg px-4 py-2.5 text-sm font-medium transition-all duration-200',
+                        status_filter === opt.value
+                            ? 'bg-white text-[var(--color-primary)] shadow-sm dark:bg-zinc-700 dark:text-[var(--color-primary)]'
+                            : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white',
+                    ]"
+                    @click="setFilter(opt.value)"
+                >
+                    {{ opt.label }}
+                </button>
+            </nav>
             <div class="flex items-center gap-2">
                 <a
-                    :href="`/vendas/export?format=csv&status_filter=${status_filter}`"
+                    :href="exportCsvUrl"
                     class="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                 >
                     <Download class="h-4 w-4" />
                     Exportar CSV
                 </a>
                 <a
-                    :href="`/vendas/export?format=xls&status_filter=${status_filter}`"
+                    :href="exportXlsUrl"
                     class="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                 >
                     <Download class="h-4 w-4" />
                     Exportar XLS
                 </a>
+            </div>
+        </div>
+
+        <!-- Busca e filtros -->
+        <div class="space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <div class="relative w-full max-w-xl">
+                    <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                    <input
+                        v-model="filterForm.q"
+                        type="text"
+                        class="w-full rounded-xl border border-zinc-200 bg-white py-2 pl-10 pr-10 text-sm text-zinc-900 shadow-sm transition focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                        placeholder="Buscar por cliente, e-mail, pedido, produto..."
+                        @input="onSearchInput"
+                    />
+                    <button
+                        v-if="filterForm.q"
+                        type="button"
+                        class="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                        aria-label="Limpar busca"
+                        @click="filterForm.q = ''; onFilterChange()"
+                    >
+                        <X class="h-4 w-4" />
+                    </button>
+                </div>
+                <button
+                    type="button"
+                    class="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    @click="clearFilters"
+                >
+                    Limpar filtros
+                </button>
+            </div>
+
+            <div class="grid gap-3 lg:grid-cols-6">
+                <div class="lg:col-span-2">
+                    <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Período</label>
+                    <select
+                        v-model="filterForm.period"
+                        class="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 transition focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                        @change="onFilterChange"
+                    >
+                        <option v-for="p in periodOptions" :key="p.value" :value="p.value">{{ p.label }}</option>
+                    </select>
+                </div>
+
+                <div v-if="filterForm.period === 'custom'">
+                    <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">De</label>
+                    <input
+                        v-model="filterForm.date_from"
+                        type="date"
+                        class="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 transition focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                        @change="onFilterChange"
+                    />
+                </div>
+                <div v-if="filterForm.period === 'custom'">
+                    <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Até</label>
+                    <input
+                        v-model="filterForm.date_to"
+                        type="date"
+                        class="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 transition focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                        @change="onFilterChange"
+                    />
+                </div>
+
+                <div :class="filterForm.period === 'custom' ? 'lg:col-span-2' : ''">
+                    <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Produto</label>
+                    <select
+                        v-model="filterForm.product_id"
+                        class="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 transition focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                        @change="() => { if (filterForm.offer_id && !offersForSelectedProduct.some(o => String(o.id) === String(filterForm.offer_id))) filterForm.offer_id = ''; onFilterChange(); }"
+                    >
+                        <option value="">Todos produtos</option>
+                        <option v-for="p in products" :key="p.id" :value="p.id">{{ p.name }}</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Oferta</label>
+                    <select
+                        v-model="filterForm.offer_id"
+                        class="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 transition focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                        @change="onFilterChange"
+                    >
+                        <option value="">Todas ofertas</option>
+                        <option v-for="o in offersForSelectedProduct" :key="o.id" :value="o.id">
+                            {{ o.product_name ? `${o.product_name} - ${o.name}` : o.name }}
+                        </option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Método</label>
+                    <select
+                        v-model="filterForm.payment_method"
+                        class="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 transition focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                        @change="onFilterChange"
+                    >
+                        <option v-for="m in paymentMethodOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Status</label>
+                    <select
+                        v-model="filterForm.payment_status"
+                        class="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 transition focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                        @change="onFilterChange"
+                    >
+                        <option v-for="s in paymentStatusOptions" :key="s.value" :value="s.value">{{ s.label }}</option>
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <button
+                    type="button"
+                    class="text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
+                    @click="advancedFiltersOpen = !advancedFiltersOpen"
+                >
+                    {{ advancedFiltersOpen ? 'Ocultar filtros avançados' : 'Mostrar filtros avançados' }}
+                </button>
+                <div v-if="advancedFiltersOpen" class="mt-3 grid gap-3 lg:grid-cols-3">
+                    <div>
+                        <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">utm_source</label>
+                        <input
+                            v-model="filterForm.utm_source"
+                            type="text"
+                            class="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 transition focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                            @change="onFilterChange"
+                        />
+                    </div>
+                    <div>
+                        <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">utm_medium</label>
+                        <input
+                            v-model="filterForm.utm_medium"
+                            type="text"
+                            class="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 transition focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                            @change="onFilterChange"
+                        />
+                    </div>
+                    <div>
+                        <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">utm_campaign</label>
+                        <input
+                            v-model="filterForm.utm_campaign"
+                            type="text"
+                            class="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 transition focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                            @change="onFilterChange"
+                        />
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -357,43 +685,10 @@ onUnmounted(() => {
                                     class="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
                                     aria-label="Abrir menu"
                                     aria-expanded="openMenuId === v.id"
-                                    @click="toggleMenu(v.id)"
+                                    @click="toggleMenu(v.id, $event)"
                                 >
                                     <MoreVertical class="h-4 w-4" />
                                 </button>
-                                <div
-                                    v-show="openMenuId === v.id"
-                                    class="absolute right-0 top-full z-50 mt-1 w-48 rounded-xl border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
-                                >
-                                    <button
-                                        type="button"
-                                        class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                                        @click="openDetail(v)"
-                                    >
-                                        <FileText class="h-4 w-4 shrink-0" />
-                                        Detalhes
-                                    </button>
-                                    <button
-                                        v-if="v.status === 'pending'"
-                                        type="button"
-                                        class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-900/20 disabled:opacity-50"
-                                        :disabled="approvingId === v.id"
-                                        @click="approveManually(v)"
-                                    >
-                                        <CheckCircle class="h-4 w-4 shrink-0" />
-                                        {{ approvingId === v.id ? 'Aprovando...' : 'Aprovar manualmente' }}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                                        :disabled="resendingId === v.id || v.status === 'pending'"
-                                        title="Indisponível para pagamentos pendentes"
-                                        @click="resendEmail(v)"
-                                    >
-                                        <Mail class="h-4 w-4 shrink-0" />
-                                        {{ resendingId === v.id ? 'Enviando...' : 'Reenviar e-mail de compra' }}
-                                    </button>
-                                </div>
                             </div>
                         </td>
                     </tr>
@@ -440,6 +735,43 @@ onUnmounted(() => {
 
         <!-- Toast local -->
         <Teleport to="body">
+            <div
+                v-if="openMenuId != null && menuVenda"
+                ref="menuEl"
+                class="fixed z-[100000] w-48 rounded-xl border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+                :style="{ top: `${menuPos.top}px`, left: `${menuPos.left}px` }"
+                role="menu"
+                aria-label="Ações da venda"
+            >
+                <button
+                    type="button"
+                    class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    @click="openDetail(menuVenda)"
+                >
+                    <FileText class="h-4 w-4 shrink-0" />
+                    Detalhes
+                </button>
+                <button
+                    v-if="menuVenda.status === 'pending'"
+                    type="button"
+                    class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-900/20 disabled:opacity-50"
+                    :disabled="approvingId === openMenuId"
+                    @click="approveManually(menuVenda)"
+                >
+                    <CheckCircle class="h-4 w-4 shrink-0" />
+                    {{ approvingId === openMenuId ? 'Aprovando...' : 'Aprovar manualmente' }}
+                </button>
+                <button
+                    type="button"
+                    class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                    :disabled="resendingId === openMenuId || menuVenda.status === 'pending'"
+                    title="Indisponível para pagamentos pendentes"
+                    @click="resendEmail(menuVenda)"
+                >
+                    <Mail class="h-4 w-4 shrink-0" />
+                    {{ resendingId === openMenuId ? 'Enviando...' : 'Reenviar e-mail de compra' }}
+                </button>
+            </div>
             <Transition
                 enter-active-class="transition duration-200 ease-out"
                 enter-from-class="translate-y-2 opacity-0"

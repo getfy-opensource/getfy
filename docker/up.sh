@@ -80,4 +80,4 @@ for f in $COMPOSE_FILES; do
 done
 IFS="$OLD_IFS"
 
-docker compose $COMPOSE_ARGS --env-file "$ENV_FILE" up --build -d --remove-orphans
+docker compose $COMPOSE_ARGS --env-file "$ENV_FILE" up --build -d

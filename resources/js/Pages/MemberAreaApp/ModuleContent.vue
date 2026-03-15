@@ -23,6 +23,24 @@ const props = defineProps({
     lesson_comments: { type: Array, default: () => [] },
 });
 
+function normalizePdfFiles(lesson) {
+    const list = Array.isArray(lesson?.content_files) ? lesson.content_files : [];
+    const normalized = list
+        .map((it) => {
+            if (typeof it === 'string') return { url: it, name: 'Material' };
+            const url = (it?.url ?? '').toString().trim();
+            if (!url) return null;
+            return { url, name: (it?.name ?? 'Material').toString().trim() || 'Material' };
+        })
+        .filter(Boolean);
+    if (normalized.length === 0 && lesson?.content_url) {
+        normalized.push({ url: lesson.content_url, name: 'Material' });
+    }
+    return normalized;
+}
+
+const currentPdfFiles = computed(() => normalizePdfFiles(props.current_lesson));
+
 const completedLessonIds = ref(new Set());
 const completed = ref(props.current_lesson?.is_completed ?? false);
 let autoCompleteTimer = null;
@@ -127,15 +145,23 @@ function scrollCarousel(sectionId, direction) {
                 <h1 class="text-2xl font-bold">{{ current_lesson.title }}</h1>
 
                 <div class="rounded-xl border border-zinc-700 bg-zinc-800/50 overflow-hidden">
-                    <template v-if="current_lesson.type === 'video' && current_lesson.content_url">
+                    <template v-if="current_lesson.type === 'video'">
                         <MemberAreaVideoPlayer
+                            v-if="current_lesson.content_url"
                             :src="current_lesson.content_url"
                             :watermark-enabled="!!current_lesson.watermark_enabled"
                             :watermark-data="current_lesson.student ?? null"
                             @ended="markComplete"
                         />
+                        <div
+                            v-if="current_lesson.content_text"
+                            class="prose prose-invert max-w-none border-t border-zinc-700 p-6"
+                            v-html="formatLessonDescription(current_lesson.content_text)"
+                        />
+                        <div v-if="!current_lesson.content_url && !current_lesson.content_text" class="p-8 text-center text-zinc-500">
+                            Conteúdo não disponível.
+                        </div>
                     </template>
-                    <div v-if="current_lesson.type === 'video' && current_lesson.content_text" class="prose prose-invert max-w-none border-t border-zinc-700 p-6" v-html="formatLessonDescription(current_lesson.content_text)" />
                     <template v-else-if="current_lesson.type === 'link' && current_lesson.content_url">
                         <div class="p-6">
                             <a :href="current_lesson.content_url" target="_blank" rel="noopener" class="inline-flex items-center gap-2 text-[var(--ma-primary)] hover:underline">
@@ -144,16 +170,26 @@ function scrollCarousel(sectionId, direction) {
                             </a>
                         </div>
                     </template>
-                    <div v-if="current_lesson.type === 'link' && current_lesson.content_text" class="prose prose-invert max-w-none border-t border-zinc-700 p-6" v-html="formatLessonDescription(current_lesson.content_text)" />
-                    <template v-else-if="current_lesson.type === 'pdf' && current_lesson.content_url">
+                    <div v-else-if="current_lesson.type === 'link' && current_lesson.content_text" class="prose prose-invert max-w-none border-t border-zinc-700 p-6" v-html="formatLessonDescription(current_lesson.content_text)" />
+                    <template v-else-if="current_lesson.type === 'pdf' && currentPdfFiles.length">
                         <div class="p-6">
-                            <a :href="current_lesson.content_url" download target="_blank" rel="noopener" class="inline-flex items-center gap-2 rounded-lg bg-[var(--ma-primary)] px-4 py-2.5 font-medium text-white transition hover:opacity-90">
-                                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                                Baixar material
-                            </a>
+                            <div class="space-y-2">
+                                <a
+                                    v-for="(f, i) in currentPdfFiles"
+                                    :key="`${f.url}-${i}`"
+                                    :href="f.url"
+                                    download
+                                    target="_blank"
+                                    rel="noopener"
+                                    class="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--ma-primary)] px-4 py-2.5 font-medium text-white transition hover:opacity-90"
+                                >
+                                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                    {{ f.name || 'Baixar material' }}
+                                </a>
+                            </div>
                         </div>
                     </template>
-                    <div v-if="current_lesson.type === 'pdf' && current_lesson.content_text" class="prose prose-invert max-w-none border-t border-zinc-700 p-6" v-html="formatLessonDescription(current_lesson.content_text)" />
+                    <div v-else-if="current_lesson.type === 'pdf' && current_lesson.content_text" class="prose prose-invert max-w-none border-t border-zinc-700 p-6" v-html="formatLessonDescription(current_lesson.content_text)" />
                     <template v-else-if="current_lesson.type === 'text' && current_lesson.content_text">
                         <div class="prose prose-invert max-w-none p-6" v-html="current_lesson.content_text" />
                     </template>
@@ -218,19 +254,25 @@ function scrollCarousel(sectionId, direction) {
                 </div>
                 <nav class="max-h-[60vh] overflow-y-auto p-2">
                     <template v-if="lessons.length">
-                        <Link
-                            v-for="lesson in lessons"
-                            :key="lesson.id"
-                            :href="lessonUrl(lesson.id)"
-                            class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition"
-                            :class="current_lesson?.id === lesson.id
-                                ? 'bg-[var(--ma-primary)]/20 text-[var(--ma-primary)]'
-                                : 'text-zinc-300 hover:bg-zinc-700/50 hover:text-white'"
-                        >
-                            <CheckCircle v-if="isLessonCompleted(lesson)" class="h-4 w-4 shrink-0 text-emerald-500" />
-                            <span v-else class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-zinc-500 text-xs">{{ lessons.indexOf(lesson) + 1 }}</span>
-                            <span class="min-w-0 flex-1 truncate">{{ lesson.title || 'Sem título' }}</span>
-                        </Link>
+                        <template v-for="lesson in lessons" :key="lesson.id">
+                            <Link
+                                v-if="!lesson.is_locked"
+                                :href="lessonUrl(lesson.id)"
+                                class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition"
+                                :class="current_lesson?.id === lesson.id
+                                    ? 'bg-[var(--ma-primary)]/20 text-[var(--ma-primary)]'
+                                    : 'text-zinc-300 hover:bg-zinc-700/50 hover:text-white'"
+                            >
+                                <CheckCircle v-if="isLessonCompleted(lesson)" class="h-4 w-4 shrink-0 text-emerald-500" />
+                                <span v-else class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-zinc-500 text-xs">{{ lessons.indexOf(lesson) + 1 }}</span>
+                                <span class="min-w-0 flex-1 truncate">{{ lesson.title || 'Sem título' }}</span>
+                            </Link>
+                            <div v-else class="flex cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm opacity-70">
+                                <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-zinc-600 text-xs">{{ lessons.indexOf(lesson) + 1 }}</span>
+                                <span class="min-w-0 flex-1 truncate text-zinc-400">{{ lesson.title || 'Sem título' }}</span>
+                                <span v-if="lesson.lock_message" class="shrink-0 text-[10px] text-zinc-500">{{ lesson.lock_message }}</span>
+                            </div>
+                        </template>
                     </template>
                     <p v-else class="px-3 py-4 text-sm text-zinc-500">Nenhuma aula neste módulo.</p>
                 </nav>
@@ -267,21 +309,36 @@ function scrollCarousel(sectionId, direction) {
                         :ref="(el) => setCarouselRef(section.id, el)"
                         class="no-scrollbar flex gap-4 overflow-x-auto"
                     >
-                        <Link
-                            v-for="mod in section.modules"
-                            :key="mod.id"
-                            :href="`/m/${slug}/modulo/${mod.id}`"
-                            class="flex w-64 shrink-0 flex-col rounded-xl overflow-hidden bg-zinc-800/50 text-left transition hover:bg-zinc-800"
-                            :class="{ 'ring-2 ring-[var(--ma-primary)]/50': mod.id === module.id }"
-                        >
-                            <div :class="[(section.cover_mode === 'horizontal' ? 'aspect-video' : 'aspect-[2/3]'), 'relative w-full bg-zinc-700 flex items-center justify-center overflow-hidden']">
-                                <img v-if="mod.thumbnail" :src="mod.thumbnail" :alt="mod.title" class="absolute inset-0 h-full w-full object-cover" />
-                                <svg v-else class="h-12 w-12 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                                <div v-if="mod.show_title_on_cover !== false" class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-3 pb-3 pt-8">
-                                    <p class="truncate text-base font-medium text-white">{{ mod.title }}</p>
+                        <template v-for="mod in section.modules" :key="mod.id">
+                            <Link
+                                v-if="!mod.is_locked"
+                                :href="`/m/${slug}/modulo/${mod.id}`"
+                                class="flex w-64 shrink-0 flex-col rounded-xl overflow-hidden bg-zinc-800/50 text-left transition hover:bg-zinc-800"
+                                :class="{ 'ring-2 ring-[var(--ma-primary)]/50': mod.id === module.id }"
+                            >
+                                <div :class="[(section.cover_mode === 'horizontal' ? 'aspect-video' : 'aspect-[2/3]'), 'relative w-full bg-zinc-700 flex items-center justify-center overflow-hidden']">
+                                    <img v-if="mod.thumbnail" :src="mod.thumbnail" :alt="mod.title" class="absolute inset-0 h-full w-full object-cover" />
+                                    <svg v-else class="h-12 w-12 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                    <div v-if="mod.show_title_on_cover !== false" class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-3 pb-3 pt-8">
+                                        <p class="truncate text-base font-medium text-white">{{ mod.title }}</p>
+                                    </div>
+                                </div>
+                            </Link>
+                            <div
+                                v-else
+                                class="flex w-64 shrink-0 cursor-not-allowed flex-col rounded-xl overflow-hidden bg-zinc-800/30 text-left opacity-70"
+                            >
+                                <div :class="[(section.cover_mode === 'horizontal' ? 'aspect-video' : 'aspect-[2/3]'), 'relative w-full bg-zinc-700 flex items-center justify-center overflow-hidden']">
+                                    <img v-if="mod.thumbnail" :src="mod.thumbnail" :alt="mod.title" class="absolute inset-0 h-full w-full object-cover" />
+                                    <svg v-else class="h-12 w-12 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                    <div class="absolute inset-0 bg-black/50" />
+                                    <div class="absolute inset-x-0 bottom-0 px-3 pb-3 pt-8">
+                                        <p class="truncate text-base font-medium text-white">{{ mod.title }}</p>
+                                        <p v-if="mod.lock_message" class="mt-1 text-xs text-white/80">{{ mod.lock_message }}</p>
+                                    </div>
                                 </div>
                             </div>
-                        </Link>
+                        </template>
                     </div>
                 </div>
             </div>

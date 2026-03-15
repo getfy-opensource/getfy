@@ -18,6 +18,7 @@ class ApiApplication extends Model
         'payment_gateways',
         'allowed_ips',
         'webhook_url',
+        'default_return_url',
         'webhook_secret',
         'is_active',
     ];

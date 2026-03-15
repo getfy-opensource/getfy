@@ -126,19 +126,7 @@ class GatewaysController extends Controller
             $rules[$key] = ['nullable', 'string', 'max:2000'];
         }
 
-        if ($slug === 'spacepag') {
-            $rules['split_username'] = ['nullable', 'string', 'max:100', 'required_with:split_percentage'];
-            $rules['split_percentage'] = ['nullable', 'numeric', 'min:0.1', 'max:99.9', 'required_with:split_username'];
-        }
-
-        $messages = [
-            'split_username.required_with' => 'Preencha o username do split quando o percentual estiver preenchido.',
-            'split_percentage.required_with' => 'Preencha o percentual do split quando o username estiver preenchido.',
-            'split_percentage.numeric' => 'O percentual do split deve ser um número.',
-            'split_percentage.min' => 'O percentual do split deve ser no mínimo 0,1.',
-            'split_percentage.max' => 'O percentual do split deve ser no máximo 99,9.',
-        ];
-        $validated = $request->validate($rules, $messages);
+        $validated = $request->validate($rules);
 
         $tenantId = auth()->user()->tenant_id;
         $credential = GatewayCredential::forTenant($tenantId)->firstOrNew(

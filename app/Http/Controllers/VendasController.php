@@ -4,10 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Events\OrderCompleted;
 use App\Models\Order;
+use App\Models\Product;
+use App\Models\ProductOffer;
 use App\Models\Subscription;
 use App\Services\AccessEmailService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -16,21 +19,196 @@ class VendasController extends Controller
 {
     private const STATUS_FILTERS = ['aprovadas', 'med', 'todas'];
 
-    public function index(Request $request): InertiaResponse
+    private function normalizeStatusFilter(Request $request): string
     {
-        $tenantId = auth()->user()->tenant_id;
         $statusFilter = $request->query('status_filter', 'todas');
         if (! in_array($statusFilter, self::STATUS_FILTERS, true)) {
             $statusFilter = 'todas';
         }
+        return $statusFilter;
+    }
 
-        $baseQuery = Order::forTenant($tenantId);
+    private function normalizeString(?string $value): ?string
+    {
+        $v = trim((string) ($value ?? ''));
+        return $v !== '' ? $v : null;
+    }
 
-        $filteredQuery = match ($statusFilter) {
-            'aprovadas' => (clone $baseQuery)->where('status', 'completed'),
-            'med' => (clone $baseQuery)->where('status', 'disputed'),
-            default => clone $baseQuery,
+    private function applyStatusFilter($query, string $statusFilter)
+    {
+        return match ($statusFilter) {
+            'aprovadas' => $query->where('status', 'completed'),
+            'med' => $query->where('status', 'disputed'),
+            default => $query,
         };
+    }
+
+    private function applyPeriodFilter($query, Request $request)
+    {
+        $period = $this->normalizeString($request->query('period'));
+        $from = $this->normalizeString($request->query('date_from'));
+        $to = $this->normalizeString($request->query('date_to'));
+
+        if ($period === null || $period === 'all') {
+            return $query;
+        }
+
+        $now = now();
+        $start = null;
+        $end = null;
+
+        if ($period === 'today') {
+            $start = $now->copy()->startOfDay();
+            $end = $now->copy()->endOfDay();
+        } elseif ($period === '7d') {
+            $start = $now->copy()->subDays(6)->startOfDay();
+            $end = $now->copy()->endOfDay();
+        } elseif ($period === '30d') {
+            $start = $now->copy()->subDays(29)->startOfDay();
+            $end = $now->copy()->endOfDay();
+        } elseif ($period === 'this_month') {
+            $start = $now->copy()->startOfMonth();
+            $end = $now->copy()->endOfDay();
+        } elseif ($period === 'last_month') {
+            $start = $now->copy()->subMonthNoOverflow()->startOfMonth();
+            $end = $now->copy()->subMonthNoOverflow()->endOfMonth();
+        } elseif ($period === 'custom') {
+            $start = $from ? \Illuminate\Support\Carbon::parse($from)->startOfDay() : null;
+            $end = $to ? \Illuminate\Support\Carbon::parse($to)->endOfDay() : null;
+        }
+
+        if ($start && $end) {
+            return $query->whereBetween('created_at', [$start, $end]);
+        }
+        if ($start) {
+            return $query->where('created_at', '>=', $start);
+        }
+        if ($end) {
+            return $query->where('created_at', '<=', $end);
+        }
+        return $query;
+    }
+
+    private function applySearchFilter($query, Request $request)
+    {
+        $q = $this->normalizeString($request->query('q'));
+        if ($q === null) {
+            return $query;
+        }
+        $like = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $q) . '%';
+
+        return $query->where(function ($sub) use ($like) {
+            $sub->where('orders.id', 'like', $like)
+                ->orWhere('orders.email', 'like', $like)
+                ->orWhereHas('user', fn ($uq) => $uq->where('name', 'like', $like)->orWhere('email', 'like', $like))
+                ->orWhereHas('product', fn ($pq) => $pq->where('name', 'like', $like))
+                ->orWhereHas('productOffer', fn ($oq) => $oq->where('name', 'like', $like))
+                ->orWhereHas('subscriptionPlan', fn ($sq) => $sq->where('name', 'like', $like));
+        });
+    }
+
+    private function applyProductFilters($query, Request $request)
+    {
+        $productId = $this->normalizeString($request->query('product_id'));
+        $offerId = $request->query('offer_id');
+        $offerId = is_string($offerId) || is_int($offerId) ? (string) $offerId : null;
+        $offerId = $this->normalizeString($offerId);
+
+        if ($productId !== null) {
+            $query->where('product_id', $productId);
+        }
+        if ($offerId !== null) {
+            $query->where('product_offer_id', (int) $offerId);
+        }
+
+        return $query;
+    }
+
+    private function applyPaymentFilters($query, Request $request)
+    {
+        $method = $this->normalizeString($request->query('payment_method'));
+        if ($method !== null) {
+            $m = strtolower($method);
+            if ($m === 'pix') {
+                $query->where(function ($q) {
+                    $q->whereIn('gateway', ['spacepag', 'sapcepag'])
+                        ->orWhereRaw("LOWER(gateway) LIKE '%pix%'");
+                });
+            } elseif ($m === 'card') {
+                $query->where(function ($q) {
+                    $q->where('gateway', 'card')
+                        ->orWhereRaw("LOWER(gateway) LIKE '%card%'")
+                        ->orWhereRaw("LOWER(gateway) LIKE '%cartao%'")
+                        ->orWhereRaw("LOWER(gateway) LIKE '%cartão%'")
+                        ->orWhereRaw("LOWER(gateway) LIKE '%credito%'");
+                });
+            } elseif ($m === 'boleto') {
+                $query->where(function ($q) {
+                    $q->where('gateway', 'boleto')
+                        ->orWhereRaw("LOWER(gateway) LIKE '%boleto%'");
+                });
+            }
+        }
+
+        $paymentStatus = $this->normalizeString($request->query('payment_status'));
+        if ($paymentStatus !== null && $paymentStatus !== 'all') {
+            $query->where('status', $paymentStatus);
+        }
+
+        return $query;
+    }
+
+    private function applyUtmFilters($query, Request $request, ?int $tenantId)
+    {
+        $utmSource = $this->normalizeString($request->query('utm_source'));
+        $utmMedium = $this->normalizeString($request->query('utm_medium'));
+        $utmCampaign = $this->normalizeString($request->query('utm_campaign'));
+
+        if ($utmSource === null && $utmMedium === null && $utmCampaign === null) {
+            return $query;
+        }
+
+        return $query->whereExists(function ($q) use ($tenantId, $utmSource, $utmMedium, $utmCampaign) {
+            $q->select(DB::raw(1))
+                ->from('checkout_sessions')
+                ->whereColumn('checkout_sessions.order_id', 'orders.id');
+
+            if ($tenantId === null) {
+                $q->whereNull('checkout_sessions.tenant_id');
+            } else {
+                $q->where('checkout_sessions.tenant_id', $tenantId);
+            }
+
+            if ($utmSource !== null) {
+                $q->where('checkout_sessions.utm_source', $utmSource);
+            }
+            if ($utmMedium !== null) {
+                $q->where('checkout_sessions.utm_medium', $utmMedium);
+            }
+            if ($utmCampaign !== null) {
+                $q->where('checkout_sessions.utm_campaign', $utmCampaign);
+            }
+        });
+    }
+
+    private function buildFilteredQuery(Request $request, ?int $tenantId)
+    {
+        $statusFilter = $this->normalizeStatusFilter($request);
+        $query = Order::forTenant($tenantId);
+        $query = $this->applyStatusFilter($query, $statusFilter);
+        $query = $this->applyPeriodFilter($query, $request);
+        $query = $this->applySearchFilter($query, $request);
+        $query = $this->applyProductFilters($query, $request);
+        $query = $this->applyPaymentFilters($query, $request);
+        $query = $this->applyUtmFilters($query, $request, $tenantId);
+
+        return [$query, $statusFilter];
+    }
+
+    public function index(Request $request): InertiaResponse
+    {
+        $tenantId = auth()->user()->tenant_id;
+        [$filteredQuery, $statusFilter] = $this->buildFilteredQuery($request, $tenantId);
 
         $vendas = $filteredQuery
             ->with(['product:id,name,slug,checkout_slug', 'user:id,name,email', 'productOffer:id,name,checkout_slug', 'subscriptionPlan:id,name,checkout_slug'])
@@ -47,11 +225,7 @@ class VendasController extends Controller
                 return $arr;
             });
 
-        $statsQuery = match ($statusFilter) {
-            'aprovadas' => (clone $baseQuery)->where('status', 'completed'),
-            'med' => (clone $baseQuery)->where('status', 'disputed'),
-            default => clone $baseQuery,
-        };
+        [$statsQuery] = $this->buildFilteredQuery($request, $tenantId);
 
         $vendasEncontradas = (clone $statsQuery)->count();
 
@@ -60,7 +234,10 @@ class VendasController extends Controller
             ->sum('amount');
 
         $vendasPix = (clone $statsQuery)
-            ->whereIn('gateway', ['spacepag', 'sapcepag'])
+            ->where(function ($q) {
+                $q->whereIn('gateway', ['spacepag', 'sapcepag'])
+                    ->orWhereRaw("LOWER(gateway) LIKE '%pix%'");
+            })
             ->count();
 
         $vendasCartao = (clone $statsQuery)
@@ -88,10 +265,41 @@ class VendasController extends Controller
             'vendas_boleto' => $vendasBoleto,
         ];
 
+        $products = Product::forTenant($tenantId)->orderBy('name')->get(['id', 'name']);
+        $offers = ProductOffer::query()
+            ->whereHas('product', fn ($q) => $q->forTenant($tenantId))
+            ->with('product:id,name')
+            ->orderBy('product_id')
+            ->orderBy('position')
+            ->get()
+            ->map(fn (ProductOffer $o) => [
+                'id' => $o->id,
+                'name' => $o->name,
+                'product_id' => $o->product_id,
+                'product_name' => $o->product?->name,
+            ])
+            ->values()
+            ->all();
+
         return Inertia::render('Vendas/Index', [
             'vendas' => $vendas,
             'stats' => $stats,
             'status_filter' => $statusFilter,
+            'filters' => [
+                'q' => $this->normalizeString($request->query('q')),
+                'period' => $this->normalizeString($request->query('period')) ?? 'all',
+                'date_from' => $this->normalizeString($request->query('date_from')),
+                'date_to' => $this->normalizeString($request->query('date_to')),
+                'product_id' => $this->normalizeString($request->query('product_id')),
+                'offer_id' => $this->normalizeString((string) ($request->query('offer_id') ?? '')),
+                'payment_method' => $this->normalizeString($request->query('payment_method')) ?? 'all',
+                'payment_status' => $this->normalizeString($request->query('payment_status')) ?? 'all',
+                'utm_source' => $this->normalizeString($request->query('utm_source')),
+                'utm_medium' => $this->normalizeString($request->query('utm_medium')),
+                'utm_campaign' => $this->normalizeString($request->query('utm_campaign')),
+            ],
+            'products' => $products,
+            'offers' => $offers,
         ]);
     }
 
@@ -102,19 +310,8 @@ class VendasController extends Controller
             $format = 'csv';
         }
 
-        $statusFilter = $request->query('status_filter', 'todas');
-        if (! in_array($statusFilter, self::STATUS_FILTERS, true)) {
-            $statusFilter = 'todas';
-        }
-
         $tenantId = auth()->user()->tenant_id;
-        $baseQuery = Order::forTenant($tenantId);
-
-        $filteredQuery = match ($statusFilter) {
-            'aprovadas' => (clone $baseQuery)->where('status', 'completed'),
-            'med' => (clone $baseQuery)->where('status', 'disputed'),
-            default => clone $baseQuery,
-        };
+        [$filteredQuery] = $this->buildFilteredQuery($request, $tenantId);
 
         $vendas = $filteredQuery
             ->with(['product:id,name', 'user:id,name,email'])

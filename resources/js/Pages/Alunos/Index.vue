@@ -6,7 +6,7 @@ import ProdutosTabs from '@/components/produtos/ProdutosTabs.vue';
 import AlunoDetailSidebar from '@/components/alunos/AlunoDetailSidebar.vue';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
-import { Users, BookOpen, Package, UserPlus, Plus, ChevronDown, X, Upload, Download } from 'lucide-vue-next';
+import { Users, BookOpen, Package, UserPlus, Plus, ChevronDown, X, Upload, Download, Search } from 'lucide-vue-next';
 import axios from 'axios';
 
 defineOptions({ layout: LayoutInfoprodutor });
@@ -17,6 +17,7 @@ const props = defineProps({
     stats: { type: Object, default: () => ({}) },
     filter: { type: String, default: 'todos' },
     product_ids_filter: { type: Array, default: () => [] },
+    q: { type: String, default: '' },
 });
 
 const sidebarOpen = ref(false);
@@ -36,6 +37,9 @@ const importForm = ref({ file: null, product_ids: [], send_access_email: true })
 const importing = ref(false);
 const toast = ref({ message: null, type: null });
 let toastTimer = null;
+let searchTimer = null;
+
+const search = ref(props.q ?? '');
 
 const filterOptions = [
     { value: 'todos', label: 'Todos' },
@@ -50,19 +54,41 @@ const selectedProdutosLabels = computed(() => {
 });
 
 function setFilter(value) {
-    const q = { filter: value };
-    if (props.product_ids_filter?.length) {
-        q.product_ids = props.product_ids_filter;
-    }
-    router.get('/produtos/alunos', q, { preserveState: false });
+    applyQuery({ filter: value });
 }
 
 function setProductFilter(ids) {
-    const q = { filter: props.filter };
-    if (ids?.length) {
-        q.product_ids = ids;
-    }
-    router.get('/produtos/alunos', q, { preserveState: false });
+    applyQuery({ product_ids: ids });
+}
+
+function buildQuery(overrides = {}) {
+    const q = {
+        filter: props.filter,
+        product_ids: props.product_ids_filter,
+        q: search.value,
+        ...overrides,
+    };
+
+    const cleaned = {};
+    Object.entries(q).forEach(([k, v]) => {
+        if (v === null || v === undefined) return;
+        if (Array.isArray(v) && v.length === 0) return;
+        if (typeof v === 'string' && v.trim() === '') return;
+        cleaned[k] = v;
+    });
+    return cleaned;
+}
+
+function applyQuery(overrides = {}) {
+    router.get('/produtos/alunos', buildQuery(overrides), { preserveState: false, preserveScroll: true, replace: true });
+}
+
+function onSearchInput() {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+        applyQuery();
+        searchTimer = null;
+    }, 350);
 }
 
 function toggleProductFilter(id) {
@@ -234,6 +260,7 @@ onMounted(() => {
 onUnmounted(() => {
     document.removeEventListener('click', handleClickOutside);
     if (toastTimer) clearTimeout(toastTimer);
+    if (searchTimer) clearTimeout(searchTimer);
 });
 </script>
 
@@ -312,6 +339,25 @@ onUnmounted(() => {
                         {{ opt.label }}
                     </button>
                 </nav>
+                <div class="relative w-full sm:w-72">
+                    <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                    <input
+                        v-model="search"
+                        type="text"
+                        class="w-full rounded-xl border border-zinc-200 bg-white py-2 pl-10 pr-10 text-sm text-zinc-900 shadow-sm transition focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                        placeholder="Buscar aluno por nome ou e-mail..."
+                        @input="onSearchInput"
+                    />
+                    <button
+                        v-if="search"
+                        type="button"
+                        class="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                        aria-label="Limpar busca"
+                        @click="search = ''; applyQuery()"
+                    >
+                        <X class="h-4 w-4" />
+                    </button>
+                </div>
                 <div class="relative shrink-0" data-product-filter>
                     <button
                         type="button"

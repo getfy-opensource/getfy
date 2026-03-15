@@ -47,6 +47,7 @@ const sectionsOpen = ref({
     redirect: true,
     seo: true,
     support_button: true,
+    footer: true,
     exit_popup: true,
 });
 
@@ -115,6 +116,12 @@ const configForm = reactive({
         position: props.config?.support_button?.position ?? 'bottom-right',
         url: props.config?.support_button?.url ?? '',
         color: props.config?.support_button?.color ?? '#25D366',
+    },
+    footer: {
+        enabled: props.config?.footer?.enabled ?? false,
+        logo_url: props.config?.footer?.logo_url ?? '',
+        support_email: props.config?.footer?.support_email ?? '',
+        text: props.config?.footer?.text ?? '',
     },
     exit_popup: {
         enabled: props.config?.exit_popup?.enabled ?? false,
@@ -191,9 +198,22 @@ function removeReview(index) {
 }
 
 const previewUrl = computed(() => {
-    const slug = props.produto?.checkout_slug ?? props.checkout_scope?.checkout_slug;
-    if (typeof window === 'undefined' || !slug) return null;
-    return `${window.location.origin}/c/${slug}`;
+    if (typeof window === 'undefined') return null;
+    const scope = props.checkout_scope || {};
+    const scopedSlug = (scope.checkout_slug || '').trim();
+    const productSlug = (props.produto?.checkout_slug || '').trim();
+
+    const slug = scopedSlug || productSlug;
+    if (!slug) return null;
+
+    const url = new URL(`${window.location.origin}/c/${slug}`);
+    if (scope.type === 'offer' && scope.offer_id != null && !scopedSlug) {
+        url.searchParams.set('offer_id', String(scope.offer_id));
+    }
+    if (scope.type === 'plan' && scope.plan_id != null && !scopedSlug) {
+        url.searchParams.set('plan_id', String(scope.plan_id));
+    }
+    return url.toString();
 });
 const previewIframeUrl = computed(() => {
     if (!previewUrl.value) return null;
@@ -727,6 +747,41 @@ const inputClass =
                                     />
                                     <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Vazio = favicon da plataforma</p>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Rodapé do checkout -->
+                    <div class="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800">
+                        <button
+                            type="button"
+                            class="flex w-full items-center justify-between gap-2 px-4 py-3 text-left font-semibold text-zinc-900 dark:text-white"
+                            @click="toggleSection('footer')"
+                        >
+                            <span class="flex items-center gap-2">Rodapé do checkout</span>
+                            <ChevronDown v-if="sectionsOpen.footer" class="h-5 w-5 shrink-0" />
+                            <ChevronRight v-else class="h-5 w-5 shrink-0" />
+                        </button>
+                        <div v-show="sectionsOpen.footer" class="border-t border-zinc-200 px-4 py-4 dark:border-zinc-700">
+                            <div class="space-y-4">
+                                <Toggle v-model="configForm.footer.enabled" label="Ativar rodapé personalizado" />
+                                <template v-if="configForm.footer.enabled">
+                                    <div>
+                                        <ImageUpload
+                                            v-model="configForm.footer.logo_url"
+                                            :upload-url="uploadUrl"
+                                            label="Logo do rodapé (opcional)"
+                                            recommended-size="240×80 px (horizontal)"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Nome/Texto</label>
+                                        <input v-model="configForm.footer.text" type="text" :class="inputClass" placeholder="Ex.: Minha Empresa" />
+                                    </div>
+                                    <div>
+                                        <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">E-mail de suporte</label>
+                                        <input v-model="configForm.footer.support_email" type="email" :class="inputClass" placeholder="suporte@exemplo.com" />
+                                    </div>
+                                </template>
                             </div>
                         </div>
                     </div>

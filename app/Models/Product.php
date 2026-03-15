@@ -152,6 +152,12 @@ class Product extends Model
                 'url' => '',
                 'color' => '#25D366',
             ],
+            'footer' => [
+                'enabled' => false,
+                'logo_url' => '',
+                'support_email' => '',
+                'text' => '',
+            ],
             'exit_popup' => [
                 'enabled' => false,
                 'triggers' => [

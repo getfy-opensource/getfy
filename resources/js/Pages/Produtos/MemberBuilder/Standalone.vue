@@ -522,15 +522,38 @@ function selectModuleForAulas(moduleId) {
 
 function openModulosLessonForm(lesson) {
     if (lesson) {
-        modulosLessonForm.value = { ...lesson, watermark_enabled: !!lesson.watermark_enabled };
+        const existingFiles = Array.isArray(lesson.content_files) ? lesson.content_files : [];
+        const normalizedFiles = existingFiles
+            .map((it) => {
+                if (typeof it === 'string') return { url: it, name: 'Material' };
+                const url = (it?.url ?? '').toString().trim();
+                if (!url) return null;
+                return { url, name: (it?.name ?? 'Material').toString() };
+            })
+            .filter(Boolean);
+        if (normalizedFiles.length === 0 && lesson.content_url) {
+            normalizedFiles.push({ url: lesson.content_url, name: 'Material' });
+        }
+        modulosLessonForm.value = {
+            ...lesson,
+            watermark_enabled: !!lesson.watermark_enabled,
+            content_files: normalizedFiles,
+            release_mode: lesson.release_at_date ? 'date' : (lesson.release_after_days ? 'days' : 'none'),
+            release_after_days: lesson.release_after_days ? String(lesson.release_after_days) : '',
+            release_at_date: lesson.release_at_date || '',
+        };
     } else {
         modulosLessonForm.value = {
             title: '',
             type: 'video',
             content_url: '',
             link_title: '',
+            content_files: [],
             content_text: '',
             watermark_enabled: false,
+            release_mode: 'none',
+            release_after_days: '',
+            release_at_date: '',
         };
     }
 }
@@ -540,19 +563,26 @@ function closeModulosLessonForm() {
 }
 
 async function onLessonPdfChange(event) {
-    const file = event.target?.files?.[0];
-    if (!file || !modulosLessonForm.value) return;
-    if (file.type !== 'application/pdf') {
-        alert('Selecione um arquivo em formato PDF.');
-        if (lessonPdfFileInput.value) lessonPdfFileInput.value.value = '';
-        return;
-    }
+    const files = Array.from(event.target?.files ?? []);
+    if (!files.length || !modulosLessonForm.value) return;
     lessonPdfUploading.value = true;
     try {
-        const formData = new FormData();
-        formData.append('file', file);
-        const { data } = await axios.post(uploadPdfUrl.value, formData, { headers: uploadHeaders() });
-        if (data?.url) modulosLessonForm.value.content_url = data.url;
+        if (!Array.isArray(modulosLessonForm.value.content_files)) modulosLessonForm.value.content_files = [];
+        for (const file of files) {
+            if (!file) continue;
+            if (file.type !== 'application/pdf') {
+                alert('Selecione apenas arquivos em formato PDF.');
+                continue;
+            }
+            const formData = new FormData();
+            formData.append('file', file);
+            const { data } = await axios.post(uploadPdfUrl.value, formData, { headers: uploadHeaders() });
+            if (data?.url) {
+                modulosLessonForm.value.content_files.push({ url: data.url, name: file.name });
+            }
+        }
+        const first = modulosLessonForm.value.content_files?.[0]?.url ?? '';
+        modulosLessonForm.value.content_url = first || modulosLessonForm.value.content_url || '';
     } catch (e) {
         const msg = e.response?.data?.message ?? e.message ?? 'Erro ao enviar material.';
         alert(msg);
@@ -564,15 +594,43 @@ async function onLessonPdfChange(event) {
 
 function clearLessonPdf() {
     if (modulosLessonForm.value) modulosLessonForm.value.content_url = '';
+    if (modulosLessonForm.value) modulosLessonForm.value.content_files = [];
     if (lessonPdfFileInput.value) lessonPdfFileInput.value.value = '';
 }
 
+function removeLessonPdfAt(index) {
+    if (!modulosLessonForm.value || !Array.isArray(modulosLessonForm.value.content_files)) return;
+    modulosLessonForm.value.content_files.splice(index, 1);
+    const first = modulosLessonForm.value.content_files?.[0]?.url ?? '';
+    modulosLessonForm.value.content_url = first || '';
+}
+
 function lessonPayload(form) {
+    const contentFiles = Array.isArray(form.content_files)
+        ? form.content_files
+              .map((it) => ({
+                  url: (it?.url ?? '').toString().trim(),
+                  name: (it?.name ?? '').toString().trim(),
+              }))
+              .filter((it) => it.url)
+        : [];
+    const firstFileUrl = contentFiles[0]?.url ?? '';
+    let release_after_days = null;
+    let release_at_date = null;
+    if (form.release_mode === 'days') {
+        const days = parseInt(form.release_after_days, 10);
+        release_after_days = Number.isFinite(days) && days > 0 ? days : null;
+    } else if (form.release_mode === 'date') {
+        release_at_date = form.release_at_date?.trim() || null;
+    }
     return {
         title: (form.title ?? '').trim() || 'Sem título',
         type: form.type ?? 'video',
-        content_url: form.content_url ?? '',
+        content_url: (form.type === 'pdf' ? (firstFileUrl || form.content_url) : form.content_url) ?? '',
         link_title: form.link_title != null ? String(form.link_title).trim() : '',
+        content_files: form.type === 'pdf' ? contentFiles : [],
+        release_after_days,
+        release_at_date,
         content_text: form.content_text ?? '',
         duration_seconds: 0,
         is_free: false,
@@ -651,6 +709,9 @@ const editingModuleShowTitleOnCover = ref(true);
 const editingModuleRelatedProductId = ref(null);
 const editingModuleAccessType = ref('paid');
 const editingModuleExternalUrl = ref('');
+const editingModuleReleaseMode = ref('none'); // none | days | date
+const editingModuleReleaseAfterDays = ref('');
+const editingModuleReleaseAtDate = ref('');
 
 const sectionModalOpen = ref(false);
 const sectionModalTitle = ref('');
@@ -671,6 +732,9 @@ const moduleModalFileInputRef = ref(null);
 const moduleModalRelatedProductId = ref(null);
 const moduleModalAccessType = ref('paid');
 const moduleModalExternalUrl = ref('');
+const moduleModalReleaseMode = ref('none'); // none | days | date
+const moduleModalReleaseAfterDays = ref('');
+const moduleModalReleaseAtDate = ref('');
 
 function openSectionEdit(section) {
     editingSectionTitle.value = section.title;
@@ -697,6 +761,19 @@ function openModuleEdit(mod) {
     editingModuleRelatedProductId.value = mod.related_product_id ?? null;
     editingModuleAccessType.value = mod.access_type ?? 'paid';
     editingModuleExternalUrl.value = mod.external_url ?? '';
+    if (mod.release_at_date) {
+        editingModuleReleaseMode.value = 'date';
+        editingModuleReleaseAtDate.value = mod.release_at_date;
+        editingModuleReleaseAfterDays.value = '';
+    } else if (mod.release_after_days) {
+        editingModuleReleaseMode.value = 'days';
+        editingModuleReleaseAfterDays.value = String(mod.release_after_days);
+        editingModuleReleaseAtDate.value = '';
+    } else {
+        editingModuleReleaseMode.value = 'none';
+        editingModuleReleaseAfterDays.value = '';
+        editingModuleReleaseAtDate.value = '';
+    }
     startEditModule(mod.id);
 }
 
@@ -709,6 +786,17 @@ async function saveModuleTitle() {
     const payload = { title: editingModuleTitle.value };
     if (sectionType === 'courses') {
         payload.show_title_on_cover = editingModuleShowTitleOnCover.value;
+        if (editingModuleReleaseMode.value === 'days') {
+            const days = parseInt(editingModuleReleaseAfterDays.value, 10);
+            payload.release_after_days = Number.isFinite(days) && days > 0 ? days : null;
+            payload.release_at_date = null;
+        } else if (editingModuleReleaseMode.value === 'date') {
+            payload.release_at_date = editingModuleReleaseAtDate.value?.trim() || null;
+            payload.release_after_days = null;
+        } else {
+            payload.release_after_days = null;
+            payload.release_at_date = null;
+        }
     } else if (sectionType === 'products') {
         payload.related_product_id = editingModuleRelatedProductId.value;
         payload.access_type = editingModuleAccessType.value;
@@ -1110,6 +1198,9 @@ function openModuleModal(sectionId) {
     moduleModalRelatedProductId.value = null;
     moduleModalAccessType.value = 'paid';
     moduleModalExternalUrl.value = '';
+    moduleModalReleaseMode.value = 'none';
+    moduleModalReleaseAfterDays.value = '';
+    moduleModalReleaseAtDate.value = '';
     clearModuleModalFile();
     moduleModalOpen.value = true;
 }
@@ -1148,6 +1239,17 @@ async function confirmNewModule() {
         let payload = { title };
         if (sectionType === 'courses') {
             payload.show_title_on_cover = moduleModalShowTitleOnCover.value;
+            if (moduleModalReleaseMode.value === 'days') {
+                const days = parseInt(moduleModalReleaseAfterDays.value, 10);
+                payload.release_after_days = Number.isFinite(days) && days > 0 ? days : null;
+                payload.release_at_date = null;
+            } else if (moduleModalReleaseMode.value === 'date') {
+                payload.release_at_date = moduleModalReleaseAtDate.value?.trim() || null;
+                payload.release_after_days = null;
+            } else {
+                payload.release_after_days = null;
+                payload.release_at_date = null;
+            }
         } else if (sectionType === 'products') {
             payload.related_product_id = moduleModalRelatedProductId.value;
             payload.access_type = moduleModalAccessType.value;
@@ -1952,6 +2054,34 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                                     <div class="mb-3">
                                                         <input v-model="editingModuleTitle" type="text" :class="inputClass" class="!py-1.5 !text-sm w-full" placeholder="Título do módulo" @keydown.enter="saveModuleTitle" @keydown.escape="cancelEdit" />
                                                     </div>
+                                                    <div class="mb-3">
+                                                        <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Liberação</label>
+                                                        <div class="grid gap-2 sm:grid-cols-3">
+                                                            <select v-model="editingModuleReleaseMode" :class="inputClass" class="!py-1.5 !text-xs w-full">
+                                                                <option value="none">Imediata</option>
+                                                                <option value="days">Após X dias</option>
+                                                                <option value="date">Na data</option>
+                                                            </select>
+                                                            <input
+                                                                v-if="editingModuleReleaseMode === 'days'"
+                                                                v-model="editingModuleReleaseAfterDays"
+                                                                type="number"
+                                                                min="1"
+                                                                step="1"
+                                                                :class="inputClass"
+                                                                class="!py-1.5 !text-xs w-full"
+                                                                placeholder="Ex.: 7"
+                                                            />
+                                                            <input
+                                                                v-else-if="editingModuleReleaseMode === 'date'"
+                                                                v-model="editingModuleReleaseAtDate"
+                                                                type="date"
+                                                                :class="inputClass"
+                                                                class="!py-1.5 !text-xs w-full"
+                                                            />
+                                                            <div v-else class="hidden sm:block" />
+                                                        </div>
+                                                    </div>
                                                     <div v-if="editingModule?.thumbnail" class="mb-3 flex items-center gap-3">
                                                         <div :class="section.cover_mode === 'horizontal' ? 'aspect-video w-24 shrink-0' : 'aspect-[2/3] h-20 w-14 shrink-0'" class="overflow-hidden rounded-lg shadow-sm">
                                                             <img :src="editingModule.thumbnail" alt="Capa" class="h-full w-full object-cover" />
@@ -2165,6 +2295,33 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                                     <option value="text">Texto</option>
                                                 </select>
                                             </div>
+                                            <div>
+                                                <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Liberação</label>
+                                                <div class="grid gap-2">
+                                                    <select v-model="modulosLessonForm.release_mode" :class="inputClass" class="w-full">
+                                                        <option value="none">Imediata</option>
+                                                        <option value="days">Após X dias</option>
+                                                        <option value="date">Na data</option>
+                                                    </select>
+                                                    <input
+                                                        v-if="modulosLessonForm.release_mode === 'days'"
+                                                        v-model="modulosLessonForm.release_after_days"
+                                                        type="number"
+                                                        min="1"
+                                                        step="1"
+                                                        :class="inputClass"
+                                                        class="w-full"
+                                                        placeholder="Ex.: 7"
+                                                    />
+                                                    <input
+                                                        v-else-if="modulosLessonForm.release_mode === 'date'"
+                                                        v-model="modulosLessonForm.release_at_date"
+                                                        type="date"
+                                                        :class="inputClass"
+                                                        class="w-full"
+                                                    />
+                                                </div>
+                                            </div>
                                             <div v-if="modulosLessonForm.type === 'link'">
                                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Título do link</label>
                                                 <input v-model="modulosLessonForm.link_title" type="text" :class="inputClass" class="w-full" placeholder="Ex: Abrir material complementar" />
@@ -2177,14 +2334,26 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                                 </p>
                                             </div>
                                             <div v-if="modulosLessonForm.type === 'pdf'" class="space-y-2">
-                                                <input ref="lessonPdfFileInput" type="file" accept=".pdf,application/pdf" class="hidden" @change="onLessonPdfChange" />
+                                                <input ref="lessonPdfFileInput" type="file" accept=".pdf,application/pdf" multiple class="hidden" @change="onLessonPdfChange" />
                                                 <label class="block text-xs font-medium text-zinc-600 dark:text-zinc-400">Enviar arquivo (material)</label>
                                                 <div class="flex flex-wrap items-center gap-2">
                                                     <Button type="button" size="sm" variant="outline" :disabled="lessonPdfUploading" @click="lessonPdfFileInput?.click()">
-                                                        {{ lessonPdfUploading ? 'Enviando…' : 'Selecionar material' }}
+                                                        {{ lessonPdfUploading ? 'Enviando…' : 'Selecionar materiais' }}
                                                     </Button>
-                                                    <span v-if="modulosLessonForm.content_url" class="text-xs text-zinc-500 dark:text-zinc-400">Material anexado</span>
-                                                    <button v-if="modulosLessonForm.content_url" type="button" class="text-xs text-red-600 hover:underline" @click="clearLessonPdf">Remover</button>
+                                                    <span v-if="(modulosLessonForm.content_files?.length ?? 0) > 0" class="text-xs text-zinc-500 dark:text-zinc-400">
+                                                        {{ modulosLessonForm.content_files.length }} arquivo(s) anexado(s)
+                                                    </span>
+                                                    <button v-if="(modulosLessonForm.content_files?.length ?? 0) > 0" type="button" class="text-xs text-red-600 hover:underline" @click="clearLessonPdf">Remover todos</button>
+                                                </div>
+                                                <div v-if="(modulosLessonForm.content_files?.length ?? 0) > 0" class="space-y-1">
+                                                    <div
+                                                        v-for="(f, i) in modulosLessonForm.content_files"
+                                                        :key="`${f.url}-${i}`"
+                                                        class="flex items-center justify-between gap-2 rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800/50"
+                                                    >
+                                                        <span class="min-w-0 flex-1 truncate text-zinc-600 dark:text-zinc-300">{{ f.name || 'Material' }}</span>
+                                                        <button type="button" class="shrink-0 text-red-600 hover:underline" @click="removeLessonPdfAt(i)">Remover</button>
+                                                    </div>
                                                 </div>
                                                 <p class="text-xs text-zinc-500 dark:text-zinc-400">Ou use a URL acima se o material estiver hospedado em outro site. Máx. 20 MB.</p>
                                             </div>
@@ -2938,6 +3107,34 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                         <template v-if="moduleModalSectionType === 'courses'">
                             <div>
                                 <Toggle v-model="moduleModalShowTitleOnCover" label="Mostrar título na capa" />
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Liberação</label>
+                                <div class="grid gap-2 sm:grid-cols-3">
+                                    <select v-model="moduleModalReleaseMode" :class="inputClass" class="w-full">
+                                        <option value="none">Imediata</option>
+                                        <option value="days">Após X dias</option>
+                                        <option value="date">Na data</option>
+                                    </select>
+                                    <input
+                                        v-if="moduleModalReleaseMode === 'days'"
+                                        v-model="moduleModalReleaseAfterDays"
+                                        type="number"
+                                        min="1"
+                                        step="1"
+                                        :class="inputClass"
+                                        class="w-full"
+                                        placeholder="Ex.: 7"
+                                    />
+                                    <input
+                                        v-else-if="moduleModalReleaseMode === 'date'"
+                                        v-model="moduleModalReleaseAtDate"
+                                        type="date"
+                                        :class="inputClass"
+                                        class="w-full"
+                                    />
+                                    <div v-else class="hidden sm:block" />
+                                </div>
                             </div>
                             <div>
                                 <label class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Capa — {{ moduleModalCoverMode === 'horizontal' ? 'banner' : 'vertical' }}</label>

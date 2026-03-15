@@ -1010,7 +1010,7 @@ class CheckoutController extends Controller
                 $paymentService = app(PaymentService::class);
                 $cardResult = $paymentService->createCardPayment($order, $product, $consumer, $card);
                 $status = $cardResult['status'] ?? null;
-                if (in_array($status, ['paid', 'settled'], true)) {
+                if (in_array($status, ['paid', 'settled', 'approved', 'completed'], true)) {
                     $order->update(['status' => 'completed']);
                     $order->load('orderItems');
                     $grantAccessForOrder($order);
@@ -1386,6 +1386,9 @@ class CheckoutController extends Controller
         $status = $order->status;
         $redirectUrl = null;
         if ($status === 'completed') {
+            if ($order->api_application_id) {
+                $redirectUrl = route('api-checkout.thank-you', ['order_id' => $order->id]);
+            } else {
             $config = $this->getOrderCheckoutConfig($order);
             $upsell = $config['upsell'] ?? [];
             if (! empty($upsell['enabled']) && ! empty($upsell['products']) && is_array($upsell['products'])) {
@@ -1403,6 +1406,7 @@ class CheckoutController extends Controller
                     $next = ($order->user_id && User::find($order->user_id)) ? 'member-area' : 'login';
                     $redirectUrl = route('checkout.thank-you', ['order_id' => $order->id, 'next' => $next]);
                 }
+            }
             }
         }
 

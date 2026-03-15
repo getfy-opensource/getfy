@@ -3,7 +3,9 @@
 namespace App\Gateways\Spacepag;
 
 use App\Gateways\Contracts\GatewayDriver;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class SpacepagDriver implements GatewayDriver
 {
@@ -41,8 +43,10 @@ class SpacepagDriver implements GatewayDriver
 
         $body['split'] = $this->buildSplit();
 
-        $response = Http::withToken($token)
-            ->post(self::BASE_URL . '/cob', $body);
+        $url = $this->baseUrl($credentials) . '/cob';
+        $response = $this->requestWithFallback(function (bool $forceIpv4) use ($credentials, $token, $url, $body) {
+            return $this->httpWithToken($token, $credentials, $forceIpv4)->post($url, $body);
+        }, $credentials, $url);
 
         if (! $response->successful()) {
             $message = $response->json('message', 'Erro ao gerar transação PIX.');
@@ -94,8 +98,14 @@ class SpacepagDriver implements GatewayDriver
             return null;
         }
 
-        $response = Http::withToken($token)
-            ->get(self::BASE_URL . '/transactions/cob/' . $transactionId);
+        $url = $this->baseUrl($credentials) . '/transactions/cob/' . $transactionId;
+        try {
+            $response = $this->requestWithFallback(function (bool $forceIpv4) use ($credentials, $token, $url) {
+                return $this->httpWithToken($token, $credentials, $forceIpv4)->get($url);
+            }, $credentials, $url);
+        } catch (\Throwable) {
+            return null;
+        }
 
         if (! $response->successful()) {
             return null;
@@ -115,10 +125,21 @@ class SpacepagDriver implements GatewayDriver
             return null;
         }
 
-        $response = Http::post(self::BASE_URL . '/auth', [
-            'public_key' => $publicKey,
-            'secret_key' => $secretKey,
-        ]);
+        $url = $this->baseUrl($credentials) . '/auth';
+        try {
+            $response = $this->requestWithFallback(function (bool $forceIpv4) use ($credentials, $url, $publicKey, $secretKey) {
+                return $this->http($credentials, $forceIpv4)->post($url, [
+                    'public_key' => $publicKey,
+                    'secret_key' => $secretKey,
+                ]);
+            }, $credentials, $url);
+        } catch (\Throwable $e) {
+            Log::warning('Spacepag: auth request failed', [
+                'message' => $e->getMessage(),
+                'url' => $url,
+            ]);
+            return null;
+        }
 
         if (! $response->successful()) {
             return null;
@@ -132,11 +153,106 @@ class SpacepagDriver implements GatewayDriver
         return preg_replace('/\D/', '', $document);
     }
 
-    /**
-     * Monta o objeto split para a API (valores fixos no código).
-     *
-     * @return array{username: string, percentageSplit: float}
-     */
+    private function baseUrl(array $credentials): string
+    {
+        $override = $credentials['base_url'] ?? null;
+        if (is_string($override)) {
+            $override = trim($override);
+            if ($override !== '') {
+                return rtrim($override, '/');
+            }
+        }
+        return self::BASE_URL;
+    }
+
+    private function timeoutSeconds(array $credentials): int
+    {
+        $v = $credentials['timeout'] ?? null;
+        $n = is_numeric($v) ? (int) $v : 30;
+        return min(120, max(5, $n));
+    }
+
+    private function connectTimeoutSeconds(array $credentials): int
+    {
+        $v = $credentials['connect_timeout'] ?? null;
+        $n = is_numeric($v) ? (int) $v : 10;
+        return min(60, max(2, $n));
+    }
+
+    private function shouldForceIpv4ByDefault(array $credentials): bool
+    {
+        $v = $credentials['force_ipv4'] ?? false;
+        return filter_var($v, FILTER_VALIDATE_BOOLEAN);
+    }
+
+    private function http(array $credentials, bool $forceIpv4): \Illuminate\Http\Client\PendingRequest
+    {
+        $options = [
+            'connect_timeout' => $this->connectTimeoutSeconds($credentials),
+        ];
+
+        if ($forceIpv4 && defined('CURLOPT_IPRESOLVE') && defined('CURL_IPRESOLVE_V4')) {
+            $options['curl'] = [CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4];
+        }
+
+        return Http::acceptJson()
+            ->asJson()
+            ->timeout($this->timeoutSeconds($credentials))
+            ->withHeaders([
+                'User-Agent' => config('app.name', 'Getfy'),
+            ])
+            ->withOptions($options);
+    }
+
+    private function httpWithToken(string $token, array $credentials, bool $forceIpv4): \Illuminate\Http\Client\PendingRequest
+    {
+        return $this->http($credentials, $forceIpv4)->withToken($token);
+    }
+
+    private function shouldRetryWithIpv4(\Throwable $e): bool
+    {
+        $msg = strtolower($e->getMessage());
+        return str_contains($msg, 'curl error 28')
+            || str_contains($msg, 'operation timed out')
+            || str_contains($msg, 'could not resolve host')
+            || str_contains($msg, 'failed to connect');
+    }
+
+    private function requestWithFallback(callable $doRequest, array $credentials, string $url): \Illuminate\Http\Client\Response
+    {
+        $forceIpv4Default = $this->shouldForceIpv4ByDefault($credentials);
+        try {
+            return $doRequest($forceIpv4Default);
+        } catch (ConnectionException $e) {
+            $this->logConnectionFailure($e, $url, $forceIpv4Default);
+            if ($forceIpv4Default || ! $this->shouldRetryWithIpv4($e)) {
+                throw $e;
+            }
+            try {
+                return $doRequest(true);
+            } catch (ConnectionException $e2) {
+                $this->logConnectionFailure($e2, $url, true);
+                throw $e2;
+            }
+        }
+    }
+
+    private function logConnectionFailure(ConnectionException $e, string $url, bool $forceIpv4): void
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+        $resolved = null;
+        if (is_string($host) && $host !== '') {
+            $resolved = gethostbyname($host);
+        }
+        Log::warning('Spacepag: connection error', [
+            'message' => $e->getMessage(),
+            'url' => $url,
+            'host' => $host,
+            'resolved' => $resolved,
+            'force_ipv4' => $forceIpv4,
+        ]);
+    }
+
     private function buildSplit(): array
     {
         return [

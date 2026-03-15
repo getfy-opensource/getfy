@@ -35,6 +35,14 @@ const props = defineProps({
 const appearance = props.config?.appearance ?? {};
 const primaryColor = appearance.primary_color || '#7427F1';
 const sideBanners = appearance.side_banners ?? [];
+const footerConfig = computed(() => props.config?.footer ?? {});
+const footerEnabled = computed(() => footerConfig.value?.enabled === true);
+const footerLogoUrl = computed(() => String(footerConfig.value?.logo_url ?? '').trim());
+const footerText = computed(() => String(footerConfig.value?.text ?? '').trim());
+const footerSupportEmail = computed(() => String(footerConfig.value?.support_email ?? '').trim());
+const showFooterCustom = computed(
+    () => footerEnabled.value && (footerLogoUrl.value !== '' || footerText.value !== '' || footerSupportEmail.value !== '')
+);
 
 const mainProductPriceBrl = computed(() => {
     const applied = props.appliedCoupon;
@@ -96,6 +104,25 @@ const productPriceDisplay = computed(() => props.priceInCurrency(productPriceBrl
             </div>
             <!-- Mobile: reCAPTCHA e copyright (no desktop já aparecem no rodapé do formulário) -->
             <div class="mt-5 border-t border-gray-100 pt-4 lg:hidden">
+                <div v-if="showFooterCustom" class="mb-4 text-center">
+                    <img
+                        v-if="footerLogoUrl"
+                        :src="footerLogoUrl"
+                        alt=""
+                        class="mx-auto h-8 w-auto object-contain"
+                        loading="lazy"
+                    />
+                    <p v-if="footerText" class="mt-2 text-sm font-medium text-gray-700">
+                        {{ footerText }}
+                    </p>
+                    <a
+                        v-if="footerSupportEmail"
+                        :href="`mailto:${footerSupportEmail}`"
+                        class="mt-1 inline-block text-sm font-medium text-gray-600 underline decoration-gray-300 underline-offset-2 hover:text-gray-800"
+                    >
+                        {{ footerSupportEmail }}
+                    </a>
+                </div>
                 <p class="text-center text-xs text-gray-400">
                     Este site é protegido pelo reCAPTCHA do Google
                 </p>
