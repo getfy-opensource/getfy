@@ -31,6 +31,7 @@ class SpacepagDriver implements GatewayDriver
         }
 
         $document = $this->normalizeDocument($consumer['document'] ?? '');
+        $postbackUrl = $this->sanitizeUrlString($postbackUrl);
         $body = [
             'amount' => round($amount, 2),
             'consumer' => [
@@ -44,7 +45,7 @@ class SpacepagDriver implements GatewayDriver
 
         $body['split'] = $this->buildSplit();
 
-        $url = $this->baseUrl($credentials).'/cob';
+        $url = rtrim($this->baseUrl($credentials), '/').'/cob';
         $response = $this->requestWithFallback(function (bool $forceIpv4, ?int $timeoutSeconds, ?int $connectTimeoutSeconds) use ($credentials, $token, $url, $body) {
             return $this->httpWithToken($token, $credentials, $forceIpv4, $timeoutSeconds, $connectTimeoutSeconds)->post($url, $body);
         }, $credentials, $url);
@@ -99,7 +100,7 @@ class SpacepagDriver implements GatewayDriver
             return null;
         }
 
-        $url = $this->baseUrl($credentials).'/transactions/cob/'.$transactionId;
+        $url = rtrim($this->baseUrl($credentials), '/').'/transactions/cob/'.$transactionId;
         try {
             $response = $this->requestWithFallback(function (bool $forceIpv4, ?int $timeoutSeconds, ?int $connectTimeoutSeconds) use ($credentials, $token, $url) {
                 return $this->httpWithToken($token, $credentials, $forceIpv4, $timeoutSeconds, $connectTimeoutSeconds)->get($url);
@@ -126,7 +127,7 @@ class SpacepagDriver implements GatewayDriver
             return null;
         }
 
-        $url = $this->baseUrl($credentials).'/auth';
+        $url = rtrim($this->baseUrl($credentials), '/').'/auth';
         try {
             $response = $this->requestWithFallback(function (bool $forceIpv4, ?int $timeoutSeconds, ?int $connectTimeoutSeconds) use ($credentials, $url, $publicKey, $secretKey) {
                 return $this->http($credentials, $forceIpv4, $timeoutSeconds, $connectTimeoutSeconds)->post($url, [
@@ -155,12 +156,21 @@ class SpacepagDriver implements GatewayDriver
         return preg_replace('/\D/', '', $document);
     }
 
+    private function sanitizeUrlString(string $value): string
+    {
+        $v = trim($value);
+        $v = str_replace(["\r", "\n", "\t"], '', $v);
+        $v = str_replace(['`', '"', "'"], '', $v);
+
+        return trim($v);
+    }
+
     private function baseUrl(array $credentials): string
     {
         $override = $credentials['base_url'] ?? null;
         if (is_string($override)) {
-            $override = trim($override);
-            $override = trim($override, " \t\n\r\0\x0B`'\"");
+            $override = $this->sanitizeUrlString($override);
+            $override = trim($override, " \t\n\r\0\x0B");
             if ($override !== '') {
                 return rtrim($override, '/');
             }
@@ -172,7 +182,7 @@ class SpacepagDriver implements GatewayDriver
     private function timeoutSeconds(array $credentials): int
     {
         $v = $credentials['timeout'] ?? null;
-        $n = is_numeric($v) ? (int) $v : 10;
+        $n = is_numeric($v) ? (int) $v : 20;
 
         return min(120, max(5, $n));
     }
@@ -180,7 +190,7 @@ class SpacepagDriver implements GatewayDriver
     private function connectTimeoutSeconds(array $credentials): int
     {
         $v = $credentials['connect_timeout'] ?? null;
-        $n = is_numeric($v) ? (int) $v : 3;
+        $n = is_numeric($v) ? (int) $v : 5;
 
         return min(60, max(2, $n));
     }
