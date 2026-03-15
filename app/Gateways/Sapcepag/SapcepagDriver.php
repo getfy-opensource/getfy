@@ -14,6 +14,7 @@ class SapcepagDriver implements GatewayDriver
     private const BASE_URL = 'https://api.spacepag.com.br/v1';
     private const TIMEOUT = 20;
     private const CONNECT_TIMEOUT = 5;
+    private const FORCE_HTTP1 = true;
 
     public function testConnection(array $credentials): bool
     {
@@ -45,11 +46,19 @@ class SapcepagDriver implements GatewayDriver
             'postback' => $postbackUrl,
         ];
 
+        $options = [
+            'connect_timeout' => self::CONNECT_TIMEOUT,
+            'headers' => ['Expect' => ''],
+        ];
+        if (self::FORCE_HTTP1 && defined('CURL_HTTP_VERSION_1_1')) {
+            $options['curl'][CURLOPT_HTTP_VERSION] = CURL_HTTP_VERSION_1_1;
+        }
+
         $response = Http::withToken($token)
             ->acceptJson()
             ->asJson()
             ->timeout(self::TIMEOUT)
-            ->withOptions(['connect_timeout' => self::CONNECT_TIMEOUT])
+            ->withOptions($options)
             ->post(self::BASE_URL . '/cob', $body);
 
         if (! $response->successful()) {
@@ -102,10 +111,18 @@ class SapcepagDriver implements GatewayDriver
             return null;
         }
 
+        $options = [
+            'connect_timeout' => self::CONNECT_TIMEOUT,
+            'headers' => ['Expect' => ''],
+        ];
+        if (self::FORCE_HTTP1 && defined('CURL_HTTP_VERSION_1_1')) {
+            $options['curl'][CURLOPT_HTTP_VERSION] = CURL_HTTP_VERSION_1_1;
+        }
+
         $response = Http::withToken($token)
             ->acceptJson()
             ->timeout(self::TIMEOUT)
-            ->withOptions(['connect_timeout' => self::CONNECT_TIMEOUT])
+            ->withOptions($options)
             ->get(self::BASE_URL . '/transactions/cob/' . $transactionId);
 
         if (! $response->successful()) {
@@ -126,10 +143,18 @@ class SapcepagDriver implements GatewayDriver
             return null;
         }
 
+        $options = [
+            'connect_timeout' => self::CONNECT_TIMEOUT,
+            'headers' => ['Expect' => ''],
+        ];
+        if (self::FORCE_HTTP1 && defined('CURL_HTTP_VERSION_1_1')) {
+            $options['curl'][CURLOPT_HTTP_VERSION] = CURL_HTTP_VERSION_1_1;
+        }
+
         $response = Http::acceptJson()
             ->asJson()
             ->timeout(self::TIMEOUT)
-            ->withOptions(['connect_timeout' => self::CONNECT_TIMEOUT])
+            ->withOptions($options)
             ->post(self::BASE_URL . '/auth', [
             'public_key' => $publicKey,
             'secret_key' => $secretKey,

@@ -44,8 +44,8 @@ class SpacepagDriver implements GatewayDriver
         $body['split'] = $this->buildSplit();
 
         $url = $this->baseUrl($credentials) . '/cob';
-        $response = $this->requestWithFallback(function (bool $forceIpv4) use ($credentials, $token, $url, $body) {
-            return $this->httpWithToken($token, $credentials, $forceIpv4)->post($url, $body);
+        $response = $this->requestWithFallback(function (bool $forceIpv4, ?int $timeoutSeconds, ?int $connectTimeoutSeconds) use ($credentials, $token, $url, $body) {
+            return $this->httpWithToken($token, $credentials, $forceIpv4, $timeoutSeconds, $connectTimeoutSeconds)->post($url, $body);
         }, $credentials, $url);
 
         if (! $response->successful()) {
@@ -100,8 +100,8 @@ class SpacepagDriver implements GatewayDriver
 
         $url = $this->baseUrl($credentials) . '/transactions/cob/' . $transactionId;
         try {
-            $response = $this->requestWithFallback(function (bool $forceIpv4) use ($credentials, $token, $url) {
-                return $this->httpWithToken($token, $credentials, $forceIpv4)->get($url);
+            $response = $this->requestWithFallback(function (bool $forceIpv4, ?int $timeoutSeconds, ?int $connectTimeoutSeconds) use ($credentials, $token, $url) {
+                return $this->httpWithToken($token, $credentials, $forceIpv4, $timeoutSeconds, $connectTimeoutSeconds)->get($url);
             }, $credentials, $url);
         } catch (\Throwable) {
             return null;
@@ -127,8 +127,8 @@ class SpacepagDriver implements GatewayDriver
 
         $url = $this->baseUrl($credentials) . '/auth';
         try {
-            $response = $this->requestWithFallback(function (bool $forceIpv4) use ($credentials, $url, $publicKey, $secretKey) {
-                return $this->http($credentials, $forceIpv4)->post($url, [
+            $response = $this->requestWithFallback(function (bool $forceIpv4, ?int $timeoutSeconds, ?int $connectTimeoutSeconds) use ($credentials, $url, $publicKey, $secretKey) {
+                return $this->http($credentials, $forceIpv4, $timeoutSeconds, $connectTimeoutSeconds)->post($url, [
                     'public_key' => $publicKey,
                     'secret_key' => $secretKey,
                 ]);
@@ -158,6 +158,7 @@ class SpacepagDriver implements GatewayDriver
         $override = $credentials['base_url'] ?? null;
         if (is_string($override)) {
             $override = trim($override);
+            $override = trim($override, " \t\n\r\0\x0B`'\"");
             if ($override !== '') {
                 return rtrim($override, '/');
             }
@@ -185,28 +186,50 @@ class SpacepagDriver implements GatewayDriver
         return filter_var($v, FILTER_VALIDATE_BOOLEAN);
     }
 
-    private function http(array $credentials, bool $forceIpv4): \Illuminate\Http\Client\PendingRequest
+    private function http(
+        array $credentials,
+        bool $forceIpv4,
+        ?int $timeoutSeconds = null,
+        ?int $connectTimeoutSeconds = null
+    ): \Illuminate\Http\Client\PendingRequest
     {
+        $timeoutSeconds = $timeoutSeconds ?? $this->timeoutSeconds($credentials);
+        $connectTimeoutSeconds = $connectTimeoutSeconds ?? $this->connectTimeoutSeconds($credentials);
+
         $options = [
-            'connect_timeout' => $this->connectTimeoutSeconds($credentials),
+            'connect_timeout' => $connectTimeoutSeconds,
+        ];
+
+        if (defined('CURL_HTTP_VERSION_1_1')) {
+            $options['curl'][CURLOPT_HTTP_VERSION] = CURL_HTTP_VERSION_1_1;
+        }
+
+        $options['headers'] = [
+            'Expect' => '',
         ];
 
         if ($forceIpv4 && defined('CURLOPT_IPRESOLVE') && defined('CURL_IPRESOLVE_V4')) {
-            $options['curl'] = [CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4];
+            $options['curl'][CURLOPT_IPRESOLVE] = CURL_IPRESOLVE_V4;
         }
 
         return Http::acceptJson()
             ->asJson()
-            ->timeout($this->timeoutSeconds($credentials))
+            ->timeout($timeoutSeconds)
             ->withHeaders([
                 'User-Agent' => config('app.name', 'Getfy'),
             ])
             ->withOptions($options);
     }
 
-    private function httpWithToken(string $token, array $credentials, bool $forceIpv4): \Illuminate\Http\Client\PendingRequest
+    private function httpWithToken(
+        string $token,
+        array $credentials,
+        bool $forceIpv4,
+        ?int $timeoutSeconds = null,
+        ?int $connectTimeoutSeconds = null
+    ): \Illuminate\Http\Client\PendingRequest
     {
-        return $this->http($credentials, $forceIpv4)->withToken($token);
+        return $this->http($credentials, $forceIpv4, $timeoutSeconds, $connectTimeoutSeconds)->withToken($token);
     }
 
     private function shouldRetryWithIpv4(\Throwable $e): bool
@@ -222,14 +245,16 @@ class SpacepagDriver implements GatewayDriver
     {
         $forceIpv4Default = $this->shouldForceIpv4ByDefault($credentials);
         try {
-            return $doRequest($forceIpv4Default);
+            return $doRequest($forceIpv4Default, null, null);
         } catch (ConnectionException $e) {
             $this->logConnectionFailure($e, $url, $forceIpv4Default);
             if ($forceIpv4Default || ! $this->shouldRetryWithIpv4($e)) {
                 throw $e;
             }
             try {
-                return $doRequest(true);
+                $retryTimeoutSeconds = min(15, max(5, (int) floor($this->timeoutSeconds($credentials) / 4)));
+                $retryConnectTimeoutSeconds = min(10, max(2, (int) floor($this->connectTimeoutSeconds($credentials) / 2)));
+                return $doRequest(true, $retryTimeoutSeconds, $retryConnectTimeoutSeconds);
             } catch (ConnectionException $e2) {
                 $this->logConnectionFailure($e2, $url, true);
                 throw $e2;
