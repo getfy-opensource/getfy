@@ -154,7 +154,11 @@ async function runUpdate() {
         }
         setTimeout(() => { alert(msg); }, 100);
     } catch (e) {
-        const msg = e?.response?.data?.message || e?.response?.data?.error || e?.message || 'Falha na atualização.';
+        const status = e?.response?.status;
+        const msg =
+            status === 429
+                ? 'Muitas tentativas em pouco tempo. Aguarde e tente novamente.'
+                : (e?.response?.data?.message || e?.response?.data?.error || e?.message || 'Falha na atualização.');
         alert(msg);
     } finally {
         updateRunLoading.value = false;

@@ -155,6 +155,7 @@ class UpdateController extends Controller
         $branch = config('getfy.update_branch', 'main');
         $expectedRepo = config('getfy.update_repository_url', 'https://github.com/getfy-opensource/getfy.git');
         $timeout = 300;
+        $git = 'git -c safe.directory=' . escapeshellarg($basePath);
 
         // PHP executável (servidor web muitas vezes não tem PHP no PATH; usar caminho explícito ou GETFY_PHP_PATH)
         $phpBinary = null;
@@ -200,14 +201,14 @@ class UpdateController extends Controller
         };
 
         // 0. Garantir identidade Git (evita "Committer identity unknown" ao fazer pull/merge)
-        $runStep('git config user.email "getfy-update@localhost" && git config user.name "Getfy Update"', 'Git config');
+        $runStep($git . ' config user.email "getfy-update@localhost" && ' . $git . ' config user.name "Getfy Update"', 'Git config');
 
         // 0.1. Guardar alterações locais (evita "your local changes would be overwritten by merge")
-        $runStep('git stash push -m "getfy-update"', 'Git stash');
+        $runStep($git . ' stash push -m "getfy-update"', 'Git stash');
 
         // 1. Git fetch + pull
-        if (! $runStep("git fetch origin && git pull origin {$branch}", 'Git pull')) {
-            $runStep('git stash pop', 'Git stash pop');
+        if (! $runStep($git . " fetch origin && " . $git . " pull origin {$branch}", 'Git pull')) {
+            $runStep($git . ' stash pop', 'Git stash pop');
             $last = end($steps);
             $msg = 'Falha ao atualizar código: ' . self::toUtf8($last['error'] ?: $last['output'] ?: 'erro desconhecido');
             if ($request->wantsJson()) {
@@ -218,7 +219,7 @@ class UpdateController extends Controller
         }
 
         // 1.1. Reaplicar alterações locais (se havia algo no stash)
-        $runStep('git stash pop', 'Git stash pop');
+        $runStep($git . ' stash pop', 'Git stash pop');
 
         // 2. Composer install (usar PHP explícito quando disponível, para evitar "php não reconhecido" no servidor web)
         $composerCmd = 'composer install --no-interaction --no-dev';
