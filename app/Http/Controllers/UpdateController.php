@@ -17,6 +17,17 @@ class UpdateController extends Controller
     private const GITHUB_TAGS = 'https://api.github.com/repos/getfy-opensource/getfy/tags';
     private const DOCKER_MANUAL_UPDATE_COMMAND = 'bash -c "$(curl -fsSL https://raw.githubusercontent.com/getfy-opensource/getfy/main/update.sh)"';
 
+    private static function readInstalledVersion(): string
+    {
+        $versionFile = base_path('VERSION');
+        $raw = trim((is_file($versionFile) ? (string) file_get_contents($versionFile) : '') ?: '');
+        if ($raw !== '') {
+            return $raw;
+        }
+
+        return (string) config('getfy.version');
+    }
+
     /**
      * Ensure string is valid UTF-8 for JSON (avoids "Malformed UTF-8" on Windows console output).
      */
@@ -362,7 +373,7 @@ class UpdateController extends Controller
      */
     public function check(): JsonResponse
     {
-        $current = config('getfy.version');
+        $current = self::readInstalledVersion();
         $response = [
             'current' => $current,
             'latest' => null,

@@ -36,9 +36,14 @@ class SettingsController extends Controller
         $cronSecret = config('getfy.cron_secret');
         $appUrl = rtrim(config('app.url'), '/');
         $cronUrl = $cronSecret ? $appUrl . '/cron?token=' . urlencode((string) $cronSecret) : null;
+        $versionFile = base_path('VERSION');
+        $currentVersion = trim((is_file($versionFile) ? (string) file_get_contents($versionFile) : '') ?: '');
+        if ($currentVersion === '') {
+            $currentVersion = (string) config('getfy.version');
+        }
 
         return Inertia::render('Settings/Index', [
-            'current_version' => config('getfy.version'),
+            'current_version' => $currentVersion,
             'updates_enabled' => config('getfy.updates_enabled', true),
             'git_available' => $gitAvailable,
             'cloud_mode' => $cloudMode,
