@@ -222,6 +222,34 @@ class UpdateController extends Controller
             self::DOCKER_MANUAL_UPDATE_COMMAND;
     }
 
+    private static function cleanupViteHotFiles(): array
+    {
+        $paths = [
+            public_path('hot'),
+            storage_path('framework/vite.hot'),
+        ];
+
+        $deleted = [];
+        $errors = [];
+
+        foreach ($paths as $path) {
+            if (! is_file($path)) {
+                continue;
+            }
+            try {
+                if (File::delete($path)) {
+                    $deleted[] = $path;
+                } else {
+                    $errors[] = $path;
+                }
+            } catch (\Throwable) {
+                $errors[] = $path;
+            }
+        }
+
+        return ['deleted' => $deleted, 'errors' => $errors];
+    }
+
     private function runArchiveUpdate(string $basePath, string $branch): array
     {
         if (! class_exists('ZipArchive')) {
@@ -307,6 +335,7 @@ class UpdateController extends Controller
         $preserveTopLevel = ['.env', '.git', '.install', 'storage', 'plugins', 'node_modules'];
         $preserveRelativePaths = ['database/database.sqlite'];
         $result = self::copyTree($sourceDir, $basePath, $preserveTopLevel, $preserveRelativePaths);
+        self::cleanupViteHotFiles();
 
         File::deleteDirectory($extractTo);
         @unlink($zipFile);
@@ -462,6 +491,33 @@ class UpdateController extends Controller
         return response()->json($response);
     }
 
+    public function migrateNow(Request $request): JsonResponse|RedirectResponse
+    {
+        try {
+            \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
+            $output = (string) \Illuminate\Support\Facades\Artisan::output();
+
+            try {
+                \Illuminate\Support\Facades\Artisan::call('config:cache');
+            } catch (\Throwable) {
+            }
+
+            $msg = 'Migrations executadas com sucesso.';
+            if ($request->wantsJson()) {
+                return response()->json(['success' => true, 'message' => $msg, 'output' => self::toUtf8($output)]);
+            }
+
+            return redirect()->route('settings.index', ['tab' => 'update'])->with('success', $msg);
+        } catch (\Throwable $e) {
+            $msg = self::withDockerManualHint('Falha ao rodar migrations: ' . self::toUtf8($e->getMessage()));
+            if ($request->wantsJson()) {
+                return response()->json(['success' => false, 'message' => $msg], 422);
+            }
+
+            return redirect()->route('settings.index', ['tab' => 'update'])->with('error', $msg);
+        }
+    }
+
     /**
      * Run update: git pull, composer, npm build, migrate.
      */
@@ -580,6 +636,14 @@ class UpdateController extends Controller
                     return redirect()->route('settings.index', ['tab' => 'update'])->with('error', $msg);
                 }
             }
+
+            $cleanup = self::cleanupViteHotFiles();
+            $steps[] = [
+                'label' => 'Limpeza Vite hot',
+                'ok' => empty($cleanup['errors']),
+                'output' => ! empty($cleanup['deleted']) ? implode("\n", $cleanup['deleted']) : '',
+                'error' => ! empty($cleanup['errors']) ? implode("\n", $cleanup['errors']) : '',
+            ];
         } else {
             $archive = $this->runArchiveUpdate($basePath, $branch);
             $steps[] = [
@@ -596,6 +660,14 @@ class UpdateController extends Controller
                 }
                 return redirect()->route('settings.index', ['tab' => 'update'])->with('error', $msg);
             }
+
+            $cleanup = self::cleanupViteHotFiles();
+            $steps[] = [
+                'label' => 'Limpeza Vite hot',
+                'ok' => empty($cleanup['errors']),
+                'output' => ! empty($cleanup['deleted']) ? implode("\n", $cleanup['deleted']) : '',
+                'error' => ! empty($cleanup['errors']) ? implode("\n", $cleanup['errors']) : '',
+            ];
         }
 
         // 4. Migrate

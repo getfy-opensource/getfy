@@ -116,6 +116,8 @@ const updateCheckResult = ref(null);
 const updateRunLoading = ref(false);
 const integrityLoading = ref(false);
 const integrityResult = ref(null);
+const migrateLoading = ref(false);
+const migrateResult = ref(null);
 
 async function checkForUpdate() {
     updateCheckLoading.value = true;
@@ -185,6 +187,26 @@ async function checkIntegrity() {
         };
     } finally {
         integrityLoading.value = false;
+    }
+}
+
+async function runMigrations() {
+    migrateLoading.value = true;
+    migrateResult.value = null;
+    try {
+        const res = await window.axios.post('/configuracoes/update/migrate', {}, {
+            headers: { Accept: 'application/json' },
+        });
+        migrateResult.value = res.data;
+    } catch (e) {
+        const status = e?.response?.status;
+        const msg =
+            status === 429
+                ? 'Muitas tentativas em pouco tempo. Aguarde e tente novamente.'
+                : (e?.response?.data?.message || e?.response?.data?.error || e?.message || 'Falha ao rodar migrations.');
+        migrateResult.value = { success: false, message: msg, output: '' };
+    } finally {
+        migrateLoading.value = false;
     }
 }
 
@@ -1209,6 +1231,27 @@ const selectClass =
                                         Observação: ao atualizar pelo painel, o sistema já tenta rodar as migrations automaticamente.
                                     </p>
                                 </template>
+                            </div>
+                        </div>
+                        <div class="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-600 dark:bg-zinc-800/50">
+                            <div class="flex flex-wrap items-center justify-between gap-3">
+                                <p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">Migrations</p>
+                                <button
+                                    type="button"
+                                    :disabled="migrateLoading"
+                                    class="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-600 transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:border-[var(--color-primary)]"
+                                    @click="runMigrations"
+                                >
+                                    <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': migrateLoading }" />
+                                    {{ migrateLoading ? 'Rodando...' : 'Rodar migrations' }}
+                                </button>
+                            </div>
+                            <div v-if="migrateResult" class="mt-3 text-sm">
+                                <p v-if="migrateResult.success" class="text-emerald-700 dark:text-emerald-400">{{ migrateResult.message }}</p>
+                                <p v-else class="text-amber-700 dark:text-amber-300">{{ migrateResult.message }}</p>
+                                <div v-if="(migrateResult.output ?? '').trim() !== ''" class="mt-2 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900/30">
+                                    <pre class="whitespace-pre-wrap font-mono text-xs text-zinc-700 dark:text-zinc-300">{{ migrateResult.output }}</pre>
+                                </div>
                             </div>
                         </div>
                         <div v-if="!updates_enabled" class="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/50 dark:bg-amber-900/20">
