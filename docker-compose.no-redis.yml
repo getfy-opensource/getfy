@@ -1,0 +1,96 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: getfy_app:latest
+    restart: unless-stopped
+    ports:
+      - "${GETFY_HTTP_PORT:-80}:80"
+    volumes:
+      - getfy_storage:/var/www/html/storage
+      - getfy_env:/var/www/html/.docker
+    environment:
+      APP_ENV: ${GETFY_APP_ENV:-local}
+      APP_DEBUG: ${GETFY_APP_DEBUG:-true}
+      GETFY_APP_URL: ${GETFY_APP_URL:-http://localhost}
+      PORT: "80"
+      APP_INSTALLED: ${GETFY_APP_INSTALLED:-true}
+      APP_AUTO_MIGRATE: ${GETFY_APP_AUTO_MIGRATE:-false}
+      DB_CONNECTION: ${GETFY_DB_CONNECTION:-mysql}
+      DB_HOST: ${GETFY_DB_HOST:-mysql}
+      DB_PORT: ${GETFY_DB_PORT:-3306}
+      DB_DATABASE: ${GETFY_DB_DATABASE:-getfy}
+      DB_USERNAME: ${GETFY_DB_USERNAME:-getfy}
+      DB_PASSWORD: ${GETFY_DB_PASSWORD:-getfy}
+      CACHE_STORE: ${GETFY_CACHE_STORE:-file}
+      QUEUE_CONNECTION: ${GETFY_QUEUE_CONNECTION:-database}
+      SESSION_DRIVER: ${GETFY_SESSION_DRIVER:-file}
+      GETFY_DOCKER: "true"
+      GETFY_RUN_SETUP: "true"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    command:
+      - "--innodb-buffer-pool-size=${GETFY_MYSQL_INNODB_BUFFER_POOL_SIZE:-256M}"
+      - "--innodb-log-file-size=${GETFY_MYSQL_INNODB_LOG_FILE_SIZE:-64M}"
+      - "--innodb-buffer-pool-instances=${GETFY_MYSQL_INNODB_BUFFER_POOL_INSTANCES:-1}"
+      - "--max-connections=${GETFY_MYSQL_MAX_CONNECTIONS:-50}"
+      - "--table-open-cache=${GETFY_MYSQL_TABLE_OPEN_CACHE:-200}"
+      - "--thread-cache-size=${GETFY_MYSQL_THREAD_CACHE_SIZE:-16}"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${GETFY_MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${GETFY_MYSQL_DATABASE:-${GETFY_DB_DATABASE:-getfy}}
+      MYSQL_USER: ${GETFY_MYSQL_USER:-${GETFY_DB_USERNAME:-getfy}}
+      MYSQL_PASSWORD: ${GETFY_MYSQL_PASSWORD:-${GETFY_DB_PASSWORD:-getfy}}
+      MYSQL_INITDB_SKIP_TZINFO: ${GETFY_MYSQL_SKIP_TZINFO:-1}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  queue:
+    image: getfy_app:latest
+    restart: unless-stopped
+    command:
+      - "sh"
+      - "-lc"
+      - "set -e; php artisan queue:work --sleep=3 --tries=3 --timeout=0 --memory=${GETFY_QUEUE_WORKER_MEMORY:-128} --max-time=${GETFY_QUEUE_WORKER_MAX_TIME:-3600} --max-jobs=${GETFY_QUEUE_WORKER_MAX_JOBS:-1000} & Q=$$!; php artisan schedule:work & S=$$!; trap 'kill $$Q $$S 2>/dev/null || true' INT TERM; while kill -0 $$Q 2>/dev/null && kill -0 $$S 2>/dev/null; do sleep 5; done; kill $$Q $$S 2>/dev/null || true; wait $$Q 2>/dev/null || true; wait $$S 2>/dev/null || true; exit 1"
+    volumes:
+      - getfy_storage:/var/www/html/storage
+      - getfy_env:/var/www/html/.docker
+    environment:
+      APP_ENV: ${GETFY_APP_ENV:-local}
+      APP_DEBUG: ${GETFY_APP_DEBUG:-true}
+      GETFY_APP_URL: ${GETFY_APP_URL:-http://localhost}
+      APP_INSTALLED: ${GETFY_APP_INSTALLED:-true}
+      APP_AUTO_MIGRATE: ${GETFY_APP_AUTO_MIGRATE:-false}
+      DB_CONNECTION: ${GETFY_DB_CONNECTION:-mysql}
+      DB_HOST: ${GETFY_DB_HOST:-mysql}
+      DB_PORT: ${GETFY_DB_PORT:-3306}
+      DB_DATABASE: ${GETFY_DB_DATABASE:-getfy}
+      DB_USERNAME: ${GETFY_DB_USERNAME:-getfy}
+      DB_PASSWORD: ${GETFY_DB_PASSWORD:-getfy}
+      CACHE_STORE: ${GETFY_CACHE_STORE:-file}
+      QUEUE_CONNECTION: ${GETFY_QUEUE_CONNECTION:-database}
+      SESSION_DRIVER: ${GETFY_SESSION_DRIVER:-file}
+      GETFY_DOCKER: "true"
+      GETFY_RUN_SETUP: "false"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
+    driver: local
+  getfy_storage:
+    driver: local
+  getfy_env:
+    driver: local
