@@ -163,7 +163,7 @@ Se o seu painel não suportar `docker-compose.yml`, a alternativa mais simples �
 ## Para atualizar:
 VPS:
 1. Conecte via SSH.
-3. Execute: `bash -c "$(curl -fsSL https://raw.githubusercontent.com/getfy-opensource/getfy/main/install.sh)"`.
+3. Execute: `bash -c "$(curl -fsSL https://raw.githubusercontent.com/getfy-opensource/getfy/main/update.sh)"`.
 
 Hospedagem compartilhada:
 1. Baixe o zip update vX.X.X do repositório.
