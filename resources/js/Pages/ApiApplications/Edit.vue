@@ -12,6 +12,7 @@ const props = defineProps({
     application: { type: Object, required: true },
     gateways_by_method: { type: Object, default: () => ({}) },
     api_key_reveal: { type: String, default: null },
+    webhook_secret_mask: { type: String, default: '' },
 });
 
 const pg = props.application.payment_gateways || {};
@@ -139,7 +140,24 @@ function canShowRedundancy(slug) {
 }
 
 function submit() {
-    form.put(`/aplicacoes-api/${props.application.id}`);
+    const previousSecret = form.webhook_secret;
+    if (props.webhook_secret_mask && previousSecret === props.webhook_secret_mask) {
+        form.webhook_secret = '';
+    }
+
+    form.put(`/aplicacoes-api/${props.application.id}`, {
+        preserveScroll: true,
+        onError: () => {
+            if (props.webhook_secret_mask && previousSecret === props.webhook_secret_mask) {
+                form.webhook_secret = props.webhook_secret_mask;
+            }
+        },
+        onSuccess: () => {
+            if (props.webhook_secret_mask && previousSecret && previousSecret !== '') {
+                form.webhook_secret = props.webhook_secret_mask;
+            }
+        },
+    });
 }
 
 async function copyKey() {

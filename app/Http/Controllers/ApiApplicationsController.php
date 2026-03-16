@@ -16,6 +16,8 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 class ApiApplicationsController extends Controller
 {
+    private const WEBHOOK_SECRET_MASK = '__getfy_masked_webhook_secret__';
+
     /**
      * @return array<int, array<string, mixed>>
      */
@@ -180,12 +182,13 @@ class ApiApplicationsController extends Controller
                 'payment_gateways' => $pg,
                 'webhook_url' => $apiApplication->webhook_url,
                 'default_return_url' => $apiApplication->default_return_url,
-                'webhook_secret' => '', // nunca enviar o valor real ao frontend; campo em branco = não alterar
+                'webhook_secret' => ($apiApplication->webhook_secret ?? '') !== '' ? self::WEBHOOK_SECRET_MASK : '',
                 'allowed_ips' => is_array($apiApplication->allowed_ips) ? implode("\n", $apiApplication->allowed_ips) : '',
                 'is_active' => $apiApplication->is_active,
             ],
             'gateways_by_method' => $gatewaysByMethod,
             'api_key_reveal' => session('api_key_reveal'),
+            'webhook_secret_mask' => self::WEBHOOK_SECRET_MASK,
         ]);
     }
 
@@ -239,6 +242,9 @@ class ApiApplicationsController extends Controller
         }
 
         $webhookSecret = $validated['webhook_secret'] ?? '';
+        if ($webhookSecret === self::WEBHOOK_SECRET_MASK) {
+            $webhookSecret = '';
+        }
         $apiApplication->update([
             'name' => $validated['name'],
             'payment_gateways' => $paymentGateways,
@@ -250,7 +256,7 @@ class ApiApplicationsController extends Controller
             'checkout_sidebar_bg' => $this->normalizeCheckoutSidebarBg($validated['checkout_sidebar_bg'] ?? null),
         ]);
 
-        return redirect()->route('api-applications.index')->with('success', 'Aplicação atualizada.');
+        return redirect()->route('api-applications.edit', $apiApplication)->with('success', 'Aplicação atualizada.');
     }
 
     public function destroy(ApiApplication $apiApplication): RedirectResponse
