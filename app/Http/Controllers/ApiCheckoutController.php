@@ -50,12 +50,22 @@ class ApiCheckoutController extends Controller
         $productName = null;
         $productImageUrl = null;
         if ($session->product_id) {
-            $productModel = Product::find($session->product_id);
-            if ($productModel) {
-                $productName = $productModel->name;
-                if ($productModel->image) {
-                    $productImageUrl = (new StorageService($productModel->tenant_id))->url($productModel->image);
-                }
+            $productModel = Product::where('id', $session->product_id)->where('tenant_id', $app->tenant_id)->first();
+        } elseif ($session->subscription_plan_id) {
+            $plan = SubscriptionPlan::with('product')->find($session->subscription_plan_id);
+            if ($plan && $plan->product && (int) $plan->product->tenant_id === (int) $app->tenant_id) {
+                $productModel = $plan->product;
+            }
+        } elseif ($session->product_offer_id) {
+            $offer = ProductOffer::with('product')->find($session->product_offer_id);
+            if ($offer && $offer->product && (int) $offer->product->tenant_id === (int) $app->tenant_id) {
+                $productModel = $offer->product;
+            }
+        }
+        if ($productModel) {
+            $productName = $productModel->name;
+            if ($productModel->image) {
+                $productImageUrl = (new StorageService($productModel->tenant_id))->url($productModel->image);
             }
         }
 
@@ -240,13 +250,30 @@ class ApiCheckoutController extends Controller
             'email' => $email,
         ];
 
-        $product = $session->product_id ? Product::find($session->product_id) : null;
+        $product = null;
+        if ($session->product_id) {
+            $product = Product::where('id', $session->product_id)->where('tenant_id', $tenantId)->first();
+        }
         $amount = (float) $session->amount;
         $productOfferId = $session->product_offer_id;
         $subscriptionPlanId = $session->subscription_plan_id;
         $plan = null;
         $periodStart = null;
         $periodEnd = null;
+        if (! $product && $subscriptionPlanId) {
+            $plan = SubscriptionPlan::with('product')->find($subscriptionPlanId);
+            if ($plan && $plan->product && (int) $plan->product->tenant_id === (int) $tenantId) {
+                $product = $plan->product;
+            } else {
+                $plan = null;
+            }
+        }
+        if (! $product && $productOfferId) {
+            $offer = ProductOffer::with('product')->find($productOfferId);
+            if ($offer && $offer->product && (int) $offer->product->tenant_id === (int) $tenantId) {
+                $product = $offer->product;
+            }
+        }
         if ($method === 'pix_auto' && $product && ! $subscriptionPlanId) {
             $plan = SubscriptionPlan::where('product_id', $product->id)->orderBy('position')->first();
             if ($plan) {
