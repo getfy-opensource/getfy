@@ -72,12 +72,7 @@ class ApiCheckoutController extends Controller
         $paymentService = app(PaymentService::class);
         $tenantId = $app->tenant_id;
         $pixEnabled = ! empty($pg['pix']);
-        $pixAutoEnabled = ! empty($pg['pix_auto']) && $productModel !== null
-            && (
-                ($productModel->billing_type ?? null) === Product::BILLING_SUBSCRIPTION
-                || ! empty($session->subscription_plan_id)
-                || $productModel->subscriptionPlans()->exists()
-            );
+        $pixAutoEnabled = ! empty($pg['pix_auto']);
         $cardEnabled = ! empty($pg['card']);
         $boletoEnabled = ! empty($pg['boleto']);
 
@@ -290,9 +285,6 @@ class ApiCheckoutController extends Controller
                 $plan = null;
             }
         }
-        if ($method === 'pix_auto' && (! $product || ! $plan || $plan->product_id !== $product->id)) {
-            return redirect()->back()->with('error', 'PIX automático requer uma assinatura válida (subscription_plan_id).');
-        }
         if ($method === 'pix_auto' && strlen($rawDoc) < 11) {
             return redirect()->back()->with('error', 'CPF do comprador é obrigatório para PIX automático.');
         }
@@ -359,8 +351,8 @@ class ApiCheckoutController extends Controller
                     }
 
                     $webhookUrl = route('webhooks.pushinpay');
-                    $frequency = PushinPayPixRecorrenteService::intervalToFrequency($plan->interval ?? SubscriptionPlan::INTERVAL_MONTHLY);
-                    $subscriptionName = mb_substr(preg_replace('/[^\p{L}\p{N}\s\.\-]/u', '', $product->name ?? 'Assinatura'), 0, 140) ?: 'Assinatura';
+                    $frequency = PushinPayPixRecorrenteService::intervalToFrequency($plan?->interval ?? SubscriptionPlan::INTERVAL_MONTHLY);
+                    $subscriptionName = mb_substr(preg_replace('/[^\p{L}\p{N}\s\.\-]/u', '', $product?->name ?? 'Assinatura'), 0, 140) ?: 'Assinatura';
                     $pushinpayService = new PushinPayPixRecorrenteService($credentials);
                     $result = $pushinpayService->createSubscription(
                         (float) $amount,
@@ -442,7 +434,7 @@ class ApiCheckoutController extends Controller
                         : now()->addYears(10)->format('Y-m-d');
 
                     $contrato = str_pad((string) $order->id, 8, '0', STR_PAD_LEFT);
-                    $objeto = mb_substr(preg_replace('/[^\p{L}\p{N}\s\.\-]/u', '', $product->name ?? 'Assinatura'), 0, 140) ?: 'Assinatura';
+                    $objeto = mb_substr(preg_replace('/[^\p{L}\p{N}\s\.\-]/u', '', $product?->name ?? 'Assinatura'), 0, 140) ?: 'Assinatura';
                     $rec = $efiRecorrente->createRecurrence(
                         $locId,
                         $txid,
