@@ -12,6 +12,7 @@ const props = defineProps({
     app_sidebar_bg_color: { type: String, default: '#18181b' },
     customer_email: { type: String, default: null },
     customer_name: { type: String, default: null },
+    customer_cpf: { type: String, default: null },
     amount: { type: Number, required: true },
     currency: { type: String, default: 'BRL' },
     currencies: { type: Array, default: () => [] },
@@ -23,6 +24,8 @@ const props = defineProps({
     card_stripe_publishable_key: { type: String, default: '' },
     card_stripe_sandbox: { type: Boolean, default: false },
     card_stripe_link_enabled: { type: Boolean, default: true },
+    card_efi_payee_code: { type: String, default: '' },
+    card_efi_sandbox: { type: Boolean, default: false },
 });
 
 const page = usePage();
@@ -98,9 +101,9 @@ function onError(errors) {
     error.value = errors.payment_method?.[0] || errors.payment_token?.[0] || errors.session_token?.[0] || 'Erro ao processar.';
 }
 
-const canPayWithCard = computed(() =>
-    props.available_methods?.includes('card') && props.card_gateway_slug === 'stripe' && (props.card_stripe_publishable_key || '').trim() !== ''
-);
+const canPayWithStripe = computed(() => props.card_gateway_slug === 'stripe' && (props.card_stripe_publishable_key || '').trim() !== '');
+const canPayWithEfi = computed(() => props.card_gateway_slug === 'efi' && (props.card_efi_payee_code || '').trim() !== '');
+const canPayWithCard = computed(() => props.available_methods?.includes('card') && (canPayWithStripe.value || canPayWithEfi.value));
 
 /** Método selecionado para exibir o bloco de ação (pix, boleto, card ou null). */
 const selectedMethod = ref(null);
@@ -110,6 +113,9 @@ const stripeCardRef = ref(null);
 const stripeInstance = ref(null);
 const stripeCardElement = ref(null);
 const cardHolderName = ref('');
+const efiCardNumber = ref('');
+const efiCardExp = ref('');
+const efiCardCvv = ref('');
 const cardSubmitting = ref(false);
 
 async function initStripeCard() {
@@ -141,7 +147,7 @@ function destroyStripeCard() {
 }
 
 watch(showCardForm, (visible) => {
-    if (visible && canPayWithCard.value) {
+    if (visible && canPayWithStripe.value) {
         setTimeout(() => initStripeCard(), 100);
     } else {
         destroyStripeCard();
@@ -164,7 +170,7 @@ function clearSelectedMethod() {
 }
 
 onMounted(() => {
-    if (showCardForm.value && canPayWithCard.value) setTimeout(() => initStripeCard(), 100);
+    if (showCardForm.value && canPayWithStripe.value) setTimeout(() => initStripeCard(), 100);
     const title = props.app_name ? `${props.app_name}` : 'Pagamento';
     document.title = title;
 });
@@ -172,7 +178,7 @@ onBeforeUnmount(() => destroyStripeCard());
 
 async function submitCard(ev) {
     ev.preventDefault();
-    if (!stripeInstance.value || !stripeCardElement.value || cardSubmitting.value) return;
+    if (cardSubmitting.value) return;
     error.value = null;
     const name = (cardHolderName.value || '').trim();
     if (!name) {
@@ -181,29 +187,93 @@ async function submitCard(ev) {
     }
     cardSubmitting.value = true;
     try {
-        const { error: stripeError, paymentMethod } = await stripeInstance.value.createPaymentMethod({
-            type: 'card',
-            card: stripeCardElement.value,
-            billing_details: { name },
-        });
-        if (stripeError) {
-            error.value = stripeError.message || 'Erro ao processar o cartão.';
-            cardSubmitting.value = false;
+        if (canPayWithStripe.value) {
+            if (!stripeInstance.value || !stripeCardElement.value) {
+                error.value = 'Aguarde o formulário do cartão carregar.';
+                cardSubmitting.value = false;
+                return;
+            }
+            const { error: stripeError, paymentMethod } = await stripeInstance.value.createPaymentMethod({
+                type: 'card',
+                card: stripeCardElement.value,
+                billing_details: { name },
+            });
+            if (stripeError) {
+                error.value = stripeError.message || 'Erro ao processar o cartão.';
+                cardSubmitting.value = false;
+                return;
+            }
+            router.post('/api-checkout/pay', {
+                session_token: props.session_token,
+                payment_method: 'card',
+                payment_token: paymentMethod.id,
+                card_mask: paymentMethod.card?.last4 ? `**** ${paymentMethod.card.last4}` : '',
+            }, {
+                preserveScroll: true,
+                onError: (err) => {
+                    onError(err);
+                    cardSubmitting.value = false;
+                },
+                onFinish: () => { cardSubmitting.value = false; },
+            });
             return;
         }
-        router.post('/api-checkout/pay', {
-            session_token: props.session_token,
-            payment_method: 'card',
-            payment_token: paymentMethod.id,
-            card_mask: paymentMethod.card?.last4 ? `**** ${paymentMethod.card.last4}` : '',
-        }, {
-            preserveScroll: true,
-            onError: (err) => {
-                onError(err);
+
+        if (canPayWithEfi.value) {
+            const numberDigits = (efiCardNumber.value || '').replace(/\D/g, '');
+            const expDigits = (efiCardExp.value || '').replace(/\D/g, '');
+            const month = expDigits.slice(0, 2);
+            const yearRaw = expDigits.slice(2);
+            const year = yearRaw.length === 2 ? `20${yearRaw}` : yearRaw;
+            const cvv = (efiCardCvv.value || '').replace(/\D/g, '').slice(0, 4);
+            if (numberDigits.length < 13 || numberDigits.length > 16 || month.length !== 2 || year.length !== 4 || cvv.length < 3) {
+                error.value = 'Preencha todos os dados do cartão corretamente.';
                 cardSubmitting.value = false;
-            },
-            onFinish: () => { cardSubmitting.value = false; },
-        });
+                return;
+            }
+            const EfiPay = (await import('payment-token-efi')).default;
+            const env = props.card_efi_sandbox ? 'sandbox' : 'production';
+            const instance = EfiPay.CreditCard.setAccount((props.card_efi_payee_code || '').trim()).setEnvironment(env);
+            instance.setCardNumber(numberDigits);
+            const brand = await instance.verifyCardBrand();
+            if (!brand || brand === 'unsupported') {
+                error.value = 'Bandeira do cartão não suportada.';
+                cardSubmitting.value = false;
+                return;
+            }
+            instance.setCreditCardData({
+                brand,
+                number: numberDigits,
+                cvv,
+                expirationMonth: month,
+                expirationYear: year,
+                reuse: false,
+                holderName: name || undefined,
+                holderDocument: (props.customer_cpf || '').replace(/\D/g, '') || undefined,
+            });
+            const result = await instance.getPaymentToken();
+            const paymentToken = result?.payment_token;
+            if (!paymentToken) {
+                error.value = 'Não foi possível gerar o token do cartão.';
+                cardSubmitting.value = false;
+                return;
+            }
+            const last4 = numberDigits.slice(-4);
+            router.post('/api-checkout/pay', {
+                session_token: props.session_token,
+                payment_method: 'card',
+                payment_token: paymentToken,
+                card_mask: result?.card_mask || (last4 ? `**** ${last4}` : ''),
+            }, {
+                preserveScroll: true,
+                onError: (err) => {
+                    onError(err);
+                    cardSubmitting.value = false;
+                },
+                onFinish: () => { cardSubmitting.value = false; },
+            });
+            return;
+        }
     } catch (e) {
         error.value = e?.message || 'Erro ao processar o cartão.';
         cardSubmitting.value = false;
@@ -443,10 +513,52 @@ async function submitCard(ev) {
                                         placeholder="Como está no cartão"
                                     />
                                 </div>
-                                <div>
-                                    <label class="mb-2 block text-sm font-medium text-zinc-700">Dados do cartão</label>
-                                    <div ref="stripeCardRef" class="rounded-lg border-2 border-zinc-200 bg-white px-4 py-3 min-h-[3.25rem]" />
-                                </div>
+                                <template v-if="canPayWithEfi">
+                                    <div>
+                                        <label for="card-number-efi" class="mb-2 block text-sm font-medium text-zinc-700">Número do cartão</label>
+                                        <input
+                                            id="card-number-efi"
+                                            v-model="efiCardNumber"
+                                            type="text"
+                                            inputmode="numeric"
+                                            autocomplete="cc-number"
+                                            class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                                            placeholder="0000 0000 0000 0000"
+                                        />
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label for="card-exp-efi" class="mb-2 block text-sm font-medium text-zinc-700">Validade (MM/AAAA)</label>
+                                            <input
+                                                id="card-exp-efi"
+                                                v-model="efiCardExp"
+                                                type="text"
+                                                inputmode="numeric"
+                                                autocomplete="cc-exp"
+                                                class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                                                placeholder="MM/AAAA"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label for="card-cvv-efi" class="mb-2 block text-sm font-medium text-zinc-700">CVV</label>
+                                            <input
+                                                id="card-cvv-efi"
+                                                v-model="efiCardCvv"
+                                                type="password"
+                                                inputmode="numeric"
+                                                autocomplete="cc-csc"
+                                                class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                                                placeholder="123"
+                                            />
+                                        </div>
+                                    </div>
+                                </template>
+                                <template v-else-if="canPayWithStripe">
+                                    <div class="space-y-2">
+                                        <label class="block text-sm font-medium text-zinc-700">Dados do cartão</label>
+                                        <div ref="stripeCardRef" class="rounded-lg border-2 border-zinc-200 bg-white px-4 py-3 min-h-[3.25rem]" />
+                                    </div>
+                                </template>
                                 <div class="flex gap-2">
                                     <button
                                         type="button"
