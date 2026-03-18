@@ -84,6 +84,10 @@ const pixForm = useForm({
     session_token: props.session_token,
     payment_method: 'pix',
 });
+const pixAutoForm = useForm({
+    session_token: props.session_token,
+    payment_method: 'pix_auto',
+});
 const boletoForm = useForm({
     session_token: props.session_token,
     payment_method: 'boleto',
@@ -147,7 +151,7 @@ watch(showCardForm, (visible) => {
 function selectMethod(method) {
     if (method === 'card') {
         selectedMethod.value = 'card';
-        showCardForm.value = true;
+        showCardForm.value = canPayWithCard.value;
     } else {
         showCardForm.value = false;
         selectedMethod.value = method;
@@ -320,6 +324,15 @@ async function submitCard(ev) {
                                 <span>Pagar com PIX</span>
                             </button>
                             <button
+                                v-if="available_methods.includes('pix_auto')"
+                                type="button"
+                                class="flex w-full items-center justify-center gap-3 rounded-xl border-2 border-zinc-200 bg-white px-4 py-3.5 font-medium text-zinc-900 transition hover:border-emerald-500 hover:bg-emerald-50/50"
+                                @click="selectMethod('pix_auto')"
+                            >
+                                <QrCode class="h-5 w-5 shrink-0" />
+                                <span>Pagar com PIX Automático</span>
+                            </button>
+                            <button
                                 v-if="available_methods.includes('boleto')"
                                 type="button"
                                 class="flex w-full items-center justify-center gap-3 rounded-xl border-2 border-zinc-200 bg-white px-4 py-3.5 font-medium text-zinc-900 transition hover:border-emerald-500 hover:bg-emerald-50/50"
@@ -329,7 +342,7 @@ async function submitCard(ev) {
                                 <span>Pagar com Boleto</span>
                             </button>
                             <button
-                                v-if="canPayWithCard"
+                                v-if="available_methods.includes('card')"
                                 type="button"
                                 class="flex w-full items-center justify-center gap-3 rounded-xl border-2 border-zinc-200 bg-white px-4 py-3.5 font-medium text-zinc-900 transition hover:border-emerald-500 hover:bg-emerald-50/50"
                                 @click="selectMethod('card')"
@@ -365,6 +378,31 @@ async function submitCard(ev) {
                             </div>
                         </template>
 
+                        <template v-else-if="selectedMethod === 'pix_auto'">
+                            <div class="rounded-xl border-2 border-zinc-200 bg-zinc-50/30 p-4 space-y-4">
+                                <p class="text-sm text-zinc-600">Clique abaixo para gerar o QR Code PIX. Você será redirecionado para a página de pagamento.</p>
+                                <form @submit.prevent="pixAutoForm.post('/api-checkout/pay', { preserveScroll: true, onError })">
+                                    <div class="flex gap-2">
+                                        <button
+                                            type="button"
+                                            class="rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
+                                            @click="clearSelectedMethod"
+                                        >
+                                            Voltar
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            class="flex-1 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                                            :disabled="pixAutoForm.processing"
+                                        >
+                                            <QrCode class="h-5 w-5 shrink-0" />
+                                            {{ pixAutoForm.processing ? 'Gerando...' : 'Gerar PIX' }}
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </template>
+
                         <!-- Boleto: bloco com botão Gerar boleto -->
                         <template v-else-if="selectedMethod === 'boleto'">
                             <div class="rounded-xl border-2 border-zinc-200 bg-zinc-50/30 p-4 space-y-4">
@@ -392,8 +430,8 @@ async function submitCard(ev) {
                         </template>
 
                         <!-- Cartão: formulário (mantido como já estava) -->
-                        <template v-else-if="selectedMethod === 'card' && canPayWithCard">
-                            <form class="space-y-4 rounded-xl border border-zinc-200 bg-zinc-50/30 p-4" @submit.prevent="submitCard">
+                        <template v-else-if="selectedMethod === 'card'">
+                            <form v-if="canPayWithCard" class="space-y-4 rounded-xl border border-zinc-200 bg-zinc-50/30 p-4" @submit.prevent="submitCard">
                                 <div>
                                     <label for="card-holder-api" class="mb-2 block text-sm font-medium text-zinc-700">Nome no cartão</label>
                                     <input
@@ -426,6 +464,16 @@ async function submitCard(ev) {
                                     </button>
                                 </div>
                             </form>
+                            <div v-else class="rounded-xl border-2 border-zinc-200 bg-zinc-50/30 p-4 space-y-4">
+                                <p class="text-sm text-zinc-600">Cartão está indisponível no momento para este checkout.</p>
+                                <button
+                                    type="button"
+                                    class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
+                                    @click="clearSelectedMethod"
+                                >
+                                    Voltar
+                                </button>
+                            </div>
                         </template>
                     </div>
                 </div>

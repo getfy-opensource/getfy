@@ -62,10 +62,14 @@ class ProcessPaymentWebhook implements ShouldQueue
                 return;
             }
             $order->update(['status' => 'completed']);
-            $order->product->users()->syncWithoutDetaching([$order->user_id]);
-            $order->load('orderItems');
+            if ($order->product) {
+                $order->product->users()->syncWithoutDetaching([$order->user_id]);
+            }
+            $order->load('orderItems.product');
             foreach ($order->orderItems as $item) {
-                $item->product->users()->syncWithoutDetaching([$order->user_id]);
+                if ($item->product) {
+                    $item->product->users()->syncWithoutDetaching([$order->user_id]);
+                }
             }
             if ($order->subscription_plan_id) {
                 $plan = $order->subscriptionPlan;

@@ -41,27 +41,57 @@ class ApiCheckoutController extends Controller
             abort(404, 'Aplicação indisponível.');
         }
 
-        $pg = $app->payment_gateways ?? [];
+        $pg = $app->payment_gateways ?? ApiApplication::defaultPaymentGateways();
+        $pg = is_array($pg) ? $pg : ApiApplication::defaultPaymentGateways();
+
+        $productModel = null;
+        $productName = null;
+        $productImageUrl = null;
+        if ($session->product_id) {
+            $productModel = Product::find($session->product_id);
+            if ($productModel) {
+                $productName = $productModel->name;
+                if ($productModel->image) {
+                    $productImageUrl = (new StorageService($productModel->tenant_id))->url($productModel->image);
+                }
+            }
+        }
+
+        $paymentService = app(PaymentService::class);
+        $tenantId = $app->tenant_id;
+        $firstPixGateway = $paymentService->getFirstAvailableGatewayForMethod($tenantId, 'pix', $productModel, $pg);
+        $firstPixAutoGateway = $paymentService->getFirstAvailableGatewayForMethod($tenantId, 'pix_auto', $productModel, $pg);
+        $firstCardGateway = $paymentService->getFirstAvailableGatewayForMethod($tenantId, 'card', $productModel, $pg);
+        $firstBoletoGateway = $paymentService->getFirstAvailableGatewayForMethod($tenantId, 'boleto', $productModel, $pg);
+
         $availableMethods = [];
-        if (! empty($pg['pix'])) {
+        if ($firstPixGateway !== null) {
             $availableMethods[] = 'pix';
         }
-        if (! empty($pg['card'])) {
+        if ($firstPixAutoGateway !== null) {
+            $availableMethods[] = 'pix_auto';
+        }
+        if ($firstCardGateway !== null) {
             $availableMethods[] = 'card';
         }
-        if (! empty($pg['boleto'])) {
+        if ($firstBoletoGateway !== null) {
             $availableMethods[] = 'boleto';
         }
         if (empty($availableMethods)) {
             abort(422, 'Nenhum método de pagamento configurado para esta aplicação.');
         }
 
-        $cardGatewaySlug = ! empty($pg['card']) ? (string) $pg['card'] : null;
+        $cardGatewaySlug = null;
+        if (! empty($pg['card'])) {
+            $cardGatewaySlug = (string) $pg['card'];
+        } elseif ($firstCardGateway !== null) {
+            $cardGatewaySlug = (string) $firstCardGateway;
+        }
         $cardStripePublishableKey = '';
         $cardStripeSandbox = false;
         $cardStripeLinkEnabled = true;
         if ($cardGatewaySlug === 'stripe') {
-            $cred = GatewayCredential::forTenant($app->tenant_id)->where('gateway_slug', 'stripe')->where('is_connected', true)->first();
+            $cred = GatewayCredential::forTenant($tenantId)->where('gateway_slug', 'stripe')->where('is_connected', true)->first();
             if ($cred) {
                 $creds = $cred->getDecryptedCredentials();
                 $cardStripePublishableKey = (string) ($creds['publishable_key'] ?? '');
@@ -70,24 +100,11 @@ class ApiCheckoutController extends Controller
             }
         }
 
-        $productName = null;
-        $productImageUrl = null;
-        if ($session->product_id) {
-            $product = Product::find($session->product_id);
-            if ($product) {
-                $productName = $product->name;
-                if ($product->image) {
-                    $productImageUrl = (new StorageService($product->tenant_id))->url($product->image);
-                }
-            }
-        }
-
         $customer = $session->customer ?? [];
         $appLogoUrl = $app->logo
             ? (new StorageService($app->tenant_id))->url($app->logo)
             : null;
 
-        $tenantId = $app->tenant_id;
         $currenciesRaw = Setting::get('currencies', null, $tenantId);
         $currencies = $currenciesRaw
             ? (is_string($currenciesRaw) ? json_decode($currenciesRaw, true) : $currenciesRaw)
@@ -122,7 +139,7 @@ class ApiCheckoutController extends Controller
     {
         $rules = [
             'session_token' => ['required', 'string', 'max:64'],
-            'payment_method' => ['required', 'string', 'in:pix,boleto,card'],
+            'payment_method' => ['required', 'string', 'in:pix,pix_auto,boleto,card'],
         ];
         if ($request->input('payment_method') === 'card') {
             $rules['payment_token'] = ['required', 'string', 'max:10000'];
@@ -139,13 +156,11 @@ class ApiCheckoutController extends Controller
             return redirect()->back()->with('error', 'Aplicação indisponível.');
         }
 
-        $pg = $app->payment_gateways ?? [];
-        $method = $validated['payment_method'];
-        if (empty($pg[$method])) {
-            return redirect()->back()->with('error', 'Método de pagamento não disponível.');
-        }
-
         $tenantId = $app->tenant_id;
+        $gatewayConfig = $app->payment_gateways ?? ApiApplication::defaultPaymentGateways();
+        $gatewayConfig = is_array($gatewayConfig) ? $gatewayConfig : ApiApplication::defaultPaymentGateways();
+        $pg = $gatewayConfig;
+        $method = $validated['payment_method'];
         $customer = $session->customer;
         $email = $customer['email'] ?? '';
         $name = trim((string) ($customer['name'] ?? ''));
@@ -219,13 +234,22 @@ class ApiCheckoutController extends Controller
         }
 
         $session->update(['order_id' => $order->id]);
-        $gatewayConfig = $app->payment_gateways ?? ApiApplication::defaultPaymentGateways();
         $paymentService = app(PaymentService::class);
+        $availableGateway = $paymentService->getFirstAvailableGatewayForMethod($tenantId, $method, $product, $gatewayConfig);
+        if ($availableGateway === null) {
+            $order->delete();
+            return redirect()->back()->with('error', 'Método de pagamento não disponível.');
+        }
 
-        if ($method === 'pix') {
+        if ($method === 'pix' || $method === 'pix_auto') {
+            $pixGatewayConfig = $gatewayConfig;
+            if ($method === 'pix_auto') {
+                $pixGatewayConfig['pix'] = $gatewayConfig['pix_auto'] ?? null;
+                $pixGatewayConfig['pix_redundancy'] = $gatewayConfig['pix_auto_redundancy'] ?? [];
+            }
             try {
                 event(new OrderPending($order));
-                $result = $paymentService->createPixPayment($order, $product, $consumer, $gatewayConfig);
+                $result = $paymentService->createPixPayment($order, $product, $consumer, $pixGatewayConfig);
                 event(new PixGenerated($order, [
                     'qrcode' => $result['qrcode'] ?? null,
                     'copy_paste' => $result['copy_paste'] ?? null,

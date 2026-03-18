@@ -418,14 +418,24 @@ async function fetchAddressByCep() {
     if (cep.length < 8) return;
     addressCepLoading.value = true;
     try {
-        const { data } = await axios.get(`https://viacep.com.br/ws/${cep}/json/`, { timeout: 8000 });
-        if (data?.erro) return;
-        if (data?.logradouro) form.address_street = data.logradouro;
-        if (data?.bairro) form.address_neighborhood = data.bairro;
-        if (data?.localidade) form.address_city = data.localidade;
-        if (data?.uf) form.address_state = data.uf;
-    } catch (_) {}
-    addressCepLoading.value = false;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+        const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`, { signal: controller.signal });
+        clearTimeout(timeout);
+
+        if (!res.ok) return;
+
+        const data = await res.json().catch(() => null);
+        if (!data || data.erro) return;
+
+        if (data.logradouro) form.address_street = data.logradouro;
+        if (data.bairro) form.address_neighborhood = data.bairro;
+        if (data.localidade) form.address_city = data.localidade;
+        if (data.uf) form.address_state = data.uf;
+    } catch (_) {
+    } finally {
+        addressCepLoading.value = false;
+    }
 }
 
 const inputClass =

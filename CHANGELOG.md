@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.0.2] - 18-03-2026
+
+### Added
+
+- Adiciona suporte a PIX automático no Checkout Pro da API de Pagamentos.
+
+### Changed
+
+- Melhora a detecção de métodos disponíveis no Checkout Pro da API (considera gateways conectados e fallback).
+
+### Fixed
+
+- Corrige disparo do webhook de confirmação (order.completed) na API quando o pedido não possui produto.
+- Corrige exibição de métodos no Checkout Pro da API (PIX, cartão e boleto) para não ficar apenas em PIX.
+- Corrige busca de CEP no checkout (ViaCEP) removendo headers que causavam bloqueio por CORS e evitando loader travado.
+
 ## [1.0.1] - 15-03-2026
 
 ### Added
@@ -21,6 +37,8 @@
 - Corrige botão na página de obrigado para produto "Somente link de pagamento".
 - Corrige venda no cartão (Mercado Pago) ficando como pendente após aprovação.
 - Corrige instabilidade/timeouts ao gerar PIX no Spacepag em alguns servidores (retry/IPv4 e timeouts configuráveis).
+- Reduz tempo do retry do Spacepag em timeouts para não travar o checkout.
+- Força HTTP/1.1 no Spacepag/Sapcepag e sanitiza base_url para evitar timeouts por HTTP/2 e URLs mal coladas.
 - Corrige atualização automática em VPS/Docker quando o Git bloqueia o repositório por "dubious ownership".
 - Corrige atualização automática no Docker quando vendor/bin/composer não existe.
 - Corrige erro 500 em produção quando QUEUE_CONNECTION está inválido (ex.: file).
