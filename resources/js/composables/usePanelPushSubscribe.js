@@ -62,6 +62,10 @@ export function usePanelPushSubscribe() {
             lastPushError.value = 'push_not_configured';
             return false;
         }
+        if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+            lastPushError.value = 'notification_permission_default';
+            return false;
+        }
         if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
             lastPushError.value = 'notification_permission_denied';
             return false;
@@ -109,7 +113,9 @@ export function usePanelPushSubscribe() {
         lastPushError.value = null;
         pushRegistered.value = false;
         if (typeof navigator === 'undefined' || !navigator.serviceWorker?.getRegistration) return;
+        if (typeof Notification !== 'undefined' && Notification.permission !== 'granted') return false;
         try {
+            await navigator.serviceWorker.register('/painel-sw.js', { scope: '/' });
             const reg = await navigator.serviceWorker.getRegistration('/');
             const existing = await reg?.pushManager?.getSubscription?.();
             if (existing) {

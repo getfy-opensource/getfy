@@ -21,8 +21,10 @@ const hasNotificationAPI = computed(() => typeof window !== 'undefined' && typeo
 const notificationPermissionDenied = computed(
     () => hasNotificationAPI.value && window.Notification.permission === 'denied'
 );
-// Ativo = backend disse que tem inscrição OU o browser já tem subscription (persiste ao reabrir o PWA)
-const pushActive = computed(() => pushSubscribed.value || pushRegistered.value);
+const notificationPermissionGranted = computed(
+    () => hasNotificationAPI.value && window.Notification.permission === 'granted'
+);
+const pushActive = computed(() => notificationPermissionGranted.value && pushRegistered.value);
 // Botão "Ativar": este navegador não inscrito, push habilitado no servidor, API disponível e permissão não negada
 const canActivatePush = computed(
     () =>
@@ -215,6 +217,12 @@ const hasUnread = computed(() => unreadCount.value > 0);
                             class="mt-1 text-xs text-zinc-500 dark:text-zinc-400"
                         >
                             Receba avisos de vendas e pagamentos no navegador ou no app.
+                        </p>
+                        <p
+                            v-if="pushSubscribed && !pushActive"
+                            class="mt-1 text-xs text-zinc-500 dark:text-zinc-400"
+                        >
+                            Notificações já estão ativas em outro dispositivo. Para ativar neste, permita no navegador.
                         </p>
                         <button
                             v-if="canActivatePush"

@@ -189,6 +189,9 @@ class ApiCheckoutController extends Controller
             'session_token' => ['required', 'string', 'max:64'],
             'payment_method' => ['required', 'string', 'in:pix,pix_auto,boleto,card'],
         ];
+        if ($request->input('payment_method') === 'pix_auto') {
+            $rules['cpf'] = ['required', 'string', 'max:14'];
+        }
         if ($request->input('payment_method') === 'card') {
             $rules['payment_token'] = ['required', 'string', 'max:10000'];
             $rules['card_mask'] = ['nullable', 'string', 'max:32'];
@@ -221,7 +224,14 @@ class ApiCheckoutController extends Controller
         if ($method === 'boleto' && empty($pg['boleto'])) {
             return redirect()->back()->with('error', 'Método de pagamento não disponível.');
         }
-        $customer = $session->customer;
+        $customer = is_array($session->customer) ? $session->customer : [];
+        if ($method === 'pix_auto') {
+            $cpf = (string) ($validated['cpf'] ?? '');
+            $customer['cpf'] = $cpf;
+            $session->update([
+                'customer' => array_merge(is_array($session->customer) ? $session->customer : [], ['cpf' => $cpf]),
+            ]);
+        }
         $email = $customer['email'] ?? '';
         $name = trim((string) ($customer['name'] ?? ''));
         if ($name === '') {

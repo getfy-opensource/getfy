@@ -90,6 +90,7 @@ const pixForm = useForm({
 const pixAutoForm = useForm({
     session_token: props.session_token,
     payment_method: 'pix_auto',
+    cpf: props.customer_cpf || '',
 });
 const boletoForm = useForm({
     session_token: props.session_token,
@@ -98,7 +99,7 @@ const boletoForm = useForm({
 
 const error = ref(null);
 function onError(errors) {
-    error.value = errors.payment_method?.[0] || errors.payment_token?.[0] || errors.session_token?.[0] || 'Erro ao processar.';
+    error.value = errors.payment_method?.[0] || errors.payment_token?.[0] || errors.cpf?.[0] || errors.session_token?.[0] || 'Erro ao processar.';
 }
 
 const canPayWithStripe = computed(() => props.card_gateway_slug === 'stripe' && (props.card_stripe_publishable_key || '').trim() !== '');
@@ -167,6 +168,17 @@ function selectMethod(method) {
 function clearSelectedMethod() {
     selectedMethod.value = null;
     showCardForm.value = false;
+}
+
+function submitPixAuto() {
+    error.value = null;
+    const cpfDigits = (pixAutoForm.cpf || '').replace(/\D/g, '');
+    if (cpfDigits.length !== 11) {
+        error.value = 'Informe um CPF válido.';
+        return;
+    }
+    pixAutoForm.cpf = cpfDigits;
+    pixAutoForm.post('/api-checkout/pay', { preserveScroll: true, onError });
 }
 
 onMounted(() => {
@@ -451,7 +463,19 @@ async function submitCard(ev) {
                         <template v-else-if="selectedMethod === 'pix_auto'">
                             <div class="rounded-xl border-2 border-zinc-200 bg-zinc-50/30 p-4 space-y-4">
                                 <p class="text-sm text-zinc-600">Clique abaixo para gerar o QR Code PIX. Você será redirecionado para a página de pagamento.</p>
-                                <form @submit.prevent="pixAutoForm.post('/api-checkout/pay', { preserveScroll: true, onError })">
+                                <div>
+                                    <label for="cpf-pix-auto" class="mb-2 block text-sm font-medium text-zinc-700">CPF</label>
+                                    <input
+                                        id="cpf-pix-auto"
+                                        v-model="pixAutoForm.cpf"
+                                        type="text"
+                                        inputmode="numeric"
+                                        autocomplete="off"
+                                        class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                                        placeholder="000.000.000-00"
+                                    />
+                                </div>
+                                <form @submit.prevent="submitPixAuto">
                                     <div class="flex gap-2">
                                         <button
                                             type="button"
