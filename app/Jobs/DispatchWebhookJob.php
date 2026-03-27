@@ -46,11 +46,31 @@ class DispatchWebhookJob implements ShouldQueue
             ->withHeaders(['Content-Type' => 'application/json'])
             ->withBody(json_encode($body), 'application/json');
 
-        if ($webhook->bearer_token) {
-            $request = $request->withToken($webhook->bearer_token);
-        }
-
         try {
+            // `bearer_token` é cast como encrypted; se APP_KEY estiver incorreta/mudou, isso pode lançar exceção.
+            $token = null;
+            try {
+                $token = $webhook->bearer_token;
+            } catch (\Throwable $e) {
+                WebhookLog::create([
+                    'webhook_id' => $webhook->id,
+                    'event' => $eventSlug,
+                    'event_label' => $eventLabel,
+                    'request_payload' => $body,
+                    'response_status' => null,
+                    'response_body' => null,
+                    'success' => false,
+                    'error_message' => 'Bearer token inválido: '.$e->getMessage(),
+                    'source' => 'job',
+                ]);
+
+                return;
+            }
+
+            if (is_string($token) && $token !== '') {
+                $request = $request->withToken($token);
+            }
+
             $response = $request->post($webhook->url);
             $responseStatus = $response->status();
             $responseBody = $response->body();

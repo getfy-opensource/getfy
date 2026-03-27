@@ -13,15 +13,24 @@
         (function(){try{var s=localStorage.getItem('theme');var t=s||'dark';document.documentElement.classList.toggle('dark',t==='dark');}catch(_){}})();
     </script>
     <meta name="csrf-token" content="<?php echo e(csrf_token()); ?>">
-    <title><?php echo e(config('app.name', 'Getfy')); ?></title>
+    <title><?php echo e(config('getfy.app_name', config('app.name', 'Getfy'))); ?></title>
     <?php if (! ($skipPanelPwa)): ?>
-    <link rel="icon" href="https://cdn.getfy.cloud/collapsed-logo.png" type="image/png">
+    <?php
+        $wlFavicon = config('getfy.favicon_url');
+        $wlFavicon = ($wlFavicon !== null && $wlFavicon !== '') ? $wlFavicon : 'https://cdn.getfy.cloud/collapsed-logo.png';
+        $wlThemeColor = config('getfy.pwa_theme_color');
+        $wlThemeColor = ($wlThemeColor !== null && $wlThemeColor !== '') ? $wlThemeColor : config('getfy.theme_primary', '#0ea5e9');
+        $wlAppleIcon = config('getfy.pwa_icon_192');
+    ?>
+    <link rel="icon" href="<?php echo e($wlFavicon); ?>" type="image/png">
     <link rel="manifest" href="<?php echo e(url('/manifest.json')); ?>">
-    <meta name="theme-color" content="<?php echo e(config('getfy.theme_primary', '#0ea5e9')); ?>">
+    <meta name="theme-color" content="<?php echo e($wlThemeColor); ?>">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <?php if(is_file(public_path('icons/icon-192x192.png'))): ?>
+    <?php if($wlAppleIcon !== null && $wlAppleIcon !== ''): ?>
+    <link rel="apple-touch-icon" href="<?php echo e($wlAppleIcon); ?>">
+    <?php elseif(is_file(public_path('icons/icon-192x192.png'))): ?>
     <link rel="apple-touch-icon" href="<?php echo e(url('/icons/icon-192x192.png')); ?>">
     <?php elseif(is_file(public_path('icons/icon-512x512.png'))): ?>
     <link rel="apple-touch-icon" href="<?php echo e(url('/icons/icon-512x512.png')); ?>">

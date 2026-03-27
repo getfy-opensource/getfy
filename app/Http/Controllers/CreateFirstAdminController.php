@@ -57,6 +57,8 @@ class CreateFirstAdminController extends Controller
             'tenant_id' => null,
         ]);
 
+        $user->update(['tenant_id' => $user->id]);
+
         Auth::login($user);
 
         return redirect()->intended('/dashboard');

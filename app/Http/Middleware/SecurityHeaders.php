@@ -26,7 +26,7 @@ class SecurityHeaders
                 "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
                 "img-src 'self' data: https: blob:",
                 "font-src 'self' https://fonts.gstatic.com",
-                "connect-src 'self' https://api.stripe.com https://api.mercadopago.com https://*.mercadopago.com https://*.mercadopago.com.br https://http2.mlstatic.com https://*.mlstatic.com https://api.mercadolibre.com https://www.mercadolibre.com https://*.mercadolibre.com wss:",
+                "connect-src 'self' https://api.stripe.com https://api.mercadopago.com https://*.mercadopago.com https://*.mercadopago.com.br https://http2.mlstatic.com https://*.mlstatic.com https://api.mercadolibre.com https://www.mercadolibre.com https://*.mercadolibre.com https://viacep.com.br wss:",
                 "frame-src 'self' https://js.stripe.com https://www.mercadopago.com https://*.mercadopago.com https://*.mercadopago.com.br https://www.mercadolibre.com https://*.mercadolibre.com https://www.youtube-nocookie.com https://youtube-nocookie.com https://www.youtube.com https://youtube.com",
                 "media-src 'self' https: blob:",
             ]);

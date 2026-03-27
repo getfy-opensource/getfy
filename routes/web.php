@@ -154,7 +154,7 @@ Route::middleware(['auth', 'role:admin'])->prefix('usuarios')->name('usuarios.')
     Route::delete('/{user}', [\App\Http\Controllers\UsersController::class, 'destroy'])->name('destroy');
 });
 
-Route::middleware(['auth', 'role:admin|infoprodutor'])->group(function () {
+Route::middleware(['auth', 'admin.tenant', 'role:admin|infoprodutor'])->group(function () {
     Route::post('/painel/push-subscribe', [\App\Http\Controllers\PanelPwaController::class, 'pushSubscribe'])->name('panel.pwa.push-subscribe')->middleware('throttle:10,1');
     Route::get('/painel/notifications', [\App\Http\Controllers\PanelNotificationsController::class, 'index'])->name('panel.notifications.index');
     Route::patch('/painel/notifications/{notification}/read', [\App\Http\Controllers\PanelNotificationsController::class, 'markRead'])->name('panel.notifications.mark-read');

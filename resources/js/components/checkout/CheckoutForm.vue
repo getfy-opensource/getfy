@@ -409,6 +409,8 @@ function selectPhoneCountry(c) {
 
 const addressCepLoading = ref(false);
 const boletoAddressFetched = computed(() => !!(form.address_street || '').trim());
+const addressCepError = ref('');
+const boletoManualAddress = ref(false);
 function onAddressCepInput(e) {
     const digits = (e.target.value || '').replace(/\D/g, '').slice(0, 8);
     form.address_zipcode = digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
@@ -417,22 +419,30 @@ async function fetchAddressByCep() {
     const cep = (form.address_zipcode || '').replace(/\D/g, '').slice(0, 8);
     if (cep.length < 8) return;
     addressCepLoading.value = true;
+    addressCepError.value = '';
     try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 8000);
         const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`, { signal: controller.signal });
         clearTimeout(timeout);
 
-        if (!res.ok) return;
+        if (!res.ok) {
+            addressCepError.value = 'Não foi possível buscar o CEP. Verifique o número e tente novamente.';
+            return;
+        }
 
         const data = await res.json().catch(() => null);
-        if (!data || data.erro) return;
+        if (!data || data.erro) {
+            addressCepError.value = 'CEP não encontrado. Verifique e tente novamente.';
+            return;
+        }
 
         if (data.logradouro) form.address_street = data.logradouro;
         if (data.bairro) form.address_neighborhood = data.bairro;
         if (data.localidade) form.address_city = data.localidade;
         if (data.uf) form.address_state = data.uf;
     } catch (_) {
+        addressCepError.value = 'Não foi possível buscar o CEP agora. Tente novamente.';
     } finally {
         addressCepLoading.value = false;
     }
@@ -1536,6 +1546,7 @@ function submit() {
                             />
                         </div>
                         <p v-if="form.errors.address_zipcode" class="mt-1.5 text-sm font-medium text-red-600">{{ form.errors.address_zipcode }}</p>
+                        <p v-else-if="addressCepError" class="mt-1.5 text-sm font-medium text-red-600">{{ addressCepError }}</p>
                     </div>
                     <button
                         type="button"
@@ -1546,6 +1557,34 @@ function submit() {
                         <Loader2 v-if="addressCepLoading" class="h-5 w-5 animate-spin" />
                         <span v-else>{{ t('checkout.endereco_boleto_buscar') }}</span>
                     </button>
+                </div>
+                <div v-if="!boletoAddressFetched" class="pt-1">
+                    <button
+                        type="button"
+                        class="text-xs font-medium text-gray-600 underline decoration-gray-300 underline-offset-2 hover:text-gray-800"
+                        @click="boletoManualAddress = !boletoManualAddress"
+                    >
+                        {{ boletoManualAddress ? 'Ocultar preenchimento manual' : 'Preencher endereço manualmente' }}
+                    </button>
+                </div>
+
+                <div v-if="!boletoAddressFetched && boletoManualAddress" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div class="sm:col-span-2">
+                        <label class="mb-2 block text-sm font-medium text-gray-700">Rua</label>
+                        <input v-model="form.address_street" type="text" :class="inputClass" placeholder="Rua" />
+                    </div>
+                    <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700">Bairro</label>
+                        <input v-model="form.address_neighborhood" type="text" :class="inputClass" placeholder="Bairro" />
+                    </div>
+                    <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700">Cidade</label>
+                        <input v-model="form.address_city" type="text" :class="inputClass" placeholder="Cidade" />
+                    </div>
+                    <div class="max-w-[12rem]">
+                        <label class="mb-2 block text-sm font-medium text-gray-700">UF</label>
+                        <input v-model="form.address_state" type="text" maxlength="2" :class="inputClass" placeholder="UF" />
+                    </div>
                 </div>
                 <!-- 2) Após buscar: endereço em texto + só campo Número -->
                 <template v-else>

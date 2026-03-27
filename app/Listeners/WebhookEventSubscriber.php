@@ -16,9 +16,13 @@ use App\Events\SubscriptionPastDue;
 use App\Events\SubscriptionRenewed;
 use App\Jobs\DispatchWebhookJob;
 use App\Models\Webhook;
+use App\Models\Order;
+use App\Models\CheckoutSession;
+use App\Models\Subscription;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\URL;
 
 class WebhookEventSubscriber
@@ -42,36 +46,81 @@ class WebhookEventSubscriber
     public function handleEvent(object $event): void
     {
         $eventClass = $event::class;
-        $tenantIds = $this->getTenantIdsFromEvent($event);
 
-        if (empty($tenantIds)) {
-            return;
-        }
+        try {
+            Log::debug('WebhookEventSubscriber: received event', [
+                'event_class' => $eventClass,
+            ]);
 
-        $productId = $this->getProductIdFromEvent($event);
+            $tenantIds = $this->getTenantIdsFromEvent($event);
 
-        $webhooks = Webhook::active()
-            ->whereIn('tenant_id', $tenantIds)
-            ->with('products')
-            ->get();
+            if (empty($tenantIds)) {
+                Log::debug('WebhookEventSubscriber: no tenant ids resolved', [
+                    'event_class' => $eventClass,
+                ]);
+                return;
+            }
 
-        $payload = $this->serializeEventPayload($event);
-        $payload = $this->enrichPayload($event, $payload);
-        $dispatchSync = $this->shouldDispatchSync();
+            $productId = $this->getProductIdFromEvent($event);
 
-        foreach ($webhooks as $webhook) {
-            if ($webhook->listensTo($eventClass) && $webhook->shouldFireForProduct($productId)) {
-                if ($dispatchSync) {
-                    (new DispatchWebhookJob($webhook->id, $eventClass, $payload))->handle();
-                } else {
-                    DispatchWebhookJob::dispatch($webhook->id, $eventClass, $payload);
+            $webhooks = Webhook::active()
+                ->where(function ($q) use ($tenantIds) {
+                    $q->whereIn('tenant_id', $tenantIds)
+                        ->orWhereNull('tenant_id');
+                })
+                ->with('products')
+                ->get();
+
+            Log::debug('WebhookEventSubscriber: candidate webhooks loaded', [
+                'event_class' => $eventClass,
+                'tenant_ids' => $tenantIds,
+                'product_id' => $productId,
+                'count' => $webhooks->count(),
+            ]);
+
+            $payload = $this->serializeEventPayload($event);
+            $payload = $this->enrichPayload($event, $payload);
+            $dispatchSync = $this->shouldDispatchSync();
+
+            foreach ($webhooks as $webhook) {
+                if (! $webhook->listensTo($eventClass) || ! $webhook->shouldFireForProduct($productId)) {
+                    continue;
+                }
+
+                try {
+                    if ($dispatchSync) {
+                        (new DispatchWebhookJob($webhook->id, $eventClass, $payload))->handle();
+                    } else {
+                        DispatchWebhookJob::dispatch($webhook->id, $eventClass, $payload);
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('WebhookEventSubscriber: failed to dispatch webhook', [
+                        'webhook_id' => $webhook->id,
+                        'event_class' => $eventClass,
+                        'tenant_id' => $webhook->tenant_id,
+                        'message' => $e->getMessage(),
+                    ]);
+
+                    report($e);
                 }
             }
+        } catch (\Throwable $e) {
+            Log::warning('WebhookEventSubscriber: failed to handle event', [
+                'event_class' => $eventClass,
+                'message' => $e->getMessage(),
+            ]);
+
+            report($e);
         }
     }
 
     private function shouldDispatchSync(): bool
     {
+        // Em dev/local, é comum não ter worker configurado corretamente; dispara sync para evitar “silêncio”.
+        if (app()->environment('local')) {
+            return true;
+        }
+
         if (config('queue.default') === 'sync') {
             return true;
         }
@@ -99,6 +148,37 @@ class WebhookEventSubscriber
         foreach ((array) $event as $value) {
             if ($value instanceof Model) {
                 $tid = $value->getAttribute('tenant_id');
+
+                Log::debug('WebhookEventSubscriber: inspecting model for tenant_id', [
+                    'model' => $value::class,
+                    'id' => $value->getKey(),
+                    'tenant_id_attr' => $tid,
+                    'product_id_attr' => method_exists($value, 'getAttribute') ? $value->getAttribute('product_id') : null,
+                ]);
+
+                // Alguns fluxos podem emitir eventos com tenant_id nulo no modelo principal.
+                // Nesses casos, inferimos o tenant pelo produto relacionado.
+                if ($tid === null) {
+                    try {
+                        if ($value instanceof Order) {
+                            $value->loadMissing('product:id,tenant_id');
+                            $tid = $value->product?->tenant_id;
+                        } elseif ($value instanceof CheckoutSession) {
+                            $value->loadMissing('product:id,tenant_id');
+                            $tid = $value->product?->tenant_id;
+                        } elseif ($value instanceof Subscription) {
+                            $value->loadMissing('product:id,tenant_id');
+                            $tid = $value->product?->tenant_id;
+                        }
+                    } catch (\Throwable $e) {
+                        Log::debug('WebhookEventSubscriber: failed to infer tenant_id from related product', [
+                            'model' => $value::class,
+                            'id' => $value->getKey(),
+                            'message' => $e->getMessage(),
+                        ]);
+                    }
+                }
+
                 if ($tid !== null) {
                     $ids[] = $tid;
                 }
@@ -122,13 +202,17 @@ class WebhookEventSubscriber
             }
         }
 
-        return array_values(array_unique(array_filter($ids)));
+        // IMPORTANTE: `array_filter()` sem callback remove valores "falsy" como 0.
+        // Queremos remover apenas `null` (tenant 0 pode existir em alguns ambientes/dados).
+        $ids = array_values(array_unique(array_filter($ids, fn ($v) => $v !== null)));
+
+        return $ids;
     }
 
     /**
      * Extract product_id from event (Order events, CartAbandoned, Subscription events)
      */
-    private function getProductIdFromEvent(object $event): ?int
+    private function getProductIdFromEvent(object $event): int|string|null
     {
         if ($event instanceof OrderPending || $event instanceof OrderCompleted
             || $event instanceof OrderRejected || $event instanceof OrderCancelled
