@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use Jose\Component\Core\Util\Base64UrlSafe;
+
 /**
  * Normaliza chaves VAPID vindas do .env para o formato esperado por minishlink/web-push (Base64 URL-safe).
  */
@@ -32,5 +34,25 @@ final class VapidEnvKeys
         }
 
         return $v;
+    }
+
+    /**
+     * Verifica se o par (após normalização) decodifica para 65 bytes (pública) e 32 bytes (privada), como exige o Web Push VAPID.
+     */
+    public static function normalizedPairLooksValid(?string $rawPublic, ?string $rawPrivate): bool
+    {
+        $pub = self::normalize($rawPublic);
+        $priv = self::normalize($rawPrivate);
+        if ($pub === null || $priv === null) {
+            return false;
+        }
+        try {
+            $pubBin = Base64UrlSafe::decode($pub);
+            $privBin = Base64UrlSafe::decode($priv);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return strlen($pubBin) === 65 && strlen($privBin) === 32;
     }
 }

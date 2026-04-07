@@ -16,18 +16,19 @@ fi
 
 rm -f public/hot 2>/dev/null || true
 
-# Exporta VAPID do arquivo compartilhado (se existir) para o ambiente do processo atual.
-# Isso garante que workers long-running (queue/schedule) enxerguem as chaves mesmo que o .env não seja relido.
-if [ -f .docker/pwa_vapid.env ]; then
-  set -a
-  # shellcheck disable=SC1091
-  . .docker/pwa_vapid.env || true
-  set +a
-fi
+# VAPID compartilhado (.docker/pwa_vapid.env): só no worker (GETFY_RUN_SETUP!=true).
+# No container "app" (setup), injetar sempre no boot sobrescrevia um .env válido com chaves antigas/truncadas
+# do volume e impedia php artisan pwa:vapid de rodar (linhas já preenchidas, porém inválidas).
+if [ "${GETFY_RUN_SETUP:-true}" != "true" ]; then
+  if [ -f .docker/pwa_vapid.env ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . .docker/pwa_vapid.env || true
+    set +a
+  fi
 
-# Se existir VAPID compartilhado (volume .docker), injeta no .env local.
-# Importante: o worker "queue" pode não rodar pwa:vapid; ele precisa ler as mesmas chaves do "app".
-php -r '
+  # Injeta no .env local: o worker não roda pwa:vapid; precisa das mesmas chaves que o app gravou no volume.
+  php -r '
 $sharedFile = ".docker/pwa_vapid.env";
 $envFile = ".env";
 if (!is_file($sharedFile) || !is_file($envFile)) { exit(0); }
@@ -52,6 +53,7 @@ foreach (["PWA_VAPID_PUBLIC","PWA_VAPID_PRIVATE"] as $k) {
 }
 file_put_contents($envFile, $env);
 ';
+fi
 
 # Se houver cache de config, pode "prender" env antigo. Limpa de forma segura (sem falhar o boot).
 rm -f bootstrap/cache/config.php 2>/dev/null || true
@@ -159,7 +161,19 @@ if [ "${GETFY_RUN_SETUP:-true}" = "true" ]; then
   fi
   php artisan package:discover --ansi
   php artisan migrate --force
-  if ! php -r '$c = (string) @file_get_contents(".env"); exit((preg_match("/^\\s*PWA_VAPID_PUBLIC\\s*=\\s*\\S+/m", $c) && preg_match("/^\\s*PWA_VAPID_PRIVATE\\s*=\\s*\\S+/m", $c)) ? 0 : 1);' >/dev/null 2>&1; then
+  if ! php -r '
+require "vendor/autoload.php";
+$c = (string) @file_get_contents(".env");
+$c = str_replace("\r\n", "\n", $c);
+$val = static function (string $c, string $k): ?string {
+  if (!preg_match("/^\\s*" . preg_quote($k, "/") . "\\s*=\\s*(.+)\\s*$/mi", $c, $m)) { return null; }
+  $v = trim((string) ($m[1] ?? ""), " \\t\\n\\r\\0\\x0B\\\"\\x27`");
+  return $v === "" ? null : $v;
+};
+$pub = $val($c, "PWA_VAPID_PUBLIC");
+$priv = $val($c, "PWA_VAPID_PRIVATE");
+exit(\App\Support\VapidEnvKeys::normalizedPairLooksValid($pub, $priv) ? 0 : 1);
+' >/dev/null 2>&1; then
     php artisan pwa:vapid || true
   fi
 fi

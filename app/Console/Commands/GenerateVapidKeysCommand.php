@@ -29,6 +29,18 @@ class GenerateVapidKeysCommand extends Command
         $publicKey = $keys['publicKey'];
         $privateKey = $keys['privateKey'];
 
+        try {
+            VAPID::validate([
+                'subject' => 'mailto:validate@example.invalid',
+                'publicKey' => $publicKey,
+                'privateKey' => $privateKey,
+            ]);
+        } catch (\Throwable $e) {
+            $this->error('Chaves geradas falharam na validação interna: ' . $e->getMessage());
+
+            return self::FAILURE;
+        }
+
         $content = file_get_contents($envPath);
         $hasPublic = preg_match('/^PWA_VAPID_PUBLIC=/m', $content);
         $hasPrivate = preg_match('/^PWA_VAPID_PRIVATE=/m', $content);
