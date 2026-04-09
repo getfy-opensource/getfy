@@ -21,7 +21,8 @@ if (typeof window !== 'undefined') {
     skipPanelPwa = isMemberArea || isCheckout;
 }
 if (!skipPanelPwa && typeof navigator !== 'undefined' && navigator.serviceWorker) {
-    navigator.serviceWorker.register('/painel-sw.js', { scope: '/' }).catch((error) => {
+    // Scope restrito evita que o SW do painel intercepte o checkout e scripts de terceiros (pixels, gateways).
+    navigator.serviceWorker.register('/painel-sw.js', { scope: '/painel/' }).catch((error) => {
         console.warn('[PWA] Falha ao registrar service worker:', error);
     });
 }

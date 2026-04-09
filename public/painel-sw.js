@@ -9,6 +9,10 @@ self.addEventListener('fetch', function (event) {
     return;
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+  // Não intercepte requisições cross-origin (pixels, CDNs, gateways). Isso pode mascarar erros e quebrar scripts.
+  if (url.origin !== self.location.origin) return;
+  // Service worker do painel só deve atuar no painel.
+  if (!url.pathname.startsWith('/painel/')) return;
   event.respondWith(
     fetch(event.request).catch(function () {
       return Response.error();
