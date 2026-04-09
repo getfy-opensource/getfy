@@ -341,6 +341,9 @@ class CheckoutController extends Controller
         ]);
         $payload['checkout_session_token'] = $sessionToken;
 
+        /** Preview ao vivo no Builder (iframe): o front confia neste flag, não só na query (Inertia pode alterar URL). */
+        $payload['checkout_builder_preview'] = $request->query('preview') === '1';
+
         return Inertia::render('Checkout/Show', $payload);
     }
 

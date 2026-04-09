@@ -319,5 +319,5 @@ defineExpose({
 </script>
 
 <template>
-    <div class="hidden" aria-hidden="true" />
+    <div class="hidden" aria-hidden="true" data-checkout="conversion-pixels" />
 </template>

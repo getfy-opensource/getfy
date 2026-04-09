@@ -139,7 +139,7 @@ onUnmounted(() => {
                         type="text"
                         :value="barcode"
                         readonly
-                        class="mb-3 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs text-gray-800 focus:outline-none font-mono"
+                        class="mb-3 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-base text-gray-800 focus:outline-none font-mono"
                     />
                     <div class="flex flex-col sm:flex-row gap-3 mb-4">
                         <button

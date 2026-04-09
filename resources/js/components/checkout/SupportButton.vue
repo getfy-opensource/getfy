@@ -34,6 +34,7 @@ const IconComponent = computed(() => {
 <template>
     <a
         v-if="enabled"
+        data-checkout="support-button"
         :href="url"
         target="_blank"
         rel="noopener noreferrer"

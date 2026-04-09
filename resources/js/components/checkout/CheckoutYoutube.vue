@@ -18,7 +18,7 @@ const embedSrc = computed(() => (videoId.value ? youtubeEmbedSrcFromVideoId(vide
 </script>
 
 <template>
-    <div v-if="videoId" class="mb-8">
+    <div v-if="videoId" class="mb-8" data-checkout="youtube">
         <div class="aspect-video overflow-hidden rounded-2xl shadow-xl ring-1 ring-black/5">
             <iframe
                 :src="embedSrc"

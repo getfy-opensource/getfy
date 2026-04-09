@@ -1,8 +1,9 @@
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import { AlertCircle, CheckCircle2 } from 'lucide-vue-next';
 import { useCheckoutLocale } from '@/composables/useCheckoutLocale';
+import { useCheckoutCustomCode } from '@/composables/useCheckoutCustomCode';
 import CheckoutTimer from '@/components/checkout/CheckoutTimer.vue';
 import CheckoutBanners from '@/components/checkout/CheckoutBanners.vue';
 import CheckoutYoutube from '@/components/checkout/CheckoutYoutube.vue';
@@ -51,35 +52,33 @@ const props = defineProps({
     /** Chaves por gateway slug para gateways de plugin (checkout_payload_keys na definição). Ex.: { 'meu-gateway': { publishable_key: '...' } } */
     card_gateway_keys: { type: Object, default: () => ({}) },
     subscription_plan: { type: Object, default: null },
-});
-
-const isPreviewMode = computed(() => {
-    if (typeof window === 'undefined') return false;
-    return new URLSearchParams(window.location.search).get('preview') === '1';
+    /** Definido no servidor quando a URL traz `?preview=1` (preview no iframe do Builder). */
+    checkout_builder_preview: { type: Boolean, default: false },
 });
 
 const previewConfig = ref(null);
 
 function onPreviewMessage(event) {
-    if (event?.data?.type === PREVIEW_MESSAGE_TYPE && event.data.config != null) {
-        previewConfig.value = event.data.config;
-    }
+    if (!props.checkout_builder_preview) return;
+    if (event.origin !== window.location.origin) return;
+    if (event?.data?.type !== PREVIEW_MESSAGE_TYPE || event.data.config == null) return;
+    previewConfig.value = event.data.config;
 }
 
+/** Config ao vivo do Builder (postMessage); antes da primeira mensagem usa o config do servidor. */
 const effectiveConfig = computed(() => {
-    if (isPreviewMode.value && previewConfig.value != null) {
+    if (previewConfig.value != null) {
         return previewConfig.value;
     }
     return props.config;
 });
 
-onMounted(() => {
-    if (isPreviewMode.value) {
-        window.addEventListener('message', onPreviewMessage);
-    }
-});
+/** Listener no setup (não só no onMounted) para não perder postMessage se o parent disparar no @load do iframe antes do mount. */
+if (typeof window !== 'undefined' && props.checkout_builder_preview) {
+    window.addEventListener('message', onPreviewMessage);
+}
 onUnmounted(() => {
-    if (isPreviewMode.value) {
+    if (typeof window !== 'undefined' && props.checkout_builder_preview) {
         window.removeEventListener('message', onPreviewMessage);
     }
 });
@@ -170,6 +169,14 @@ const checkoutTotalBrl = computed(() => {
 });
 
 const conversionPixels = computed(() => props.conversion_pixels || {});
+
+const advancedForCustomCode = computed(() => effectiveConfig.value?.advanced ?? {});
+useCheckoutCustomCode(advancedForCustomCode);
+
+const customBodyStartHtml = computed(() => advancedForCustomCode.value?.custom_body_start_html ?? '');
+const customBodyEndHtml = computed(() => advancedForCustomCode.value?.custom_body_end_html ?? '');
+const hasCustomBodyStart = computed(() => String(customBodyStartHtml.value).trim() !== '');
+const hasCustomBodyEnd = computed(() => String(customBodyEndHtml.value).trim() !== '');
 </script>
 
 <template>
@@ -182,14 +189,27 @@ const conversionPixels = computed(() => props.conversion_pixels || {});
         <meta v-if="ogImage" property="og:image" :content="ogImage" />
         <link rel="icon" :href="faviconHref" />
     </Head>
-    <div class="min-h-screen transition-colors duration-300" :style="{ backgroundColor }">
+    <div
+        id="getfy-checkout-root"
+        data-checkout="page"
+        class="min-h-screen transition-colors duration-300"
+        :style="{ backgroundColor }"
+    >
         <CheckoutTimer :config="timerConfig" :storage-key="storageKey" :t="t" />
 
-        <div class="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:py-10">
+        <div
+            v-if="hasCustomBodyStart"
+            class="getfy-checkout-custom-body-start"
+            data-checkout="custom-html-body-start"
+            v-html="customBodyStartHtml"
+        />
+
+        <div class="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:py-10" data-checkout="layout-inner">
             <!-- Flash -->
             <div
                 v-if="flash?.error"
                 class="mb-6 flex items-center gap-3 rounded-2xl border border-red-200/80 bg-red-50/95 px-4 py-3.5 text-sm font-medium text-red-800 shadow-sm backdrop-blur sm:px-5"
+                data-checkout="flash-error"
                 role="alert"
             >
                 <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
@@ -200,6 +220,7 @@ const conversionPixels = computed(() => props.conversion_pixels || {});
             <div
                 v-if="flash?.success"
                 class="mb-6 flex items-center gap-3 rounded-2xl border border-emerald-200/80 bg-emerald-50/95 px-4 py-3.5 text-sm font-medium text-emerald-800 shadow-sm backdrop-blur sm:px-5"
+                data-checkout="flash-success"
                 role="status"
             >
                 <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
@@ -210,6 +231,7 @@ const conversionPixels = computed(() => props.conversion_pixels || {});
             <div
                 v-if="flash?.info"
                 class="mb-6 flex items-center gap-3 rounded-2xl border border-sky-200/80 bg-sky-50/95 px-4 py-3.5 text-sm font-medium text-sky-800 shadow-sm backdrop-blur sm:px-5"
+                data-checkout="flash-info"
                 role="status"
             >
                 <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sky-100 text-sky-600">
@@ -221,10 +243,13 @@ const conversionPixels = computed(() => props.conversion_pixels || {});
             <CheckoutBanners v-if="banners.length" :urls="banners" />
             <CheckoutYoutube v-if="(effectiveConfig?.youtube_position ?? 'top') !== 'bottom'" :url="effectiveConfig?.youtube_url" />
 
-            <div class="flex flex-col gap-8 lg:flex-row lg:gap-10">
+            <div class="flex flex-col gap-8 lg:flex-row lg:gap-10" data-checkout="layout-columns">
                 <!-- Coluna principal -->
-                <div class="w-full lg:w-2/3">
-                    <div class="overflow-hidden rounded-3xl border border-white/20 bg-white/95 p-6 shadow-xl shadow-black/5 backdrop-blur sm:p-8">
+                <div class="w-full lg:w-2/3" data-checkout="column-primary">
+                    <div
+                        class="overflow-hidden rounded-3xl border border-white/20 bg-white/95 p-6 shadow-xl shadow-black/5 backdrop-blur sm:p-8"
+                        data-checkout="card-main"
+                    >
                         <CheckoutSummary
                             :product="product"
                             :subscription-plan="subscription_plan"
@@ -242,7 +267,7 @@ const conversionPixels = computed(() => props.conversion_pixels || {});
                             @set-locale="setLocale"
                             @set-currency="setCurrency"
                         />
-                        <hr class="my-8 border-0 border-t border-gray-100" />
+                        <hr class="my-8 border-0 border-t border-gray-100" data-checkout="divider-summary-form" />
                         <CheckoutForm
                             :product-id="product.id"
                             :product-offer-id="product.product_offer_id ?? null"
@@ -294,6 +319,7 @@ const conversionPixels = computed(() => props.conversion_pixels || {});
             <div
                 v-if="sideBannersFiltered.length"
                 class="mt-8 space-y-4 lg:hidden"
+                data-checkout="banners-side-mobile"
             >
                 <img
                     v-for="(url, i) in sideBannersFiltered"
@@ -308,6 +334,13 @@ const conversionPixels = computed(() => props.conversion_pixels || {});
             <!-- Vídeo YouTube em baixo da página (quando a posição for "bottom") -->
             <CheckoutYoutube v-if="(effectiveConfig?.youtube_position ?? 'top') === 'bottom'" :url="effectiveConfig?.youtube_url" class="mt-8" />
         </div>
+
+        <div
+            v-if="hasCustomBodyEnd"
+            class="getfy-checkout-custom-body-end"
+            data-checkout="custom-html-body-end"
+            v-html="customBodyEndHtml"
+        />
 
         <SalesNotification
             :config="salesNotificationConfig"

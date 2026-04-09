@@ -179,7 +179,7 @@ onUnmounted(() => {
                         type="text"
                         :value="copy_paste"
                         readonly
-                        class="mb-3 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs text-gray-800 focus:outline-none"
+                        class="mb-3 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-base text-gray-800 focus:outline-none"
                     />
                     <button
                         type="button"

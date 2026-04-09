@@ -75,6 +75,7 @@ onUnmounted(stopInterval);
 <template>
     <div
         v-if="enabled"
+        data-checkout="sales-notification"
         role="status"
         aria-live="polite"
         aria-atomic="true"

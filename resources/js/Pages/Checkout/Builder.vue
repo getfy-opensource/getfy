@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted } from 'vue';
+import { ref, reactive, computed, watch, onMounted, nextTick, defineAsyncComponent, toRaw } from 'vue';
 import { useForm, Link } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import { useSidebar } from '@/composables/useSidebar';
@@ -21,7 +21,11 @@ import {
     Phone,
     Monitor,
     Smartphone,
+    Code2,
+    BookOpen,
 } from 'lucide-vue-next';
+
+const CheckoutCodeEditor = defineAsyncComponent(() => import('@/components/checkout-builder/CheckoutCodeEditor.vue'));
 
 defineOptions({ layout: LayoutInfoprodutor });
 
@@ -149,6 +153,13 @@ const configForm = reactive({
               testimonial_image: r.testimonial_image ?? '',
           }))
         : [],
+    advanced: {
+        custom_css: props.config?.advanced?.custom_css ?? '',
+        custom_head_html: props.config?.advanced?.custom_head_html ?? '',
+        custom_body_start_html: props.config?.advanced?.custom_body_start_html ?? '',
+        custom_body_end_html: props.config?.advanced?.custom_body_end_html ?? '',
+        custom_js: props.config?.advanced?.custom_js ?? '',
+    },
 });
 
 const form = useForm({
@@ -227,15 +238,15 @@ const previewIframeRef = ref(null);
 const previewDebounceMs = 200;
 
 function sendPreviewConfig() {
-    if (!previewIframeRef.value?.contentWindow || !previewIframeUrl.value) return;
+    const win = previewIframeRef.value?.contentWindow;
+    if (!win || !previewIframeUrl.value) return;
     try {
-        const config = JSON.parse(JSON.stringify(configForm));
+        const config = JSON.parse(JSON.stringify(toRaw(configForm)));
         if (props.config?.upsell) config.upsell = props.config.upsell;
         if (props.config?.downsell) config.downsell = props.config.downsell;
-        previewIframeRef.value.contentWindow.postMessage(
-            { type: PREVIEW_MESSAGE_TYPE, config },
-            new URL(previewIframeUrl.value).origin
-        );
+        const payload = { type: PREVIEW_MESSAGE_TYPE, config };
+        /** `*` evita falha quando a origem efetiva do iframe difere da URL do src (redirect, www, etc.). O iframe valida `event.origin`. */
+        win.postMessage(payload, '*');
     } catch (_) {}
 }
 
@@ -248,20 +259,39 @@ function schedulePreviewUpdate() {
     }, previewDebounceMs);
 }
 
+/** Snapshot estável: `watch` em `reactive()` nem sempre dispara em todas as mutações aninhadas; stringify garante o disparo. */
 watch(
-    () => configForm,
-    () => schedulePreviewUpdate(),
-    { deep: true }
+    () => JSON.stringify(toRaw(configForm)),
+    () => schedulePreviewUpdate()
 );
 
 const { setExpanded } = useSidebar();
+function onPreviewIframeLoad() {
+    sendPreviewConfig();
+    /** Reenvios: o listener no checkout pode registrar depois do primeiro postMessage no evento load. */
+    [30, 120, 400].forEach((ms) => setTimeout(() => sendPreviewConfig(), ms));
+}
+
 onMounted(() => {
     setExpanded(false);
     schedulePreviewUpdate();
+    nextTick(() => sendPreviewConfig());
 });
 
 const previewViewMode = ref('desktop');
 const uploadUrl = computed(() => `/produtos/${props.produto?.id}/checkout-upload`);
+
+/** @type {import('vue').Ref<'css' | 'head_html' | 'body_start_html' | 'body_end_html' | 'js'>} */
+const activeAdvancedSection = ref('css');
+const advancedReferenceOpen = ref(true);
+
+const advancedEditorTabs = [
+    { id: 'css', label: 'CSS' },
+    { id: 'head_html', label: 'HTML (head)' },
+    { id: 'body_start_html', label: 'HTML início' },
+    { id: 'body_end_html', label: 'HTML fim' },
+    { id: 'js', label: 'JavaScript' },
+];
 
 /** Templates de checkout disponíveis. Pode ser estendido por plugins (registro de templates). */
 const availableCheckoutTemplates = [
@@ -290,11 +320,13 @@ const inputClass =
             <!-- Sidebar esquerda: rolagem apenas aqui -->
             <div class="w-full shrink-0 space-y-4 overflow-y-auto lg:w-[380px]">
                 <!-- Tabs -->
-                <div class="flex rounded-xl border border-zinc-200 bg-white p-1 dark:border-zinc-700 dark:bg-zinc-800">
+                <div
+                    class="flex flex-wrap gap-1 rounded-xl border border-zinc-200 bg-white p-1 dark:border-zinc-700 dark:bg-zinc-800"
+                >
                     <button
                         type="button"
                         :class="[
-                            'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition',
+                            'min-w-0 flex-1 basis-[calc(50%-0.25rem)] rounded-lg px-2 py-2 text-xs font-medium transition sm:basis-auto sm:px-3 sm:text-sm',
                             activeTab === 'geral'
                                 ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
                                 : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-700',
@@ -306,7 +338,7 @@ const inputClass =
                     <button
                         type="button"
                         :class="[
-                            'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition',
+                            'min-w-0 flex-1 basis-[calc(50%-0.25rem)] rounded-lg px-2 py-2 text-xs font-medium transition sm:basis-auto sm:px-3 sm:text-sm',
                             activeTab === 'recursos'
                                 ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
                                 : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-700',
@@ -318,7 +350,7 @@ const inputClass =
                     <button
                         type="button"
                         :class="[
-                            'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition',
+                            'min-w-0 flex-1 basis-[calc(50%-0.25rem)] rounded-lg px-2 py-2 text-xs font-medium transition sm:basis-auto sm:px-3 sm:text-sm',
                             activeTab === 'template'
                                 ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
                                 : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-700',
@@ -330,7 +362,7 @@ const inputClass =
                     <button
                         type="button"
                         :class="[
-                            'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition',
+                            'min-w-0 flex-1 basis-[calc(50%-0.25rem)] rounded-lg px-2 py-2 text-xs font-medium transition sm:basis-auto sm:px-3 sm:text-sm',
                             activeTab === 'social'
                                 ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
                                 : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-700',
@@ -338,6 +370,19 @@ const inputClass =
                         @click="activeTab = 'social'"
                     >
                         Social
+                    </button>
+                    <button
+                        type="button"
+                        :class="[
+                            'flex min-w-0 flex-1 basis-full items-center justify-center gap-1 rounded-lg px-2 py-2 text-xs font-medium transition sm:basis-auto sm:flex-1 sm:px-3 sm:text-sm',
+                            activeTab === 'avancado'
+                                ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                                : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-700',
+                        ]"
+                        @click="activeTab = 'avancado'"
+                    >
+                        <Code2 class="h-3.5 w-3.5 shrink-0 opacity-80" />
+                        Avançado
                     </button>
                 </div>
 
@@ -1023,6 +1068,121 @@ const inputClass =
                     </div>
                 </div>
 
+                <!-- Aba Avançado: CSS / HTML / JS -->
+                <div v-show="activeTab === 'avancado'" class="space-y-4">
+                    <div
+                        class="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+                    >
+                        <p class="font-medium">Código personalizado na página pública</p>
+                        <p class="mt-1 text-xs opacity-90">
+                            Apenas administradores podem editar. HTML e JavaScript são exibidos para todos os compradores; use com cuidado.
+                            Em caso de conta comprometida, isso pode ser vetor de XSS.
+                        </p>
+                    </div>
+
+                    <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800">
+                        <button
+                            type="button"
+                            class="flex w-full items-center justify-between gap-2 px-4 py-3 text-left text-sm font-semibold text-zinc-900 dark:text-white"
+                            @click="advancedReferenceOpen = !advancedReferenceOpen"
+                        >
+                            <span class="flex items-center gap-2">
+                                <BookOpen class="h-4 w-4 text-zinc-500" />
+                                Referência rápida (seletores)
+                            </span>
+                            <ChevronDown v-if="advancedReferenceOpen" class="h-5 w-5 shrink-0" />
+                            <ChevronRight v-else class="h-5 w-5 shrink-0" />
+                        </button>
+                        <div
+                            v-show="advancedReferenceOpen"
+                            class="space-y-3 border-t border-zinc-200 px-4 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
+                        >
+                            <p>
+                                No editor CSS/JS/HTML use <strong>Ctrl+Espaço</strong> (ou Cmd+Espaço no Mac) para autocomplete com
+                                dezenas de seletores (<code class="rounded bg-zinc-100 px-1 dark:bg-zinc-800">data-checkout</code>,
+                                <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-800">#getfy-checkout-root</code>,
+                                <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-800">data-payment-method</code>, etc.).
+                            </p>
+                            <p class="text-zinc-500 dark:text-zinc-500">Exemplos rápidos:</p>
+                            <ul class="list-disc space-y-1 pl-4 font-mono text-[11px] text-zinc-800 dark:text-zinc-300">
+                                <li>#getfy-checkout-root</li>
+                                <li>[data-checkout="card-main"]</li>
+                                <li>[data-checkout="form-submit"]</li>
+                                <li>[data-payment-method="pix"]</li>
+                            </ul>
+                            <a
+                                v-if="previewUrl"
+                                :href="previewUrl"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="inline-flex items-center gap-1 font-medium text-sky-600 hover:underline dark:text-sky-400"
+                            >
+                                <ExternalLink class="h-3.5 w-3.5" />
+                                Abrir checkout em nova aba
+                            </a>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap gap-1 rounded-xl border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-900/50">
+                        <button
+                            v-for="tab in advancedEditorTabs"
+                            :key="tab.id"
+                            type="button"
+                            :class="[
+                                'rounded-lg px-2.5 py-1.5 text-xs font-medium transition sm:text-sm',
+                                activeAdvancedSection === tab.id
+                                    ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                                    : 'text-zinc-600 hover:bg-zinc-200/80 dark:text-zinc-400 dark:hover:bg-zinc-700',
+                            ]"
+                            @click="activeAdvancedSection = tab.id"
+                        >
+                            {{ tab.label }}
+                        </button>
+                    </div>
+
+                    <div class="rounded-xl border border-zinc-200 bg-white p-2 dark:border-zinc-700 dark:bg-zinc-800">
+                        <CheckoutCodeEditor
+                            v-if="activeAdvancedSection === 'css'"
+                            :key="'adv-css'"
+                            v-model="configForm.advanced.custom_css"
+                            language="css"
+                            min-height="240px"
+                        />
+                        <CheckoutCodeEditor
+                            v-else-if="activeAdvancedSection === 'head_html'"
+                            :key="'adv-head'"
+                            v-model="configForm.advanced.custom_head_html"
+                            language="html"
+                            min-height="200px"
+                        />
+                        <CheckoutCodeEditor
+                            v-else-if="activeAdvancedSection === 'body_start_html'"
+                            :key="'adv-bs'"
+                            v-model="configForm.advanced.custom_body_start_html"
+                            language="html"
+                            min-height="200px"
+                        />
+                        <CheckoutCodeEditor
+                            v-else-if="activeAdvancedSection === 'body_end_html'"
+                            :key="'adv-be'"
+                            v-model="configForm.advanced.custom_body_end_html"
+                            language="html"
+                            min-height="200px"
+                        />
+                        <CheckoutCodeEditor
+                            v-else-if="activeAdvancedSection === 'js'"
+                            :key="'adv-js'"
+                            v-model="configForm.advanced.custom_js"
+                            language="javascript"
+                            min-height="260px"
+                        />
+                    </div>
+                    <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                        HTML (head): meta tags, fontes externas, etc. HTML início/fim: blocos visíveis no corpo. JavaScript: executado após o carregamento;
+                        no preview ao vivo pode rodar de novo a cada alteração.
+                    </p>
+                </div>
+
                 <Button type="button" class="w-full" :disabled="form.processing" @click="submit">
                     <Save class="h-4 w-4" />
                     Salvar checkout
@@ -1102,7 +1262,7 @@ const inputClass =
                                     'rounded-xl border-0 bg-white flex-1 min-h-0',
                                     previewViewMode === 'mobile' ? 'w-full' : 'h-full w-full',
                                 ]"
-                                @load="() => setTimeout(sendPreviewConfig, 150)"
+                                @load="onPreviewIframeLoad"
                             />
                         </div>
                     </div>

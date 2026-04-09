@@ -542,7 +542,7 @@ async function fetchAddressByCep() {
 }
 
 const inputClass =
-    'block w-full rounded-xl border-2 border-gray-100 bg-gray-50/80 px-4 py-3.5 pl-12 text-sm font-medium text-gray-900 placeholder-gray-400 transition focus:border-gray-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-offset-0';
+    'block w-full rounded-xl border-2 border-gray-100 bg-gray-50/80 px-4 py-3.5 pl-12 text-base font-medium text-gray-900 placeholder-gray-400 transition focus:border-gray-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-offset-0';
 const inputClassWithIcon = inputClass;
 
 // Desktop: nome e email só → email full. Telefone ativo → email | telefone. CPF ativo (sem telefone) → email | cpf. Telefone e CPF ativos → email full, depois telefone | cpf.
@@ -553,7 +553,7 @@ const emailColSpan = computed(() => {
 });
 
 const phoneInputClass =
-    'w-full min-w-0 rounded-xl border-0 bg-transparent py-3.5 pr-4 pl-2 text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0';
+    'w-full min-w-0 rounded-xl border-0 bg-transparent py-3.5 pr-4 pl-2 text-base font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0';
 const phoneWrapperClass =
     'flex items-stretch overflow-hidden rounded-xl border-2 border-gray-100 bg-gray-50/80 transition focus-within:border-gray-200 focus-within:bg-white focus-within:ring-2 focus-within:ring-offset-0';
 const phoneSelectClass =
@@ -1486,11 +1486,12 @@ function submit() {
 </script>
 
 <template>
-    <section data-id="customer_info" class="relative">
+    <section data-id="customer_info" data-checkout="form" class="relative">
         <!-- Modal Aprovado (cartão) -->
         <Teleport to="body">
             <div
                 v-if="cardApproved"
+                data-checkout="modal-card-approved"
                 class="fixed inset-0 z-50 flex items-center justify-center p-4"
                 role="dialog"
                 aria-modal="true"
@@ -1512,23 +1513,24 @@ function submit() {
             </div>
         </Teleport>
 
-        <div class="mb-6 flex items-center gap-3">
+        <div class="mb-6 flex items-center gap-3" data-checkout="form-section-dados-header">
             <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-100 text-gray-600" aria-hidden="true">
                 <UserRound class="h-5 w-5" />
             </span>
             <h2 class="text-lg font-semibold tracking-tight text-gray-900">{{ t('checkout.seus_dados') }}</h2>
         </div>
-        <form class="space-y-5" @submit.prevent="submit">
+        <form class="space-y-5" data-checkout="checkout-form-element" @submit.prevent="submit">
             <input v-model="form.product_id" type="hidden" />
             <div
                 v-if="Object.keys(form.errors).length > 0"
                 class="rounded-xl border border-red-200 bg-red-50/90 px-4 py-3 text-sm font-medium text-red-800"
+                data-checkout="form-errors"
                 role="alert"
             >
                 {{ t('checkout.corrija_erros') || 'Corrija os erros abaixo antes de continuar.' }}
             </div>
-            <div v-if="showEditForm" class="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-4">
-                <div v-if="showName" class="relative sm:col-span-2">
+            <div v-if="showEditForm" class="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-4" data-checkout="form-fields">
+                <div v-if="showName" class="relative sm:col-span-2" data-checkout="field-name">
                     <label for="checkout-name" class="mb-2 block text-sm font-medium text-gray-700">{{ t('checkout.name') }}</label>
                     <div class="relative">
                         <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
@@ -1545,7 +1547,7 @@ function submit() {
                     </div>
                     <p v-if="form.errors.name" class="mt-1.5 text-sm font-medium text-red-600">{{ form.errors.name }}</p>
                 </div>
-                <div class="relative" :class="emailColSpan">
+                <div class="relative" :class="emailColSpan" data-checkout="field-email">
                     <label for="checkout-email" class="mb-2 block text-sm font-medium text-gray-700">{{ t('checkout.email') }}</label>
                     <div class="relative">
                         <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
@@ -1581,7 +1583,7 @@ function submit() {
                     </div>
                     <p v-if="form.errors.email" class="mt-1.5 text-sm font-medium text-red-600">{{ form.errors.email }}</p>
                 </div>
-                <div v-if="showPhone && !showCpf" class="relative sm:col-span-1">
+                <div v-if="showPhone && !showCpf" class="relative sm:col-span-1" data-checkout="field-phone">
                     <label for="checkout-phone" class="mb-2 block text-sm font-medium text-gray-700">{{ t('checkout.phone') }}</label>
                     <div :class="phoneWrapperClass">
                         <div class="flex h-full w-[4.5rem] shrink-0 items-center">
@@ -1640,7 +1642,7 @@ function submit() {
                     </div>
                     <p v-if="form.errors.phone" class="mt-1.5 text-sm font-medium text-red-600">{{ form.errors.phone }}</p>
                 </div>
-                <div v-if="showCpf && !showPhone" class="relative sm:col-span-1">
+                <div v-if="showCpf && !showPhone" class="relative sm:col-span-1" data-checkout="field-cpf">
                     <label for="checkout-cpf" class="mb-2 block text-sm font-medium text-gray-700">{{ t('checkout.cpf') }}</label>
                     <div class="relative">
                         <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
@@ -1662,7 +1664,7 @@ function submit() {
                     <p v-if="form.errors.cpf" class="mt-1.5 text-sm font-medium text-red-600">{{ form.errors.cpf }}</p>
                 </div>
                 <template v-if="showPhone && showCpf">
-                    <div class="relative sm:col-span-1">
+                    <div class="relative sm:col-span-1" data-checkout="field-phone">
                         <label for="checkout-phone-both" class="mb-2 block text-sm font-medium text-gray-700">{{ t('checkout.phone') }}</label>
                         <div :class="phoneWrapperClass">
                             <div class="flex h-full w-[4.5rem] shrink-0 items-center">
@@ -1721,7 +1723,7 @@ function submit() {
                         </div>
                         <p v-if="form.errors.phone" class="mt-1.5 text-sm font-medium text-red-600">{{ form.errors.phone }}</p>
                     </div>
-                    <div class="relative sm:col-span-1">
+                    <div class="relative sm:col-span-1" data-checkout="field-cpf">
                         <label for="checkout-cpf-both" class="mb-2 block text-sm font-medium text-gray-700">{{ t('checkout.cpf') }}</label>
                         <div class="relative">
                             <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
@@ -1744,8 +1746,8 @@ function submit() {
                     </div>
                 </template>
             </div>
-            <div v-else class="space-y-4">
-                <div class="rounded-xl border-2 border-gray-100 bg-gray-50/80 p-4 space-y-2.5">
+            <div v-else class="space-y-4" data-checkout="form-collapsed-summary">
+                <div class="rounded-xl border-2 border-gray-100 bg-gray-50/80 p-4 space-y-2.5" data-checkout="form-data-summary">
                     <p v-if="showName" class="flex justify-between gap-2 text-sm">
                         <span class="text-gray-600">{{ t('checkout.name') }}</span>
                         <span class="font-medium text-gray-900 text-right">{{ form.name || '–' }}</span>
@@ -1766,13 +1768,14 @@ function submit() {
                 <button
                     type="button"
                     class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-600 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2"
+                    data-checkout="form-edit-dados"
                     @click="showEditForm = true"
                 >
                     <Pencil class="h-3.5 w-3.5" />
                     {{ t('checkout.editar_dados') }}
                 </button>
             </div>
-            <div v-if="showCouponField">
+            <div v-if="showCouponField" data-checkout="field-coupon">
                 <label for="checkout-coupon" class="mb-2 block text-sm font-medium text-gray-700">{{ t('checkout.coupon_label') }}</label>
                 <div class="relative">
                     <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
@@ -1817,7 +1820,11 @@ function submit() {
             <p v-if="form.errors.payment_method" class="text-sm font-medium text-red-600">{{ form.errors.payment_method }}</p>
 
             <!-- Formulário de cartão (Stripe Elements ou campos Efí) -->
-            <div v-if="form.payment_method === 'card'" class="space-y-4 rounded-xl border-2 border-gray-100 bg-gray-50/50 p-4">
+            <div
+                v-if="form.payment_method === 'card'"
+                class="space-y-4 rounded-xl border-2 border-gray-100 bg-gray-50/50 p-4"
+                data-checkout="form-card-panel"
+            >
                 <div class="flex items-center gap-2 text-gray-700">
                     <span class="flex h-8 w-8 shrink-0 items-center justify-center">
                         <img src="/images/gateways/card.png" alt="" class="h-6 w-6 object-contain" />
@@ -1924,7 +1931,7 @@ function submit() {
                                         inputmode="numeric"
                                         autocomplete="cc-number"
                                         maxlength="23"
-                                        class="min-w-0 flex-1 border-0 bg-transparent py-3.5 pr-4 pl-2 text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
+                                        class="min-w-0 flex-1 border-0 bg-transparent py-3.5 pr-4 pl-2 text-base font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
                                         :placeholder="t('checkout.card_number_placeholder') || '0000 0000 0000 0000'"
                                         @input="onCardNumberInput"
                                         @blur="onCardNumberBlur"
@@ -1933,7 +1940,7 @@ function submit() {
                                 <template v-else>
                                     <button
                                         type="button"
-                                        class="min-w-0 flex-1 cursor-pointer py-3.5 pl-2 text-left text-sm font-medium tabular-nums text-gray-700 hover:text-gray-900 focus:outline-none focus:ring-0"
+                                        class="min-w-0 flex-1 cursor-pointer py-3.5 pl-2 text-left text-base font-medium tabular-nums text-gray-700 hover:text-gray-900 focus:outline-none focus:ring-0"
                                         :title="t('checkout.click_to_edit') || 'Clique para editar o número'"
                                         @click="reopenCardNumberEdit"
                                     >
@@ -1948,7 +1955,7 @@ function submit() {
                                             :form="pagarmeTokenizeFormId"
                                             data-pagarmecheckout-element="exp_month"
                                             name="pagarme_exp_month"
-                                            class="w-9 border-0 bg-transparent py-3.5 px-0 text-center text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
+                                            class="w-9 border-0 bg-transparent py-3.5 px-0 text-center text-base font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
                                             placeholder="MM"
                                             maxlength="2"
                                             :value="cardExpMonth"
@@ -1963,7 +1970,7 @@ function submit() {
                                             :form="pagarmeTokenizeFormId"
                                             data-pagarmecheckout-element="exp_year"
                                             name="pagarme_exp_year"
-                                            class="w-9 border-0 bg-transparent py-3.5 px-0 text-center text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
+                                            class="w-9 border-0 bg-transparent py-3.5 px-0 text-center text-base font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
                                             placeholder="AA"
                                             maxlength="4"
                                             :value="cardExpYear"
@@ -1980,7 +1987,7 @@ function submit() {
                                             :form="pagarmeTokenizeFormId"
                                             data-pagarmecheckout-element="cvv"
                                             name="pagarme_cvv"
-                                            class="w-11 border-0 bg-transparent py-3.5 px-0 text-center text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
+                                            class="w-11 border-0 bg-transparent py-3.5 px-0 text-center text-base font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
                                             placeholder="CVV"
                                             @input="onCardCvvInput"
                                         />
@@ -2041,7 +2048,7 @@ function submit() {
                                     inputmode="numeric"
                                     autocomplete="cc-number"
                                     maxlength="19"
-                                    class="min-w-0 flex-1 border-0 bg-transparent py-3.5 pr-4 pl-2 text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
+                                    class="min-w-0 flex-1 border-0 bg-transparent py-3.5 pr-4 pl-2 text-base font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
                                     :placeholder="t('checkout.card_number_placeholder') || '0000 0000 0000 0000'"
                                     @input="onCardNumberInput"
                                     @blur="onCardNumberBlur"
@@ -2050,7 +2057,7 @@ function submit() {
                             <template v-else>
                                 <button
                                     type="button"
-                                    class="min-w-0 flex-1 cursor-pointer py-3.5 pl-2 text-left text-sm font-medium tabular-nums text-gray-700 hover:text-gray-900 focus:outline-none focus:ring-0"
+                                    class="min-w-0 flex-1 cursor-pointer py-3.5 pl-2 text-left text-base font-medium tabular-nums text-gray-700 hover:text-gray-900 focus:outline-none focus:ring-0"
                                     :title="t('checkout.click_to_edit') || 'Clique para editar o número'"
                                     @click="reopenCardNumberEdit"
                                 >
@@ -2062,7 +2069,7 @@ function submit() {
                                         ref="cardExpMonthInput"
                                         type="text"
                                         inputmode="numeric"
-                                        class="w-9 border-0 bg-transparent py-3.5 px-0 text-center text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
+                                        class="w-9 border-0 bg-transparent py-3.5 px-0 text-center text-base font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
                                         placeholder="MM"
                                         maxlength="2"
                                         :value="cardExpMonth"
@@ -2074,7 +2081,7 @@ function submit() {
                                         ref="cardExpYearInput"
                                         type="text"
                                         inputmode="numeric"
-                                        class="w-9 border-0 bg-transparent py-3.5 px-0 text-center text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
+                                        class="w-9 border-0 bg-transparent py-3.5 px-0 text-center text-base font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
                                         placeholder="AA"
                                         maxlength="4"
                                         :value="cardExpYear"
@@ -2088,7 +2095,7 @@ function submit() {
                                         inputmode="numeric"
                                         autocomplete="cc-csc"
                                         maxlength="3"
-                                        class="w-11 border-0 bg-transparent py-3.5 px-0 text-center text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
+                                        class="w-11 border-0 bg-transparent py-3.5 px-0 text-center text-base font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
                                         placeholder="CVV"
                                         @input="onCardCvvInput"
                                     />
@@ -2101,12 +2108,13 @@ function submit() {
                 <div
                     v-if="form.payment_method === 'card' && cardInstallmentsEnabled && !isCardGatewayStripe && !isCardGatewayMercadopago && !isCardGatewayAsaas"
                     class="mt-4"
+                    data-checkout="form-installments"
                 >
                     <label for="installments-select" class="mb-2 block text-sm font-medium text-gray-700">{{ t('checkout.installments') }}</label>
                     <select
                         id="installments-select"
                         v-model.number="selectedInstallments"
-                        class="w-full rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-sm font-medium text-gray-900 shadow-sm transition focus:outline-none focus:ring-2 focus:ring-offset-1"
+                        class="w-full rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-base font-medium text-gray-900 shadow-sm transition focus:outline-none focus:ring-2 focus:ring-offset-1"
                         :style="{ '--tw-ring-color': primaryColor }"
                     >
                         <option
@@ -2121,7 +2129,11 @@ function submit() {
             </div>
 
             <!-- Endereço para boleto ou cartão Pagar.me (billing address na API) -->
-            <div v-if="showBillingAddressBlock" class="space-y-4 rounded-xl border-2 border-gray-100 bg-gray-50/50 p-4">
+            <div
+                v-if="showBillingAddressBlock"
+                class="space-y-4 rounded-xl border-2 border-gray-100 bg-gray-50/50 p-4"
+                data-checkout="form-billing-address"
+            >
                 <div class="flex items-center gap-2 text-gray-700">
                     <MapPin class="h-5 w-5 shrink-0 text-gray-500" aria-hidden="true" />
                     <span class="text-sm font-medium">
@@ -2229,6 +2241,7 @@ function submit() {
             <button
                 v-if="form.payment_method !== 'card' || !isCardGatewayMercadopago"
                 type="submit"
+                data-checkout="form-submit"
                 class="flex w-full items-center justify-center gap-2 rounded-xl px-6 py-4 text-base font-semibold text-white shadow-lg shadow-black/10 transition hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-70"
                 :style="{ backgroundColor: primaryColor }"
                 :disabled="form.processing || cardTokenizing || cardApproved"
@@ -2256,7 +2269,7 @@ function submit() {
             <input type="hidden" name="_token" :value="getCsrfToken()" />
             <span data-pagarmecheckout-element="brand" class="hidden" aria-hidden="true" />
         </form>
-        <footer class="mt-8 hidden border-t border-gray-100 pt-6 sm:block">
+        <footer class="mt-8 hidden border-t border-gray-100 pt-6 sm:block" data-checkout="form-footer-desktop">
             <div v-if="showFooterCustom" class="mb-6 text-center">
                 <img
                     v-if="footerLogoUrl"
@@ -2292,6 +2305,7 @@ function submit() {
         <Teleport to="body">
             <div
                 v-show="showCardRefusedModal"
+                data-checkout="modal-card-refused"
                 class="fixed inset-0 z-[10000] flex items-center justify-center p-4"
                     role="dialog"
                     aria-modal="true"

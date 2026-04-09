@@ -63,6 +63,7 @@ onUnmounted(() => {
 <template>
     <div
         v-if="enabled"
+        data-checkout="timer"
         :style="{
             backgroundColor: bgColor,
             color: textColor,

@@ -71,8 +71,8 @@ defineExpose({
 </script>
 
 <template>
-    <section v-if="orderBumps && orderBumps.length" class="mb-8" data-id="order_bumps">
-        <div class="mb-4 flex items-center justify-between gap-3">
+    <section v-if="orderBumps && orderBumps.length" class="mb-8" data-id="order_bumps" data-checkout="order-bumps">
+        <div class="mb-4 flex items-center justify-between gap-3" data-checkout="order-bumps-header">
             <div class="flex items-center gap-3">
                 <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-100 text-gray-600" aria-hidden="true">
                     <ShoppingBag class="h-5 w-5" />
@@ -96,11 +96,13 @@ defineExpose({
             </button>
         </div>
 
-        <ul class="space-y-4">
+        <ul class="space-y-4" data-checkout="order-bumps-list">
             <li
                 v-for="bump in orderBumps"
                 :key="bump.id"
+                :data-order-bump-id="bump.id"
                 class="relative overflow-hidden rounded-2xl border-2 border-dashed p-4 shadow-sm transition bg-white"
+                data-checkout="order-bump-card"
                 :style="orderBumpCardStyle"
             >
                 <label class="block w-full cursor-pointer">

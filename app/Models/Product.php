@@ -219,6 +219,13 @@ class Product extends Model
                     'button_decline' => 'Não, obrigado',
                 ],
             ],
+            'advanced' => [
+                'custom_css' => '',
+                'custom_head_html' => '',
+                'custom_body_start_html' => '',
+                'custom_body_end_html' => '',
+                'custom_js' => '',
+            ],
         ];
     }
 

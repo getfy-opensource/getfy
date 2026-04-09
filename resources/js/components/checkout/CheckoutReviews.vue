@@ -8,7 +8,7 @@ const props = defineProps({
 </script>
 
 <template>
-    <div v-if="reviews?.length" class="space-y-4">
+    <div v-if="reviews?.length" class="space-y-4" data-checkout="reviews">
         <h3 class="text-base font-bold tracking-tight text-gray-900">Avaliações</h3>
         <div class="space-y-4">
             <article

@@ -615,7 +615,7 @@ async function submitCard(ev) {
                                         type="text"
                                         inputmode="numeric"
                                         autocomplete="off"
-                                        class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                                        class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-base text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                                         placeholder="000.000.000-00"
                                     />
                                 </div>
@@ -680,7 +680,7 @@ async function submitCard(ev) {
                                         :form="canPayWithPagarme ? pagarmeTokenizeFormId : undefined"
                                         :data-pagarmecheckout-element="canPayWithPagarme ? 'holder_name' : undefined"
                                         :name="canPayWithPagarme ? 'api_pagarme_holder_name' : undefined"
-                                        class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                                        class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-base text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                                         placeholder="Como está no cartão"
                                     />
                                 </div>
@@ -693,7 +693,7 @@ async function submitCard(ev) {
                                             type="text"
                                             inputmode="numeric"
                                             autocomplete="cc-number"
-                                            class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                                            class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-base text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                                             placeholder="0000 0000 0000 0000"
                                         />
                                         <input
@@ -742,7 +742,7 @@ async function submitCard(ev) {
                                                 type="text"
                                                 inputmode="numeric"
                                                 autocomplete="cc-exp"
-                                                class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                                                class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-base text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                                                 placeholder="MM/AAAA"
                                             />
                                         </div>
@@ -758,7 +758,7 @@ async function submitCard(ev) {
                                                 :form="pagarmeTokenizeFormId"
                                                 data-pagarmecheckout-element="cvv"
                                                 name="api_pagarme_cvv"
-                                                class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                                                class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-base text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                                                 placeholder="123"
                                             />
                                         </div>
@@ -773,7 +773,7 @@ async function submitCard(ev) {
                                             type="text"
                                             inputmode="numeric"
                                             autocomplete="cc-number"
-                                            class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                                            class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-base text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                                             placeholder="0000 0000 0000 0000"
                                         />
                                     </div>
@@ -786,7 +786,7 @@ async function submitCard(ev) {
                                                 type="text"
                                                 inputmode="numeric"
                                                 autocomplete="cc-exp"
-                                                class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                                                class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-base text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                                                 placeholder="MM/AAAA"
                                             />
                                         </div>
@@ -798,7 +798,7 @@ async function submitCard(ev) {
                                                 type="password"
                                                 inputmode="numeric"
                                                 autocomplete="cc-csc"
-                                                class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                                                class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-base text-zinc-900 shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                                                 placeholder="123"
                                             />
                                         </div>

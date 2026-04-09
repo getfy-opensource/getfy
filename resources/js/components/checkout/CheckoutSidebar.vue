@@ -61,18 +61,23 @@ const productPriceDisplay = computed(() => props.priceInCurrency(productPriceBrl
 </script>
 
 <template>
-    <aside class="w-full space-y-6 lg:sticky lg:top-8 lg:block lg:w-1/3 lg:self-start">
+    <aside
+        class="w-full space-y-6 lg:sticky lg:top-8 lg:block lg:w-1/3 lg:self-start"
+        data-checkout="sidebar"
+        data-checkout-column="secondary"
+    >
         <div
             class="overflow-hidden rounded-3xl border border-white/20 bg-white/95 p-6 shadow-xl shadow-black/5 backdrop-blur sm:p-7"
             data-id="final_summary"
+            data-checkout="sidebar-summary-card"
         >
-            <div class="flex items-center gap-3 pb-4">
+            <div class="flex items-center gap-3 pb-4" data-checkout="sidebar-summary-header">
                 <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-100 text-gray-600">
                     <Receipt class="h-5 w-5" />
                 </span>
                 <h2 class="text-lg font-bold tracking-tight text-gray-900">{{ t('checkout.summary_title') }}</h2>
             </div>
-            <div class="space-y-3">
+            <div class="space-y-3" data-checkout="sidebar-line-items">
                 <div class="flex justify-between gap-3 text-sm">
                     <span class="truncate font-medium text-gray-700">{{ product.name }}</span>
                     <span class="shrink-0 font-semibold text-gray-900">
@@ -92,18 +97,21 @@ const productPriceDisplay = computed(() => props.priceInCurrency(productPriceBrl
                 </div>
             </div>
             <hr class="my-5 border-0 border-t border-gray-100" />
-            <div class="flex items-center justify-between">
+            <div class="flex items-center justify-between" data-checkout="sidebar-total">
                 <span class="text-base font-bold text-gray-900">{{ t('checkout.total_a_pagar') || t('checkout.total') }}</span>
                 <span class="text-2xl font-bold tracking-tight" :style="{ color: primaryColor }">
                     {{ formatPrice(totalPrice, displayCurrency) }}<span v-if="subscriptionPlan?.interval" class="text-sm font-medium text-gray-500 ml-1 align-baseline">{{ intervalLabel(subscriptionPlan.interval) }}</span>
                 </span>
             </div>
-            <div class="mt-5 flex items-center justify-center gap-2 rounded-xl bg-gray-50 py-3 text-sm font-medium text-gray-600">
+            <div
+                class="mt-5 flex items-center justify-center gap-2 rounded-xl bg-gray-50 py-3 text-sm font-medium text-gray-600"
+                data-checkout="sidebar-trust-badge"
+            >
                 <ShieldCheck class="h-4 w-4 text-emerald-500" aria-hidden="true" />
                 {{ t('checkout.secure_purchase') }}
             </div>
             <!-- Mobile: reCAPTCHA e copyright (no desktop já aparecem no rodapé do formulário) -->
-            <div class="mt-5 border-t border-gray-100 pt-4 lg:hidden">
+            <div class="mt-5 border-t border-gray-100 pt-4 lg:hidden" data-checkout="sidebar-footer-mobile">
                 <div v-if="showFooterCustom" class="mb-4 text-center">
                     <img
                         v-if="footerLogoUrl"
@@ -132,9 +140,10 @@ const productPriceDisplay = computed(() => props.priceInCurrency(productPriceBrl
             </div>
         </div>
         <!-- Banners laterais: apenas no desktop (abaixo do resumo). No mobile aparecem no final da página. -->
-        <div v-if="sideBanners.filter(Boolean).length" class="hidden lg:block">
+        <div v-if="sideBanners.filter(Boolean).length" class="hidden lg:block" data-checkout="sidebar-banners-wrap">
             <CheckoutBanners
                 :urls="sideBanners"
+                placement="side"
                 class-img="w-full h-auto object-cover rounded-2xl shadow-lg"
             />
         </div>

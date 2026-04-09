@@ -171,7 +171,7 @@ function onCardCvvInput(e) {
     cardCvv.value = (e.target?.value || '').replace(/\D/g, '').slice(0, 4);
 }
 
-const inputClass = 'block w-full rounded-xl border-2 border-gray-100 bg-gray-50/80 px-4 py-3.5 pl-12 text-sm font-medium text-gray-900 placeholder-gray-400 transition focus:border-gray-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-offset-0';
+const inputClass = 'block w-full rounded-xl border-2 border-gray-100 bg-gray-50/80 px-4 py-3.5 pl-12 text-base font-medium text-gray-900 placeholder-gray-400 transition focus:border-gray-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-offset-0';
 const inputClassWithIcon = inputClass;
 
 function goToStep2() {
@@ -222,7 +222,7 @@ function goToStep2() {
                             inputmode="numeric"
                             autocomplete="cc-number"
                             maxlength="19"
-                            class="min-w-0 flex-1 border-0 bg-transparent py-3.5 pr-4 pl-2 text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
+                            class="min-w-0 flex-1 border-0 bg-transparent py-3.5 pr-4 pl-2 text-base font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
                             :placeholder="t('checkout.card_number_placeholder') || '0000 0000 0000 0000'"
                             @input="onCardNumberInput"
                             @blur="onCardNumberBlur"
@@ -231,7 +231,7 @@ function goToStep2() {
                     <template v-else>
                         <button
                             type="button"
-                            class="min-w-0 flex-1 cursor-pointer py-3.5 pl-2 text-left text-sm font-medium tabular-nums text-gray-700 hover:text-gray-900 focus:outline-none focus:ring-0"
+                            class="min-w-0 flex-1 cursor-pointer py-3.5 pl-2 text-left text-base font-medium tabular-nums text-gray-700 hover:text-gray-900 focus:outline-none focus:ring-0"
                             :title="t('checkout.click_to_edit') || 'Clique para editar o número'"
                             @click="reopenCardNumberEdit"
                         >
@@ -243,7 +243,7 @@ function goToStep2() {
                                 ref="cardExpMonthInput"
                                 type="text"
                                 inputmode="numeric"
-                                class="w-9 border-0 bg-transparent py-3.5 px-0 text-center text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
+                                class="w-9 border-0 bg-transparent py-3.5 px-0 text-center text-base font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
                                 placeholder="MM"
                                 maxlength="2"
                                 :value="cardExpMonth"
@@ -255,7 +255,7 @@ function goToStep2() {
                                 ref="cardExpYearInput"
                                 type="text"
                                 inputmode="numeric"
-                                class="w-9 border-0 bg-transparent py-3.5 px-0 text-center text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
+                                class="w-9 border-0 bg-transparent py-3.5 px-0 text-center text-base font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
                                 placeholder="AA"
                                 maxlength="4"
                                 :value="cardExpYear"
@@ -269,7 +269,7 @@ function goToStep2() {
                                 inputmode="numeric"
                                 autocomplete="cc-csc"
                                 maxlength="4"
-                                class="w-11 border-0 bg-transparent py-3.5 px-0 text-center text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
+                                class="w-11 border-0 bg-transparent py-3.5 px-0 text-center text-base font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
                                 placeholder="CVV"
                                 @input="onCardCvvInput"
                             />

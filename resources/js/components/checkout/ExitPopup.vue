@@ -116,6 +116,7 @@ const imageUrl = computed(() => cfg.value?.image || null);
     <Teleport to="body">
         <div
             v-if="enabled && visible"
+            data-checkout="exit-popup"
             class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
             role="dialog"
             aria-modal="true"

@@ -29,8 +29,12 @@ const isFirstOfThree = (index) => count.value === 3 && index === 0;
 </script>
 
 <template>
-    <div v-if="availablePaymentMethods && availablePaymentMethods.length > 0" class="space-y-4">
-        <div class="flex items-center gap-3">
+    <div
+        v-if="availablePaymentMethods && availablePaymentMethods.length > 0"
+        class="space-y-4"
+        data-checkout="payment-methods"
+    >
+        <div class="flex items-center gap-3" data-checkout="payment-methods-header">
             <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-100 text-gray-600" aria-hidden="true">
                 <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
@@ -38,11 +42,12 @@ const isFirstOfThree = (index) => count.value === 3 && index === 0;
             </span>
             <h2 class="text-lg font-semibold tracking-tight text-gray-900">{{ t('checkout.forma_pagamento') }}</h2>
         </div>
-        <div class="grid gap-3" :class="gridClass">
+        <div class="grid gap-3" :class="gridClass" data-checkout="payment-methods-grid">
             <button
                 v-for="(method, index) in availablePaymentMethods"
                 :key="method.id"
                 type="button"
+                :data-payment-method="method.id"
                 class="relative flex cursor-pointer items-center gap-3 rounded-xl border p-4 text-left transition focus:outline-none focus:ring-1 focus:ring-inset focus:ring-gray-300"
                 :class="[
                     modelValue === method.id ? 'border-gray-300 bg-gray-50/80' : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/50',

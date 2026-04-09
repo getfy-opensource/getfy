@@ -89,18 +89,23 @@ function selectCurrency(code) {
 </script>
 
 <template>
-    <section class="flex flex-row items-start gap-5 sm:gap-6" data-id="summary">
-        <div class="relative flex-shrink-0">
+    <section class="flex flex-row items-start gap-5 sm:gap-6" data-id="summary" data-checkout="summary">
+        <div class="relative flex-shrink-0" data-checkout="summary-product-image">
             <img
                 :src="product.image_url || 'https://placehold.co/96x96/e2e8f0/334155?text=Produto'"
                 :alt="product.name"
                 class="h-24 w-24 rounded-2xl object-cover ring-2 ring-gray-100 shadow-lg sm:h-28 sm:w-28"
             />
         </div>
-        <div class="min-w-0 flex-1">
+        <div class="min-w-0 flex-1" data-checkout="summary-main">
             <div class="flex items-start justify-between gap-3">
-                <h1 class="min-w-0 flex-1 text-xl font-bold tracking-tight text-gray-900 sm:text-2xl">{{ product.name }}</h1>
-                <div class="flex shrink-0 items-center gap-1.5">
+                <h1
+                    class="min-w-0 flex-1 text-xl font-bold tracking-tight text-gray-900 sm:text-2xl"
+                    data-checkout="summary-title"
+                >
+                    {{ product.name }}
+                </h1>
+                <div class="flex shrink-0 items-center gap-1.5" data-checkout="summary-locale-currency">
                     <CheckoutDropdown
                         v-model:open="localeOpen"
                         :icon="Globe"
@@ -141,7 +146,7 @@ function selectCurrency(code) {
                     </CheckoutDropdown>
                 </div>
             </div>
-            <div class="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <div class="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1" data-checkout="summary-price-row">
                 <span class="text-2xl font-bold tracking-tight sm:text-3xl" :style="{ color: primaryColor }">
                     {{ formatPrice(priceToShow, displayCurrency) }}
                     <span v-if="subscriptionPlan?.interval" class="text-sm font-medium text-gray-500 ml-1 align-baseline">{{ intervalLabel(subscriptionPlan.interval) }}</span>
@@ -150,12 +155,17 @@ function selectCurrency(code) {
                     {{ formatPrice(originalPriceForDisplay, displayCurrency) }}
                 </span>
             </div>
-            <p v-if="couponDiscountAmountBrl > 0" class="mt-1.5 text-sm font-medium text-emerald-600">
+            <p
+                v-if="couponDiscountAmountBrl > 0"
+                class="mt-1.5 text-sm font-medium text-emerald-600"
+                data-checkout="summary-coupon-discount"
+            >
                 {{ t('checkout.discount_coupon') }}: -{{ formatPrice(couponDiscountAmount, displayCurrency) }}
             </p>
             <span
                 v-if="discountText"
                 class="mt-3 inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold uppercase tracking-wide text-rose-700 bg-rose-50 border border-rose-100"
+                data-checkout="summary-discount-badge"
             >
                 <Tag class="h-3.5 w-3.5" />
                 {{ discountText }}
@@ -163,6 +173,7 @@ function selectCurrency(code) {
             <template v-if="showDescription && fullDesc">
                 <p
                     class="mt-3 text-sm leading-relaxed text-gray-600"
+                    data-checkout="summary-description"
                     :class="{ 'line-clamp-2': !expanded && showVerMais }"
                 >
                     {{ displayDesc }}
