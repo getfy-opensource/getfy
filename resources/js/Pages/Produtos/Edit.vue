@@ -1010,9 +1010,6 @@ const BR_BILLING_GATEWAY_SLUGS = ['pagarme', 'efi'];
 function isBrBillingGateway(slug) {
     return BR_BILLING_GATEWAY_SLUGS.includes(String(slug || '').toLowerCase());
 }
-const showBrCardBoletoBillingSettings = computed(
-    () => isBrBillingGateway(form.payment_gateways.card) && isBrBillingGateway(form.payment_gateways.boleto)
-);
 
 function onPagarmeCompanyCepInput(e) {
     const digits = (e.target.value || '').replace(/\D/g, '').slice(0, 8);
@@ -1555,7 +1552,7 @@ function submit() {
                                         Redundância
                                     </button>
                                     <button
-                                        v-if="showBrCardBoletoBillingSettings && isBrBillingGateway(form.payment_gateways.card)"
+                                        v-if="isBrBillingGateway(form.payment_gateways.card)"
                                         type="button"
                                         class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)]/10 hover:text-[var(--color-primary)] dark:border-zinc-600 dark:text-zinc-300 dark:hover:border-[var(--color-primary)] dark:hover:bg-[var(--color-primary)]/20"
                                         @click="pagarmeBillingSidebarOpen = true"
@@ -1629,7 +1626,7 @@ function submit() {
                                         Redundância
                                     </button>
                                     <button
-                                        v-if="showBrCardBoletoBillingSettings && isBrBillingGateway(form.payment_gateways.boleto)"
+                                        v-if="isBrBillingGateway(form.payment_gateways.boleto)"
                                         type="button"
                                         class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)]/10 hover:text-[var(--color-primary)] dark:border-zinc-600 dark:text-zinc-300 dark:hover:border-[var(--color-primary)] dark:hover:bg-[var(--color-primary)]/20"
                                         @click="pagarmeBillingSidebarOpen = true"
@@ -2013,7 +2010,7 @@ function submit() {
                             </div>
                             <div class="flex-1 space-y-4 overflow-y-auto p-4">
                                 <p class="text-sm text-zinc-600 dark:text-zinc-400">
-                                    Com cartão <strong>e</strong> boleto em Pagar.me ou Efí: escolha se o checkout pede o endereço do cliente ou usa o endereço da empresa (fatura/antifraude). No modo empresa, preencha o endereço abaixo (CEP com 8 dígitos, UF com 2 letras).
+                                    Quando usar <strong>Pagar.me</strong> ou <strong>Efí</strong> no cartão e/ou no boleto, defina se o checkout pede o endereço do cliente ou usa o endereço da empresa (fatura/antifraude). No modo empresa, preencha o endereço abaixo (CEP com 8 dígitos, UF com 2 letras).
                                 </p>
                                 <div class="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 dark:border-zinc-600 dark:bg-zinc-800/50">
                                     <p class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Modo no checkout</p>
