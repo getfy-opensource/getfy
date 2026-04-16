@@ -342,6 +342,23 @@ function shouldFireForEntry(entry, triggerType, isOrderBump) {
 }
 
 defineExpose({
+    fireInitiateCheckout(value, currency = 'BRL', extras = {}) {
+        const p = props.pixels || {};
+        const num = Number(value) || 0;
+        const cur = typeof currency === 'string' && currency.trim() ? currency.trim().toUpperCase() : 'BRL';
+        const payload = {
+            value: num,
+            currency: cur,
+            ...(extras && typeof extras === 'object' ? extras : {}),
+        };
+
+        if (p.meta?.enabled && window.fbq) {
+            getMetaEntries(p).forEach((entry) => {
+                if (!entry.pixel_id) return;
+                window.fbq('track', 'InitiateCheckout', payload);
+            });
+        }
+    },
     firePurchase(value, currency = 'BRL', orderId = '', isOrderBump = false, triggerType = 'approved') {
         const p = props.pixels || {};
         const num = Number(value) || 0;

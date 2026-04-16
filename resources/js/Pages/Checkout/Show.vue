@@ -180,6 +180,16 @@ const checkoutTotalBrl = computed(() => {
 
 const conversionPixels = computed(() => props.conversion_pixels || {});
 
+const conversionPixelsRef = ref(null);
+let initiateCheckoutFiredForLoad = false;
+function onConversionPixelsReady() {
+    if (initiateCheckoutFiredForLoad) return;
+    const api = conversionPixelsRef.value;
+    if (!api?.fireInitiateCheckout) return;
+    initiateCheckoutFiredForLoad = true;
+    api.fireInitiateCheckout(checkoutTotalBrl.value, 'BRL');
+}
+
 const advancedForCustomCode = computed(() => effectiveConfig.value?.advanced ?? {});
 useCheckoutCustomCode(advancedForCustomCode);
 
@@ -190,7 +200,7 @@ const hasCustomBodyEnd = computed(() => String(customBodyEndHtml.value).trim() !
 </script>
 
 <template>
-    <ConversionPixels :pixels="conversionPixels" />
+    <ConversionPixels ref="conversionPixelsRef" :pixels="conversionPixels" @ready="onConversionPixelsReady" />
     <Head>
         <title>{{ pageTitle }}</title>
         <meta v-if="pageDescription" name="description" :content="pageDescription" />

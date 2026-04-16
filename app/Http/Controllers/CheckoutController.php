@@ -326,6 +326,32 @@ class CheckoutController extends Controller
         $payload['conversion_pixels'] = $product->conversion_pixels ?? Product::defaultConversionPixels();
 
         $sessionToken = Str::uuid()->toString();
+
+        // UTMs podem ser perdidos em redirects/navegações internas.
+        // Mantemos a origem mais confiável (querystring atual) e, quando ausente,
+        // fazemos fallback para extrair do Referer (se vier no formato de URL).
+        $utmSource = $request->query('utm_source');
+        $utmMedium = $request->query('utm_medium');
+        $utmCampaign = $request->query('utm_campaign');
+        if (
+            (empty($utmSource) || empty($utmMedium) || empty($utmCampaign))
+            && is_string($request->headers->get('referer'))
+        ) {
+            $referer = (string) $request->headers->get('referer');
+            try {
+                $u = parse_url($referer);
+                $query = [];
+                if (! empty($u['query'])) {
+                    parse_str((string) $u['query'], $query);
+                }
+                $utmSource = $utmSource ?: ($query['utm_source'] ?? null);
+                $utmMedium = $utmMedium ?: ($query['utm_medium'] ?? null);
+                $utmCampaign = $utmCampaign ?: ($query['utm_campaign'] ?? null);
+            } catch (\Throwable) {
+                // fallback silencioso
+            }
+        }
+
         CheckoutSession::create([
             'tenant_id' => $product->tenant_id,
             'product_id' => $product->id,
@@ -335,9 +361,9 @@ class CheckoutController extends Controller
             'session_token' => $sessionToken,
             'step' => CheckoutSession::STEP_VISIT,
             'customer_ip' => $request->ip(),
-            'utm_source' => $request->query('utm_source'),
-            'utm_medium' => $request->query('utm_medium'),
-            'utm_campaign' => $request->query('utm_campaign'),
+            'utm_source' => $utmSource,
+            'utm_medium' => $utmMedium,
+            'utm_campaign' => $utmCampaign,
         ]);
         $payload['checkout_session_token'] = $sessionToken;
 
