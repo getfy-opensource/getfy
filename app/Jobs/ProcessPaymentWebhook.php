@@ -92,6 +92,8 @@ class ProcessPaymentWebhook implements ShouldQueue
                 return;
             }
             $order->update(['status' => 'completed']);
+            $order->refresh();
+            $order->syncUtmMetadataFromCheckoutSession();
             $order->grantPurchasedProductAccessToBuyer();
             if ($order->subscription_plan_id) {
                 $plan = $order->subscriptionPlan;

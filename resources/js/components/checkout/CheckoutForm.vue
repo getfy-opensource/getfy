@@ -53,6 +53,13 @@ function mergeStoredUtms() {
 
 function getUtmPayload() {
     const m = mergeStoredUtms();
+    try {
+        if (typeof sessionStorage !== 'undefined' && Object.keys(m).length > 0) {
+            sessionStorage.setItem(utmStorageKey(), JSON.stringify(m));
+        }
+    } catch (_) {
+        /* ignore */
+    }
     const out = {};
     UTM_PARAM_KEYS.forEach((k) => {
         if (m[k]) out[k] = m[k];

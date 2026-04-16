@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import { CheckCircle2 } from 'lucide-vue-next';
 import ConversionPixels from '@/components/checkout/ConversionPixels.vue';
@@ -7,6 +7,7 @@ import ConversionPixels from '@/components/checkout/ConversionPixels.vue';
 defineOptions({ layout: null });
 
 const conversionPixelsRef = ref(null);
+let purchaseFiredForLoad = false;
 
 const props = defineProps({
     redirect_url: { type: String, default: '/' },
@@ -18,15 +19,22 @@ const props = defineProps({
     order_amount: { type: Number, default: 0 },
 });
 
-onMounted(() => {
-    if (props.order_id && props.order_amount > 0 && conversionPixelsRef.value?.firePurchase) {
-        conversionPixelsRef.value.firePurchase(props.order_amount, 'BRL', String(props.order_id), false, 'approved');
-    }
-});
+/**
+ * O Meta Pixel só ganha `fbq` após o init adiado em ConversionPixels (rAF + setTimeout).
+ * Disparar Purchase no onMounted do pai perdia o evento; alinhamos ao fluxo @ready do checkout.
+ */
+function onConversionPixelsReady() {
+    if (purchaseFiredForLoad) return;
+    if (!props.order_id || !(Number(props.order_amount) > 0)) return;
+    const api = conversionPixelsRef.value;
+    if (!api?.firePurchase) return;
+    purchaseFiredForLoad = true;
+    api.firePurchase(props.order_amount, 'BRL', String(props.order_id), false, 'approved');
+}
 </script>
 
 <template>
-    <ConversionPixels ref="conversionPixelsRef" :pixels="props.conversion_pixels" />
+    <ConversionPixels ref="conversionPixelsRef" :pixels="props.conversion_pixels" @ready="onConversionPixelsReady" />
     <Head>
         <title>Obrigado pela compra</title>
     </Head>

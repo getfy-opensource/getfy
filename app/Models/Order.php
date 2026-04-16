@@ -64,6 +64,39 @@ class Order extends Model
     }
 
     /**
+     * Copia utm_* da checkout_sessions vinculada para orders.metadata (painel de vendas / filtros),
+     * útil quando o pedido vira "completed" só depois (ex.: webhook) ou se metadata ficou vazio no create.
+     */
+    public function syncUtmMetadataFromCheckoutSession(): void
+    {
+        $session = CheckoutSession::query()
+            ->where('order_id', $this->id)
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $session) {
+            return;
+        }
+
+        $meta = $this->metadata ?? [];
+        $changed = false;
+        foreach (['utm_source', 'utm_medium', 'utm_campaign'] as $k) {
+            $raw = $session->{$k} ?? null;
+            if (! is_string($raw) || trim($raw) === '') {
+                continue;
+            }
+            $v = trim($raw);
+            if (($meta[$k] ?? null) !== $v) {
+                $meta[$k] = $v;
+                $changed = true;
+            }
+        }
+        if ($changed) {
+            $this->update(['metadata' => $meta]);
+        }
+    }
+
+    /**
      * Valor líquido exibido em relatórios: soma das linhas (produto + order bumps) ou, se não houver itens, orders.amount.
      */
     public function lineItemsTotalAmount(): float

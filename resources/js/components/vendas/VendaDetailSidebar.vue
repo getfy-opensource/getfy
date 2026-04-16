@@ -11,20 +11,36 @@ const emit = defineEmits(['close']);
 
 const activeTab = ref('venda');
 
+function checkoutSessionFromVenda(v) {
+    if (!v) return null;
+    return v.checkout_session ?? v.checkoutSession ?? null;
+}
+
+function metadataFromVenda(v) {
+    if (!v || v.metadata == null) return null;
+    return typeof v.metadata === 'object' ? v.metadata : null;
+}
+
 const utmSource = computed(() => {
     const v = props.venda;
     if (!v) return '';
-    return (v.checkout_session?.utm_source || v.metadata?.utm_source || '').trim();
+    const cs = checkoutSessionFromVenda(v);
+    const meta = metadataFromVenda(v);
+    return (cs?.utm_source || meta?.utm_source || '').trim();
 });
 const utmCampaign = computed(() => {
     const v = props.venda;
     if (!v) return '';
-    return (v.checkout_session?.utm_campaign || v.metadata?.utm_campaign || '').trim();
+    const cs = checkoutSessionFromVenda(v);
+    const meta = metadataFromVenda(v);
+    return (cs?.utm_campaign || meta?.utm_campaign || '').trim();
 });
 const utmMedium = computed(() => {
     const v = props.venda;
     if (!v) return '';
-    return (v.checkout_session?.utm_medium || v.metadata?.utm_medium || '').trim();
+    const cs = checkoutSessionFromVenda(v);
+    const meta = metadataFromVenda(v);
+    return (cs?.utm_medium || meta?.utm_medium || '').trim();
 });
 
 function close() {

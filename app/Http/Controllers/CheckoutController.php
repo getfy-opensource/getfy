@@ -696,6 +696,7 @@ class CheckoutController extends Controller
                         'order_id' => $order->id,
                     ], $mergedUtms));
                     $this->persistOrderUtms($order, $mergedUtms);
+                    $order->syncUtmMetadataFromCheckoutSession();
 
                     return;
                 }

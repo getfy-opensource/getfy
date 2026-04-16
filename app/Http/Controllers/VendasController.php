@@ -491,6 +491,7 @@ class VendasController extends Controller
         $order->load(['product', 'productOffer', 'subscriptionPlan', 'orderItems.product']);
 
         $order->update(['status' => 'completed', 'approved_manually' => true]);
+        $order->syncUtmMetadataFromCheckoutSession();
 
         try {
             if ($order->product) {
