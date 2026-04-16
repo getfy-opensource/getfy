@@ -44,30 +44,7 @@ class PluginServiceProvider extends ServiceProvider
      */
     private function fallbackInstalledFromDisk(): array
     {
-        $path = PluginRegistry::pluginsPath();
-        if (! is_dir($path)) {
-            return [];
-        }
-        $result = [];
-        $dirs = array_filter(glob($path.DIRECTORY_SEPARATOR.'*'), 'is_dir');
-        foreach ($dirs as $dir) {
-            $manifest = PluginRegistry::readManifest($dir);
-            if (! $manifest || empty($manifest['name'])) {
-                continue;
-            }
-            $result[] = [
-                'slug' => $manifest['slug'] ?? basename($dir),
-                'name' => $manifest['name'],
-                'version' => $manifest['version'] ?? '1.0.0',
-                'path' => $dir,
-                'menu' => $manifest['menu'] ?? null,
-                'routes' => $manifest['routes'] ?? null,
-                'events' => $manifest['events'] ?? [],
-                'migrations' => $manifest['migrations'] ?? null,
-                'settings_tab' => $manifest['settings_tab'] ?? null,
-            ];
-        }
-        return $result;
+        return PluginRegistry::fallbackRowsWithoutDatabase();
     }
 
     private function loadPluginMigrations(array $plugin): void

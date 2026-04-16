@@ -13,6 +13,8 @@
 /.zed
 /auth.json
 /node_modules
+# Plugins instalados pelo painel / ZIP (persistente; não versionar)
+/plugins-installed
 /public/hot
 /public/storage
 /public/.install

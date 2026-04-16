@@ -24,6 +24,25 @@ class PluginInstallController extends Controller
         return $response;
     }
 
+    /**
+     * Destino persistente das instalações (ZIP/loja), fora de {@see PluginRegistry::bundledPluginsPath()}.
+     *
+     * @return array{0: string, 1: string}|null [caminho lógico, realpath]
+     */
+    private function persistentPluginInstallPaths(): ?array
+    {
+        try {
+            $pluginsPath = PluginRegistry::ensureUserInstallRoot();
+            $real = realpath($pluginsPath);
+
+            return [$pluginsPath, $real !== false ? $real : $pluginsPath];
+        } catch (\Throwable $e) {
+            report($e);
+
+            return null;
+        }
+    }
+
     public function __invoke(Request $request, string $slug): RedirectResponse
     {
         if (! preg_match('/^[a-z0-9\-]+$/i', $slug)) {
@@ -78,12 +97,8 @@ class PluginInstallController extends Controller
                 }
             }
 
-            $pluginsPath = base_path('plugins');
-            $realPluginsPath = realpath($pluginsPath);
-            if (! $realPluginsPath && is_dir($pluginsPath)) {
-                $realPluginsPath = realpath(File::isDirectory($pluginsPath) ? $pluginsPath : (File::makeDirectory($pluginsPath, 0755, true) ? $pluginsPath : ''));
-            }
-            if (! $realPluginsPath || ! is_dir($realPluginsPath)) {
+            $resolvedEarly = $this->persistentPluginInstallPaths();
+            if ($resolvedEarly === null || ! is_dir($resolvedEarly[1])) {
                 return $this->pluginsIndexRedirect(['error' => 'Pasta de plugins indisponível.']);
             }
 
@@ -105,20 +120,14 @@ class PluginInstallController extends Controller
             }
         }
 
-        $pluginsPath = base_path('plugins');
-        $realPluginsPath = realpath($pluginsPath);
-        if (! $realPluginsPath) {
-            if (! File::isDirectory($pluginsPath)) {
-                File::makeDirectory($pluginsPath, 0755, true);
-            }
-            $realPluginsPath = realpath($pluginsPath);
-        }
-        if (! $realPluginsPath || ! is_dir($realPluginsPath)) {
+        $resolved = $this->persistentPluginInstallPaths();
+        if ($resolved === null || ! is_dir($resolved[1])) {
             if ($tempFile && is_file($tempFile)) {
                 @unlink($tempFile);
             }
             return $this->pluginsIndexRedirect(['error' => 'Pasta de plugins indisponível.']);
         }
+        [$pluginsPath, $realPluginsPath] = $resolved;
 
         $error = $this->extractZipToPlugins($tempFile, $slug, $pluginsPath, $realPluginsPath);
         if ($error) {
@@ -202,18 +211,12 @@ class PluginInstallController extends Controller
             return $this->pluginsIndexRedirect(['error' => 'Não foi possível identificar o nome do plugin a partir do ZIP.']);
         }
 
-        $pluginsPath = base_path('plugins');
-        $realPluginsPath = realpath($pluginsPath);
-        if (! $realPluginsPath) {
-            if (! File::isDirectory($pluginsPath)) {
-                File::makeDirectory($pluginsPath, 0755, true);
-            }
-            $realPluginsPath = realpath($pluginsPath);
-        }
-        if (! $realPluginsPath || ! is_dir($realPluginsPath)) {
+        $resolvedZip = $this->persistentPluginInstallPaths();
+        if ($resolvedZip === null || ! is_dir($resolvedZip[1])) {
             @unlink($tempFile);
             return $this->pluginsIndexRedirect(['error' => 'Pasta de plugins indisponível.']);
         }
+        [$pluginsPath, $realPluginsPath] = $resolvedZip;
 
         $error = $this->extractZipToPlugins($tempFile, $slug, $pluginsPath, $realPluginsPath);
         if ($error) {
@@ -231,7 +234,7 @@ class PluginInstallController extends Controller
     private function registerAndRunMigrations(string $slug): ?RedirectResponse
     {
         $all = PluginRegistry::installed();
-        $pluginsPath = base_path('plugins');
+        $pluginsPath = PluginRegistry::ensureUserInstallRoot();
         $targetDir = $pluginsPath.DIRECTORY_SEPARATOR.$slug;
         $targetReal = is_dir($targetDir) ? realpath($targetDir) : null;
 

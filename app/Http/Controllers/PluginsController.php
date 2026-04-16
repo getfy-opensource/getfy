@@ -43,8 +43,10 @@ class PluginsController extends Controller
             'store_url' => rtrim(config('services.plugin_store.url', ''), '/'),
             'submit_url' => $store->getSubmitPluginUrl(),
         ];
-        $pluginsPath = PluginRegistry::pluginsPath();
-        $pluginsPathResolved = (is_dir($pluginsPath) ? realpath($pluginsPath) : null) ?? $pluginsPath;
+        $bundled = PluginRegistry::bundledPluginsPath();
+        $installRoot = PluginRegistry::userInstallRoot();
+        $pluginsBundledResolved = (is_dir($bundled) ? realpath($bundled) : null) ?: $bundled;
+        $pluginsInstallResolved = (is_dir($installRoot) ? realpath($installRoot) : null) ?: $installRoot;
 
         $installed = array_values(array_filter($plugins, fn ($p) => ! empty($p['is_registered'])));
         $installedPluginSlugs = array_map(fn ($p) => $p['slug'], $installed);
@@ -56,7 +58,9 @@ class PluginsController extends Controller
             'installedPluginNames' => $installedPluginNames,
             'storePlugins' => [],
             'pluginStore' => $pluginStore,
-            'pluginsPath' => $pluginsPathResolved,
+            'pluginsPath' => $pluginsInstallResolved,
+            'plugins_bundled_path' => $pluginsBundledResolved,
+            'plugins_install_path' => $pluginsInstallResolved,
         ]);
     }
 

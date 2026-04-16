@@ -29,6 +29,10 @@ const props = defineProps({
     storePlugins: { type: Array, default: () => [] },
     pluginStore: { type: Object, default: () => ({ store_url: '', submit_url: '' }) },
     pluginsPath: { type: String, default: '' },
+    /** Pasta persistente para instalações (ZIP/loja). */
+    plugins_install_path: { type: String, default: '' },
+    /** Pasta versionada com o código (ex.: example-gateway). */
+    plugins_bundled_path: { type: String, default: '' },
 });
 
 const page = usePage();
@@ -568,7 +572,14 @@ function submitManualInstall() {
                             <li>No painel da sua hospedagem (gerenciador de arquivos, FTP etc.), acesse a pasta de plugins do projeto.</li>
                             <li>Envie o ZIP para essa pasta ou baixe o arquivo direto do link para o servidor (muitos painéis têm “Baixar de URL”).</li>
                             <li>Extraia o ZIP nessa mesma pasta. O resultado deve ser uma pasta que contém o arquivo <code class="rounded bg-zinc-200 px-1 dark:bg-zinc-700">plugin.json</code>.</li>
-                            <li>Pasta onde deve ficar: <code class="mt-1 block break-all rounded bg-zinc-200 px-2 py-1 text-xs dark:bg-zinc-700">{{ pluginsPath || 'plugins/' }}</code></li>
+                            <li>
+                                Instalações via painel ou ZIP — pasta persistente (não é apagada ao atualizar o código a partir do Git):
+                                <code class="mt-1 block break-all rounded bg-zinc-200 px-2 py-1 text-xs dark:bg-zinc-700">{{ plugins_install_path || pluginsPath || 'plugins-installed/' }}</code>
+                            </li>
+                            <li>
+                                Plugins incluídos no repositório (exemplo) ficam em:
+                                <code class="mt-1 block break-all rounded bg-zinc-200 px-2 py-1 text-xs dark:bg-zinc-700">{{ plugins_bundled_path || 'plugins/' }}</code>
+                            </li>
                             <li>Atualize esta página para o plugin aparecer.</li>
                         </ol>
                     </div>

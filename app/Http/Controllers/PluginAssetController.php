@@ -15,9 +15,8 @@ class PluginAssetController extends Controller
 {
     public function __invoke(Request $request, string $slug, string $path): Response|BinaryFileResponse
     {
-        $pluginsPath = PluginRegistry::pluginsPath();
-        $pluginDir = $pluginsPath . DIRECTORY_SEPARATOR . $slug;
-        if (! is_dir($pluginDir)) {
+        $pluginDir = PluginRegistry::resolvePluginDirectory($slug);
+        if ($pluginDir === null || ! is_dir($pluginDir)) {
             abort(404);
         }
 

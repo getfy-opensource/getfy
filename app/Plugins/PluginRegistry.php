@@ -3,19 +3,157 @@
 namespace App\Plugins;
 
 use App\Models\Plugin as PluginModel;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\File;
 
 class PluginRegistry
 {
-    private static ?string $pluginsPath = null;
+    /**
+     * Plugins versionados com o repositório (ex.: example-gateway).
+     */
+    public static function bundledPluginsPath(): string
+    {
+        return rtrim(base_path('plugins'), '/\\');
+    }
 
+    /**
+     * Pasta persistente para instalações via ZIP/loja (não sobrescrita em git pull típico).
+     */
+    public static function userInstallRoot(): string
+    {
+        $configured = config('plugins.user_install_path');
+        if (is_string($configured) && trim($configured) !== '') {
+            return rtrim(trim($configured), '/\\');
+        }
+
+        return rtrim(base_path('plugins-installed'), '/\\');
+    }
+
+    /**
+     * @return list<string> Raízes na ordem: bundled → instalações do utilizador → extras (.env).
+     *        O mesmo slug em raízes posteriores sobrepõe manifestos anteriores.
+     */
+    public static function discoveryRoots(): array
+    {
+        $roots = [];
+        $roots[] = self::bundledPluginsPath();
+        $user = self::userInstallRoot();
+        if ($user !== '' && ! in_array($user, $roots, true)) {
+            $roots[] = $user;
+        }
+        $extras = config('plugins.extra_scan_paths', []);
+        if (is_array($extras)) {
+            foreach ($extras as $extra) {
+                if (! is_string($extra)) {
+                    continue;
+                }
+                $e = rtrim(trim($extra), '/\\');
+                if ($e !== '' && ! in_array($e, $roots, true)) {
+                    $roots[] = $e;
+                }
+            }
+        }
+
+        return array_values(array_unique($roots));
+    }
+
+    /**
+     * Garante a pasta de instalação persistente e devolve o caminho canónico quando possível.
+     */
+    public static function ensureUserInstallRoot(): string
+    {
+        $path = self::userInstallRoot();
+        if (! is_dir($path)) {
+            File::makeDirectory($path, 0755, true);
+        }
+
+        return realpath($path) ?: $path;
+    }
+
+    /**
+     * @deprecated Utilize userInstallRoot() ou discoveryRoots(). Mantido: destino de escrita por omissão.
+     */
     public static function pluginsPath(): string
     {
-        if (self::$pluginsPath === null) {
-            self::$pluginsPath = base_path('plugins');
+        return self::userInstallRoot();
+    }
+
+    /**
+     * Diretório absoluto do plugin no disco (bundled ou persistente), ou null.
+     */
+    public static function resolvePluginDirectory(string $slug): ?string
+    {
+        foreach (self::installed() as $p) {
+            if (($p['slug'] ?? '') === $slug) {
+                $dir = $p['path'] ?? null;
+                if (is_string($dir) && is_dir($dir)) {
+                    return $dir;
+                }
+            }
         }
-        return self::$pluginsPath;
+
+        return null;
+    }
+
+    /**
+     * Quando a tabela `plugins` ainda não existe: carregar todos os manifestos do disco como ativos.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public static function fallbackRowsWithoutDatabase(): array
+    {
+        $rows = [];
+        foreach (self::collectDiskPluginsBySlug() as $row) {
+            $rows[] = array_merge($row, [
+                'is_registered' => false,
+                'is_enabled' => true,
+            ]);
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @return array<string, array<string, mixed>>
+     */
+    private static function collectDiskPluginsBySlug(): array
+    {
+        $bySlug = [];
+        foreach (self::discoveryRoots() as $root) {
+            if ($root === '' || ! is_dir($root)) {
+                continue;
+            }
+            $dirs = array_filter(glob($root.DIRECTORY_SEPARATOR.'*'), 'is_dir');
+            foreach ($dirs as $dir) {
+                $manifestFile = $dir.DIRECTORY_SEPARATOR.'plugin.json';
+                if (! is_file($manifestFile)) {
+                    continue;
+                }
+                $manifest = self::readManifest($dir);
+                if (! $manifest) {
+                    continue;
+                }
+                $slug = $manifest['slug'] ?? basename($dir);
+                $bySlug[$slug] = [
+                    'slug' => $slug,
+                    'name' => $manifest['name'] ?? $slug,
+                    'version' => $manifest['version'] ?? '1.0.0',
+                    'path' => $dir,
+                    'type' => $manifest['type'] ?? null,
+                    'banner' => ! empty($manifest['banner']) ? $manifest['banner'] : null,
+                    'category' => ! empty($manifest['category']) ? $manifest['category'] : 'outros',
+                    'menu' => $manifest['menu'] ?? null,
+                    'routes' => $manifest['routes'] ?? null,
+                    'events' => $manifest['events'] ?? [],
+                    'migrations' => $manifest['migrations'] ?? null,
+                    'description' => $manifest['description'] ?? null,
+                    'author' => $manifest['author'] ?? null,
+                    'settings_tab' => $manifest['settings_tab'] ?? null,
+                ];
+            }
+        }
+
+        return $bySlug;
     }
 
     /**
@@ -26,51 +164,23 @@ class PluginRegistry
      */
     public static function installed(): array
     {
-        $path = self::pluginsPath();
-        if (! is_dir($path)) {
-            return [];
-        }
-
         $dbPlugins = [];
         if (self::tableExists()) {
             $dbPlugins = PluginModel::all()->keyBy('slug')->all();
         }
 
         $result = [];
-        $dirs = array_filter(glob($path.DIRECTORY_SEPARATOR.'*'), 'is_dir');
-        foreach ($dirs as $dir) {
-            $manifestFile = $dir.DIRECTORY_SEPARATOR.'plugin.json';
-            if (! is_file($manifestFile)) {
-                continue;
-            }
-            $manifest = self::readManifest($dir);
-            if (! $manifest) {
-                continue;
-            }
-            $slug = $manifest['slug'] ?? basename($dir);
+        foreach (self::collectDiskPluginsBySlug() as $slug => $row) {
             $record = $dbPlugins[$slug] ?? null;
             $isRegistered = $record !== null;
             $isEnabled = $record ? $record->is_enabled : false;
 
-            $result[] = [
-                'slug' => $slug,
-                'name' => $manifest['name'] ?? $slug,
-                'version' => $manifest['version'] ?? '1.0.0',
-                'path' => $dir,
+            $result[] = array_merge($row, [
                 'is_registered' => $isRegistered,
                 'is_enabled' => (bool) $isEnabled,
-                'type' => $manifest['type'] ?? null,
-                'banner' => ! empty($manifest['banner']) ? $manifest['banner'] : null,
-                'category' => ! empty($manifest['category']) ? $manifest['category'] : 'outros',
-                'menu' => $manifest['menu'] ?? null,
-                'routes' => $manifest['routes'] ?? null,
-                'events' => $manifest['events'] ?? [],
-                'migrations' => $manifest['migrations'] ?? null,
-                'description' => $manifest['description'] ?? null,
-                'author' => $manifest['author'] ?? null,
-                'settings_tab' => $manifest['settings_tab'] ?? null,
-            ];
+            ]);
         }
+
         return $result;
     }
 
@@ -114,6 +224,7 @@ class PluginRegistry
     public static function enabled(): array
     {
         $installed = self::installed();
+
         return array_values(array_filter($installed, fn ($p) => $p['is_enabled']));
     }
 
@@ -151,6 +262,30 @@ class PluginRegistry
 
             return true;
         }
+
+        return false;
+    }
+
+    private static function isPluginDirUnderAllowedRoots(string $pluginDirReal): bool
+    {
+        $sep = DIRECTORY_SEPARATOR;
+        foreach (self::discoveryRoots() as $root) {
+            if ($root === '' || ! is_dir($root)) {
+                continue;
+            }
+            $base = realpath($root);
+            if ($base === false) {
+                continue;
+            }
+            if ($pluginDirReal === $base) {
+                return false;
+            }
+            $prefix = $base.$sep;
+            if (str_starts_with($pluginDirReal, $prefix)) {
+                return true;
+            }
+        }
+
         return false;
     }
 
@@ -160,19 +295,16 @@ class PluginRegistry
      */
     public static function uninstall(string $slug, ?string $pluginPath = null): bool
     {
-        $basePath = realpath(self::pluginsPath()) ?: self::pluginsPath();
         $pluginDir = $pluginPath !== null && $pluginPath !== ''
             ? realpath($pluginPath)
-            : realpath($basePath.DIRECTORY_SEPARATOR.$slug);
+            : realpath(self::userInstallRoot().DIRECTORY_SEPARATOR.$slug);
+
+        if ($pluginDir === false || ! is_dir($pluginDir)) {
+            $pluginDir = realpath(self::bundledPluginsPath().DIRECTORY_SEPARATOR.$slug);
+        }
 
         if ($pluginDir !== false && is_dir($pluginDir)) {
-            $basePathReal = realpath($basePath);
-            $sep = DIRECTORY_SEPARATOR;
-            $len = $basePathReal !== false ? strlen($basePathReal) : 0;
-            if ($basePathReal === false
-                || $pluginDir === $basePathReal
-                || strpos($pluginDir, $basePathReal) !== 0
-                || (strlen($pluginDir) > $len && $pluginDir[$len] !== $sep)) {
+            if (! self::isPluginDirUnderAllowedRoots($pluginDir)) {
                 return false;
             }
             if (! self::deletePluginDirectory($pluginDir)) {
@@ -220,6 +352,7 @@ class PluginRegistry
         if (! @rmdir($dir) && is_dir($dir)) {
             return false;
         }
+
         return true;
     }
 
@@ -248,6 +381,7 @@ class PluginRegistry
         if (empty($manifest['version'])) {
             $manifest['version'] = '1.0.0';
         }
+
         return $manifest;
     }
 
@@ -276,6 +410,7 @@ class PluginRegistry
                 ];
             }
         }
+
         return $items;
     }
 
