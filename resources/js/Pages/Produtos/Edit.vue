@@ -31,6 +31,7 @@ import {
     Pencil,
     Trash2,
     Layers,
+    MapPin,
 } from 'lucide-vue-next';
 import axios from 'axios';
 import EmailTemplatePreview from '@/components/produtos/EmailTemplatePreview.vue';
@@ -269,6 +270,26 @@ watch(currentTab, () => {
 const pg = props.produto.checkout_config?.payment_gateways ?? {};
 const et = props.produto.checkout_config?.email_template ?? {};
 const ci = props.produto.checkout_config?.card_installments ?? { enabled: false, max: 1 };
+const PAGARME_BILLING_DEFAULT = {
+    mode: 'customer',
+    company_address: {
+        zipcode: '',
+        street: '',
+        number: '',
+        neighborhood: '',
+        city: '',
+        state: '',
+    },
+};
+const rawPb = props.produto.checkout_config?.pagarme_billing;
+const pagarmeBillingInitial = {
+    ...PAGARME_BILLING_DEFAULT,
+    ...(rawPb && typeof rawPb === 'object' ? rawPb : {}),
+    company_address: {
+        ...PAGARME_BILLING_DEFAULT.company_address,
+        ...(rawPb?.company_address && typeof rawPb.company_address === 'object' ? rawPb.company_address : {}),
+    },
+};
 const stripeLinkEnabled = props.produto.checkout_config?.stripe_link_enabled;
 const form = useForm({
     name: props.produto.name,
@@ -306,6 +327,7 @@ const form = useForm({
         subject: et.subject ?? DEFAULT_EMAIL_TEMPLATE.subject,
         body_html: et.body_html ?? DEFAULT_EMAIL_TEMPLATE.body_html,
     },
+    pagarme_billing: pagarmeBillingInitial,
 });
 
 const priceNum = computed(() => parseFloat(form.price) || 0);
@@ -339,6 +361,9 @@ const logoUploading = ref(false);
 const logoError = ref('');
 const logoInputRef = ref(null);
 const deliverableLinkSidebarOpen = ref(false);
+const pagarmeBillingSidebarOpen = ref(false);
+const pagarmeCompanyCepLoading = ref(false);
+const pagarmeCompanyCepError = ref('');
 const cademiSaving = ref(false);
 const cademiError = ref('');
 const cademiTagsLoading = ref(false);
@@ -979,6 +1004,50 @@ function openRedundancySidebar(method) {
 function canShowRedundancy(slug) {
     return slug !== '' && slug !== null && slug !== undefined;
 }
+
+/** Cartão e boleto com Pagar.me ou Efí: permite configurar endereço de cobrança no produto. */
+const BR_BILLING_GATEWAY_SLUGS = ['pagarme', 'efi'];
+function isBrBillingGateway(slug) {
+    return BR_BILLING_GATEWAY_SLUGS.includes(String(slug || '').toLowerCase());
+}
+const showBrCardBoletoBillingSettings = computed(
+    () => isBrBillingGateway(form.payment_gateways.card) && isBrBillingGateway(form.payment_gateways.boleto)
+);
+
+function onPagarmeCompanyCepInput(e) {
+    const digits = (e.target.value || '').replace(/\D/g, '').slice(0, 8);
+    form.pagarme_billing.company_address.zipcode = digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
+}
+
+async function fetchPagarmeCompanyCep() {
+    const cep = (form.pagarme_billing.company_address.zipcode || '').replace(/\D/g, '').slice(0, 8);
+    if (cep.length < 8) return;
+    pagarmeCompanyCepLoading.value = true;
+    pagarmeCompanyCepError.value = '';
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+        const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (!res.ok) {
+            pagarmeCompanyCepError.value = 'Não foi possível buscar o CEP.';
+            return;
+        }
+        const data = await res.json().catch(() => null);
+        if (!data || data.erro) {
+            pagarmeCompanyCepError.value = 'CEP não encontrado.';
+            return;
+        }
+        if (data.logradouro) form.pagarme_billing.company_address.street = data.logradouro;
+        if (data.bairro) form.pagarme_billing.company_address.neighborhood = data.bairro;
+        if (data.localidade) form.pagarme_billing.company_address.city = data.localidade;
+        if (data.uf) form.pagarme_billing.company_address.state = data.uf;
+    } catch (_) {
+        pagarmeCompanyCepError.value = 'Não foi possível buscar o CEP agora.';
+    } finally {
+        pagarmeCompanyCepLoading.value = false;
+    }
+}
 const typeIcons = {
     aplicativo: Smartphone,
     area_membros: Users,
@@ -1033,6 +1102,16 @@ function submit() {
             fd.append('email_template[body_html]', form.email_template.body_html || '');
         }
         fd.append('deliverable_link', form.deliverable_link || '');
+        if (form.pagarme_billing) {
+            fd.append('pagarme_billing[mode]', form.pagarme_billing.mode || 'customer');
+            const ca = form.pagarme_billing.company_address || {};
+            fd.append('pagarme_billing[company_address][zipcode]', ca.zipcode || '');
+            fd.append('pagarme_billing[company_address][street]', ca.street || '');
+            fd.append('pagarme_billing[company_address][number]', ca.number || '');
+            fd.append('pagarme_billing[company_address][neighborhood]', ca.neighborhood || '');
+            fd.append('pagarme_billing[company_address][city]', ca.city || '');
+            fd.append('pagarme_billing[company_address][state]', String(ca.state || '').slice(0, 2));
+        }
         fd.append('_method', 'PUT');
         fd.append('image', form.image);
         form.transform(() => fd).post(url, { forceFormData: true });
@@ -1475,6 +1554,15 @@ function submit() {
                                         <Layers class="h-4 w-4" />
                                         Redundância
                                     </button>
+                                    <button
+                                        v-if="showBrCardBoletoBillingSettings && isBrBillingGateway(form.payment_gateways.card)"
+                                        type="button"
+                                        class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)]/10 hover:text-[var(--color-primary)] dark:border-zinc-600 dark:text-zinc-300 dark:hover:border-[var(--color-primary)] dark:hover:bg-[var(--color-primary)]/20"
+                                        @click="pagarmeBillingSidebarOpen = true"
+                                    >
+                                        <MapPin class="h-4 w-4" />
+                                        Configurar endereço (checkout)
+                                    </button>
                                     <p v-if="gateways_by_method.card.length === 0" class="text-xs text-zinc-500 dark:text-zinc-400">
                                         <Link href="/integracoes?tab=gateways" class="text-[var(--color-primary)] hover:underline">Conectar gateway</Link>
                                     </p>
@@ -1539,6 +1627,15 @@ function submit() {
                                     >
                                         <Layers class="h-4 w-4" />
                                         Redundância
+                                    </button>
+                                    <button
+                                        v-if="showBrCardBoletoBillingSettings && isBrBillingGateway(form.payment_gateways.boleto)"
+                                        type="button"
+                                        class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)]/10 hover:text-[var(--color-primary)] dark:border-zinc-600 dark:text-zinc-300 dark:hover:border-[var(--color-primary)] dark:hover:bg-[var(--color-primary)]/20"
+                                        @click="pagarmeBillingSidebarOpen = true"
+                                    >
+                                        <MapPin class="h-4 w-4" />
+                                        Configurar endereço (checkout)
                                     </button>
                                     <p v-if="gateways_by_method.boleto.length === 0" class="text-xs text-zinc-500 dark:text-zinc-400">
                                         <Link href="/integracoes?tab=gateways" class="text-[var(--color-primary)] hover:underline">Conectar gateway</Link>
@@ -1866,6 +1963,142 @@ function submit() {
                     @save="(val) => { if (redundancySidebarMethod) { form.payment_gateways[redundancySidebarMethod + '_redundancy'] = val; submit(); } redundancySidebarOpen = false; }"
                     @close="redundancySidebarOpen = false"
                 />
+
+                <Teleport to="body">
+                    <Transition
+                        enter-active-class="transition-opacity duration-200"
+                        enter-from-class="opacity-0"
+                        enter-to-class="opacity-100"
+                        leave-active-class="transition-opacity duration-200"
+                        leave-from-class="opacity-100"
+                        leave-to-class="opacity-0"
+                    >
+                        <div
+                            v-if="pagarmeBillingSidebarOpen"
+                            class="fixed inset-0 z-[100000] bg-black/30"
+                            aria-hidden="true"
+                            @click="pagarmeBillingSidebarOpen = false"
+                        />
+                    </Transition>
+                    <Transition
+                        enter-active-class="transition-transform duration-300 ease-out"
+                        enter-from-class="translate-x-full"
+                        enter-to-class="translate-x-0"
+                        leave-active-class="transition-transform duration-300 ease-in"
+                        leave-from-class="translate-x-0"
+                        leave-to-class="translate-x-full"
+                    >
+                        <aside
+                            v-if="pagarmeBillingSidebarOpen"
+                            class="fixed top-0 right-0 z-[100001] flex h-full w-full max-w-md flex-col bg-white shadow-2xl dark:bg-zinc-900"
+                            role="dialog"
+                            aria-labelledby="pagarme-billing-sidebar-title"
+                            @click.stop
+                        >
+                            <div class="flex shrink-0 items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
+                                <div class="flex items-center gap-2">
+                                    <MapPin class="h-5 w-5 text-zinc-500 dark:text-white" aria-hidden="true" />
+                                    <h2 id="pagarme-billing-sidebar-title" class="text-lg font-semibold text-zinc-900 dark:text-white">
+                                        Cobrança — endereço (Pagar.me / Efí)
+                                    </h2>
+                                </div>
+                                <button
+                                    type="button"
+                                    class="rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"
+                                    aria-label="Fechar"
+                                    @click="pagarmeBillingSidebarOpen = false"
+                                >
+                                    <X class="h-5 w-5" />
+                                </button>
+                            </div>
+                            <div class="flex-1 space-y-4 overflow-y-auto p-4">
+                                <p class="text-sm text-zinc-600 dark:text-zinc-400">
+                                    Com cartão <strong>e</strong> boleto em Pagar.me ou Efí: escolha se o checkout pede o endereço do cliente ou usa o endereço da empresa (fatura/antifraude). No modo empresa, preencha o endereço abaixo (CEP com 8 dígitos, UF com 2 letras).
+                                </p>
+                                <div class="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 dark:border-zinc-600 dark:bg-zinc-800/50">
+                                    <p class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Modo no checkout</p>
+                                    <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-600 dark:bg-zinc-900/80">
+                                        <input v-model="form.pagarme_billing.mode" type="radio" class="mt-0.5" value="customer" />
+                                        <span>
+                                            <span class="text-sm font-medium text-zinc-800 dark:text-zinc-200">Solicitar endereço do cliente</span>
+                                            <span class="mt-0.5 block text-xs text-zinc-500 dark:text-zinc-400">O checkout exibe o bloco de CEP/endereço.</span>
+                                        </span>
+                                    </label>
+                                    <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-600 dark:bg-zinc-900/80">
+                                        <input v-model="form.pagarme_billing.mode" type="radio" class="mt-0.5" value="company" />
+                                        <span>
+                                            <span class="text-sm font-medium text-zinc-800 dark:text-zinc-200">Usar endereço da empresa</span>
+                                            <span class="mt-0.5 block text-xs text-zinc-500 dark:text-zinc-400">O checkout não pede endereço; usamos os dados abaixo na cobrança.</span>
+                                        </span>
+                                    </label>
+                                </div>
+                                <p v-if="form.errors['pagarme_billing.company_address']" class="text-sm text-red-600 dark:text-red-400">
+                                    {{ form.errors['pagarme_billing.company_address'] }}
+                                </p>
+                                <p class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Endereço da empresa</p>
+                                <div>
+                                    <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">CEP</label>
+                                    <div class="flex gap-2">
+                                        <input
+                                            :value="form.pagarme_billing.company_address.zipcode"
+                                            type="text"
+                                            inputmode="numeric"
+                                            maxlength="9"
+                                            placeholder="00000-000"
+                                            :class="inputClass"
+                                            @input="onPagarmeCompanyCepInput"
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            :disabled="pagarmeCompanyCepLoading || (form.pagarme_billing.company_address.zipcode || '').replace(/\D/g, '').length < 8"
+                                            @click="fetchPagarmeCompanyCep"
+                                        >
+                                            <Loader2 v-if="pagarmeCompanyCepLoading" class="h-4 w-4 animate-spin" />
+                                            <span v-else>Buscar</span>
+                                        </Button>
+                                    </div>
+                                    <p v-if="pagarmeCompanyCepError" class="mt-1 text-xs text-amber-600 dark:text-amber-400">{{ pagarmeCompanyCepError }}</p>
+                                </div>
+                                <div>
+                                    <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Rua</label>
+                                    <input v-model="form.pagarme_billing.company_address.street" type="text" :class="inputClass" />
+                                </div>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Número</label>
+                                        <input v-model="form.pagarme_billing.company_address.number" type="text" :class="inputClass" />
+                                    </div>
+                                    <div>
+                                        <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">UF</label>
+                                        <input
+                                            v-model="form.pagarme_billing.company_address.state"
+                                            type="text"
+                                            maxlength="2"
+                                            class="uppercase"
+                                            :class="inputClass"
+                                            @blur="form.pagarme_billing.company_address.state = (form.pagarme_billing.company_address.state || '').toUpperCase().slice(0, 2)"
+                                        />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Bairro</label>
+                                    <input v-model="form.pagarme_billing.company_address.neighborhood" type="text" :class="inputClass" />
+                                </div>
+                                <div>
+                                    <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Cidade</label>
+                                    <input v-model="form.pagarme_billing.company_address.city" type="text" :class="inputClass" />
+                                </div>
+                            </div>
+                            <div class="flex shrink-0 gap-2 border-t border-zinc-200 p-4 dark:border-zinc-700">
+                                <Button type="button" class="flex-1" :disabled="form.processing" @click="submit(); pagarmeBillingSidebarOpen = false">
+                                    Salvar
+                                </Button>
+                                <Button type="button" variant="outline" class="flex-1" @click="pagarmeBillingSidebarOpen = false">Fechar</Button>
+                            </div>
+                        </aside>
+                    </Transition>
+                </Teleport>
 
                 <!-- Pixels de conversão -->
                 <section class="overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-sm dark:border-zinc-700/80 dark:bg-zinc-800/95">

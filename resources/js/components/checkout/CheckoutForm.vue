@@ -167,6 +167,13 @@ const isCardGatewayEfi = computed(() => cardGatewaySlug.value === 'efi');
 const isCardGatewayMercadopago = computed(() => cardGatewaySlug.value === 'mercadopago');
 const isCardGatewayAsaas = computed(() => cardGatewaySlug.value === 'asaas');
 const isCardGatewayPagarme = computed(() => cardGatewaySlug.value === 'pagarme');
+/** Gateway do boleto (primeiro método com id === 'boleto' em available_payment_methods). */
+const boletoGatewaySlug = computed(() => {
+    const methods = Array.isArray(props.availablePaymentMethods) ? props.availablePaymentMethods : [];
+    const boletoMethod = methods.find((m) => m.id === 'boleto');
+    return (boletoMethod?.gateway_slug || '').toLowerCase();
+});
+const isBoletoGatewayPagarme = computed(() => boletoGatewaySlug.value === 'pagarme');
 const cardPagarmePublicKey = computed(() => {
     const k = props.cardGatewayKeys?.pagarme;
     return (k && typeof k.public_key === 'string' ? k.public_key : '').trim();
@@ -177,10 +184,6 @@ const cardPagarmeApiBaseUrl = computed(() => {
     const u = k && typeof k.api_base_url === 'string' ? k.api_base_url.trim() : '';
     return u !== '' ? u.replace(/\/$/, '') : 'https://api.pagar.me/core/v5';
 });
-const showBillingAddressBlock = computed(
-    () => form.payment_method === 'boleto' || (form.payment_method === 'card' && isCardGatewayPagarme.value)
-);
-
 const pagarmeTokenizeFormId = CHECKOUT_PAGARME_TOKENIZE_FORM_ID;
 
 watch(cardPagarmePublicKey, (next, prev) => {
@@ -228,6 +231,23 @@ const form = useForm({
     address_state: '',
 });
 
+const pagarmeBillingMode = computed(() => props.config?.pagarme_billing?.mode ?? 'customer');
+const isBoletoGatewayEfi = computed(() => boletoGatewaySlug.value === 'efi');
+/** Modo empresa: Pagar.me ou Efí (cartão e/ou boleto), endereço vem do produto. */
+const usesCompanyAddressForBrBilling = computed(() => {
+    if (pagarmeBillingMode.value !== 'company') return false;
+    if (form.payment_method === 'card' && (isCardGatewayPagarme.value || isCardGatewayEfi.value)) return true;
+    if (form.payment_method === 'boleto' && (isBoletoGatewayPagarme.value || isBoletoGatewayEfi.value)) return true;
+    return false;
+});
+const showBillingAddressBlock = computed(() => {
+    const base =
+        form.payment_method === 'boleto'
+        || (form.payment_method === 'card' && (isCardGatewayPagarme.value || isCardGatewayEfi.value));
+    if (!base) return false;
+    return !usesCompanyAddressForBrBilling.value;
+});
+
 watch(
     () => props.availablePaymentMethods,
     (list) => {
@@ -237,6 +257,33 @@ watch(
         }
     },
     { immediate: true }
+);
+
+function applyPagarmeCompanyAddressPrefill() {
+    const pb = props.config?.pagarme_billing;
+    if (!pb || pb.mode !== 'company') return;
+    const ca = pb.company_address || {};
+    const z = String(ca.zipcode || '')
+        .replace(/\D/g, '')
+        .slice(0, 8);
+    if (z.length >= 8) {
+        form.address_zipcode = `${z.slice(0, 5)}-${z.slice(5)}`;
+    }
+    if (ca.street) form.address_street = String(ca.street);
+    if (ca.number) form.address_number = String(ca.number);
+    if (ca.neighborhood) form.address_neighborhood = String(ca.neighborhood);
+    if (ca.city) form.address_city = String(ca.city);
+    if (ca.state) form.address_state = String(ca.state).trim().toUpperCase().slice(0, 2);
+}
+
+watch(
+    [usesCompanyAddressForBrBilling, () => props.config?.pagarme_billing],
+    () => {
+        if (usesCompanyAddressForBrBilling.value) {
+            applyPagarmeCompanyAddressPrefill();
+        }
+    },
+    { immediate: true, deep: true }
 );
 const phoneDigits = ref('');
 const phoneCountryOpen = ref(false);
@@ -448,7 +495,7 @@ watch(
     () => Object.keys(form.errors || {}).length,
     (count) => {
         if (count > 0 && (form.payment_method === 'pix' || form.payment_method === 'pix_auto' || form.payment_method === 'boleto'
-            || (form.payment_method === 'card' && isCardGatewayPagarme.value))) {
+            || (form.payment_method === 'card' && (isCardGatewayPagarme.value || isCardGatewayEfi.value)))) {
             showEditForm.value = true;
         }
     }
@@ -1317,15 +1364,18 @@ function submit() {
                 cardFormError.value = props.t('checkout.card_fill_all') || 'Preencha todos os dados do cartão corretamente.';
                 return;
             }
-            const zipOk = (form.address_zipcode || '').replace(/\D/g, '').length >= 8;
-            const streetOk = (form.address_street || '').trim().length >= 2;
-            const numOk = (form.address_number || '').trim().length >= 1;
-            const neighOk = (form.address_neighborhood || '').trim().length >= 2;
-            const cityOk = (form.address_city || '').trim().length >= 2;
-            const stateOk = (form.address_state || '').trim().length === 2;
-            if (!zipOk || !streetOk || !numOk || !neighOk || !cityOk || !stateOk) {
-                cardFormError.value = 'Preencha o endereço de cobrança completo (CEP, rua, número, bairro, cidade e UF).';
-                return;
+            if (!usesCompanyAddressForBrBilling.value) {
+                const zipOk = (form.address_zipcode || '').replace(/\D/g, '').length >= 8;
+                const streetOk = (form.address_street || '').trim().length >= 2;
+                const numOk = (form.address_number || '').trim().length >= 1;
+                const neighOk = (form.address_neighborhood || '').trim().length >= 2;
+                const cityOk = (form.address_city || '').trim().length >= 2;
+                const stateOk = (form.address_state || '').trim().length === 2;
+                if (!zipOk || !streetOk || !numOk || !neighOk || !cityOk || !stateOk) {
+                    cardFormError.value =
+                        'Preencha o endereço de cobrança completo (CEP, rua, número, bairro, cidade e UF).';
+                    return;
+                }
             }
         } else {
             if (!props.cardPayeeCode || !props.cardPayeeCode.trim()) {
@@ -1340,6 +1390,19 @@ function submit() {
             if (!nameOk || !numberOk || !expOk || !cvvOk) {
                 cardFormError.value = props.t('checkout.card_fill_all') || 'Preencha todos os dados do cartão corretamente.';
                 return;
+            }
+            if (!usesCompanyAddressForBrBilling.value) {
+                const zipOk = (form.address_zipcode || '').replace(/\D/g, '').length >= 8;
+                const streetOk = (form.address_street || '').trim().length >= 2;
+                const numOk = (form.address_number || '').trim().length >= 1;
+                const neighOk = (form.address_neighborhood || '').trim().length >= 2;
+                const cityOk = (form.address_city || '').trim().length >= 2;
+                const stateOk = (form.address_state || '').trim().length === 2;
+                if (!zipOk || !streetOk || !numOk || !neighOk || !cityOk || !stateOk) {
+                    cardFormError.value =
+                        'Preencha o endereço de cobrança completo (CEP, rua, número, bairro, cidade e UF).';
+                    return;
+                }
             }
         }
         cardTokenizing.value = true;
@@ -1363,7 +1426,7 @@ function submit() {
                     card_mask: card_mask || undefined,
                     installments: Math.min(props.cardMaxInstallments || 1, Math.max(1, selectedInstallments.value)),
                 };
-                if (isCardGatewayPagarme.value) {
+                if (isCardGatewayPagarme.value || isCardGatewayEfi.value) {
                     payload.address_zipcode = (form.address_zipcode || '').replace(/\D/g, '').slice(0, 8);
                     payload.address_street = (form.address_street || '').trim();
                     payload.address_number = (form.address_number || '').trim();

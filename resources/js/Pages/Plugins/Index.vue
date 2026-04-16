@@ -574,7 +574,7 @@ function submitManualInstall() {
                             <li>Extraia o ZIP nessa mesma pasta. O resultado deve ser uma pasta que contém o arquivo <code class="rounded bg-zinc-200 px-1 dark:bg-zinc-700">plugin.json</code>.</li>
                             <li>
                                 Instalações via painel ou ZIP — pasta persistente (não é apagada ao atualizar o código a partir do Git):
-                                <code class="mt-1 block break-all rounded bg-zinc-200 px-2 py-1 text-xs dark:bg-zinc-700">{{ plugins_install_path || pluginsPath || 'plugins-installed/' }}</code>
+                                <code class="mt-1 block break-all rounded bg-zinc-200 px-2 py-1 text-xs dark:bg-zinc-700">{{ plugins_install_path || pluginsPath || '.docker/plugins-installed/ (Docker) ou storage/app/plugins-installed/' }}</code>
                             </li>
                             <li>
                                 Plugins incluídos no repositório (exemplo) ficam em:

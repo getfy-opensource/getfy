@@ -3,7 +3,7 @@ set -e
 
 cd /var/www/html
 
-mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views bootstrap/cache .docker
+mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views bootstrap/cache .docker .docker/plugins-installed
 chmod -R 777 storage bootstrap/cache .docker 2>/dev/null || true
 
 if [ ! -f .docker/app.key ]; then

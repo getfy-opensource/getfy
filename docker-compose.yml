@@ -8,6 +8,7 @@ services:
     ports:
       - "${GETFY_HTTP_PORT:-80}:80"
     volumes:
+      # storage: cache, logs, uploads… | .docker: chaves + plugins instalados (ZIP/loja) — não apagar getfy_env nos updates
       - getfy_storage:/var/www/html/storage
       - getfy_env:/var/www/html/.docker
     environment:
@@ -83,6 +84,7 @@ services:
       - "-lc"
       - "set -e; php artisan queue:work --sleep=3 --tries=3 --timeout=0 --memory=${GETFY_QUEUE_WORKER_MEMORY:-128} --max-time=${GETFY_QUEUE_WORKER_MAX_TIME:-3600} --max-jobs=${GETFY_QUEUE_WORKER_MAX_JOBS:-1000} & Q=$$!; php artisan schedule:work & S=$$!; trap 'kill $$Q $$S 2>/dev/null || true' INT TERM; while kill -0 $$Q 2>/dev/null && kill -0 $$S 2>/dev/null; do sleep 5; done; kill $$Q $$S 2>/dev/null || true; wait $$Q 2>/dev/null || true; wait $$S 2>/dev/null || true; exit 1"
     volumes:
+      # storage: cache, logs, uploads… | .docker: chaves + plugins instalados (ZIP/loja) — não apagar getfy_env nos updates
       - getfy_storage:/var/www/html/storage
       - getfy_env:/var/www/html/.docker
     environment:

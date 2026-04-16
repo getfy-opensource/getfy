@@ -137,6 +137,17 @@ class Product extends Model
                 'enabled' => false,
                 'max' => 1,
             ],
+            'pagarme_billing' => [
+                'mode' => 'customer',
+                'company_address' => [
+                    'zipcode' => '',
+                    'street' => '',
+                    'number' => '',
+                    'neighborhood' => '',
+                    'city' => '',
+                    'state' => '',
+                ],
+            ],
             'stripe_link_enabled' => true,
             'deliverable_link' => '',
             'seo' => [

@@ -21,6 +21,7 @@ use App\Services\TeamAccessService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -411,6 +412,15 @@ class ProdutosController extends Controller
             'email_template.body_html' => ['nullable', 'string', 'max:65535'],
             'deliverable_link' => ['nullable', 'string', 'url', 'max:500'],
             'base_interval' => ['nullable', 'string', 'in:weekly,monthly,quarterly,semi_annual,annual,lifetime'],
+            'pagarme_billing' => ['nullable', 'array'],
+            'pagarme_billing.mode' => ['nullable', 'string', 'in:customer,company'],
+            'pagarme_billing.company_address' => ['nullable', 'array'],
+            'pagarme_billing.company_address.zipcode' => ['nullable', 'string', 'max:32'],
+            'pagarme_billing.company_address.street' => ['nullable', 'string', 'max:255'],
+            'pagarme_billing.company_address.number' => ['nullable', 'string', 'max:32'],
+            'pagarme_billing.company_address.neighborhood' => ['nullable', 'string', 'max:255'],
+            'pagarme_billing.company_address.city' => ['nullable', 'string', 'max:255'],
+            'pagarme_billing.company_address.state' => ['nullable', 'string', 'max:2'],
         ]);
         $validated['is_active'] = $request->boolean('is_active', true);
         $validated['currency'] = $validated['currency'] ?? config('products.currency_default', 'BRL');
@@ -425,6 +435,35 @@ class ProdutosController extends Controller
         unset($validated['image']);
         $paymentGateways = $validated['payment_gateways'] ?? null;
         unset($validated['payment_gateways']);
+        $pagarmeBillingInput = array_key_exists('pagarme_billing', $validated) ? $validated['pagarme_billing'] : null;
+        unset($validated['pagarme_billing']);
+        if (is_array($pagarmeBillingInput)) {
+            $mergedPb = array_replace_recursive(
+                Product::defaultCheckoutConfig()['pagarme_billing'] ?? [],
+                $pagarmeBillingInput
+            );
+            $pgw = is_array($paymentGateways)
+                ? $paymentGateways
+                : (($produto->checkout_config['payment_gateways'] ?? []) ?: []);
+                if (($mergedPb['mode'] ?? 'customer') === 'company') {
+                    $cardPm = in_array($pgw['card'] ?? null, ['pagarme', 'efi'], true);
+                    $boletoPm = in_array($pgw['boleto'] ?? null, ['pagarme', 'efi'], true);
+                    if ($cardPm || $boletoPm) {
+                    $ca = $mergedPb['company_address'] ?? [];
+                    $zip = preg_replace('/\D/', '', (string) ($ca['zipcode'] ?? ''));
+                    $street = trim((string) ($ca['street'] ?? ''));
+                    $number = trim((string) ($ca['number'] ?? ''));
+                    $neighborhood = trim((string) ($ca['neighborhood'] ?? ''));
+                    $city = trim((string) ($ca['city'] ?? ''));
+                    $state = strtoupper(substr(trim((string) ($ca['state'] ?? '')), 0, 2));
+                    if (strlen($zip) < 8 || $street === '' || $number === '' || $neighborhood === '' || $city === '' || strlen($state) !== 2) {
+                        throw ValidationException::withMessages([
+                            'pagarme_billing.company_address' => ['Preencha o endereço completo da empresa (CEP com 8 dígitos, rua, número, bairro, cidade e UF) quando usar cobrança Pagar.me ou Efí no modo empresa.'],
+                        ]);
+                    }
+                }
+            }
+        }
         $cardInstallments = $validated['card_installments'] ?? null;
         unset($validated['card_installments']);
         $stripeLinkEnabled = array_key_exists('stripe_link_enabled', $validated) ? $validated['stripe_link_enabled'] : null;
@@ -482,7 +521,7 @@ class ProdutosController extends Controller
             $produto->update(['conversion_pixels' => $merged]);
         }
 
-        $config = $produto->checkout_config;
+        $config = is_array($produto->checkout_config) ? $produto->checkout_config : [];
         $configUpdated = false;
         if ($request->has('deliverable_link')) {
             $config['deliverable_link'] = $deliverableLink ?? '';
@@ -523,6 +562,13 @@ class ProdutosController extends Controller
             $config['email_template'] = array_merge(
                 Product::defaultEmailTemplate(),
                 $emailTemplate
+            );
+            $configUpdated = true;
+        }
+        if (is_array($pagarmeBillingInput)) {
+            $config['pagarme_billing'] = array_replace_recursive(
+                Product::defaultCheckoutConfig()['pagarme_billing'] ?? [],
+                $pagarmeBillingInput
             );
             $configUpdated = true;
         }

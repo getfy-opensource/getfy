@@ -50,13 +50,13 @@ class UtmifySendOrderJob implements ShouldQueue
                 'refunded_at' => $this->refundedAt,
             ]);
         } catch (\Throwable $e) {
+            // Falha na UTMfy não pode interromper checkout, webhooks nem outros fluxos (ex.: credencial inválida 404).
             Log::warning('UtmifySendOrderJob failed', [
                 'order_id' => $this->orderId,
                 'utmify_integration_id' => $this->utmifyIntegrationId,
                 'status' => $this->utmifyStatus,
                 'message' => $e->getMessage(),
             ]);
-            throw $e;
         }
     }
 }

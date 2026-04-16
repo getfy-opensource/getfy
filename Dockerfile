@@ -19,7 +19,7 @@ COPY . .
 COPY docker/entrypoint.sh /usr/local/bin/getfy-entrypoint
 
 RUN chmod +x /usr/local/bin/getfy-entrypoint \
-    && mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views bootstrap/cache .docker \
+    && mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views bootstrap/cache .docker .docker/plugins-installed \
     && chmod -R 777 storage bootstrap/cache .docker
 
 EXPOSE 80

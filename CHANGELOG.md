@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.0.9] - 16-04-2026
+
+### Novidades
+
+- **Checkout / Pagar.me e Efí**: endereço de cobrança configurável no produto (modo cliente vs. endereço fixo da empresa), com validação e uso no checkout para cartão e boleto quando esses gateways estão ativos.
+
+### Correções
+
+- **Pixel (Meta Ads)**: evento **InitiateCheckout** voltou a disparar corretamente.
+- **Pixel**: evento **Purchase** voltou a disparar corretamente.
+- **Notificações push**: corrigido o funcionamento na instalação via **Docker**.
+- **Área de membros**: em **iPhone**, vídeos passam a exibir o botão de **tela cheia** (fullscreen) como esperado.
+
+### Melhorias
+
+- Diversas melhorias em todo o código e correção de pequenos bugs não listados individualmente.
+
 ## [1.0.8] - 09-04-2026
 
 ### Novidades

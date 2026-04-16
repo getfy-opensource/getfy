@@ -20,9 +20,10 @@ class PluginRegistry
     /**
      * Pasta persistente para instalações via ZIP/loja.
      *
-     * Por omissão: {@see storage_path}('app/plugins-installed') — em deploys Laravel típicos,
-     * `storage/` aponta para uma pasta partilhada fora da release e sobrevive a atualizações.
-     * Se o teu fluxo apagar `storage/`, define GETFY_PLUGINS_USER_PATH para um caminho absoluto fora do repositório.
+     * Em Docker (GETFY_DOCKER=true): `.docker/plugins-installed` — fica no volume `getfy_env` montado em `.docker/`,
+     * independente de `storage/` (útil quando o update do contentor recria ou substitui dados em storage).
+     * Fora de Docker: {@see storage_path}('app/plugins-installed').
+     * Override absoluto: GETFY_PLUGINS_USER_PATH no .env.
      */
     public static function userInstallRoot(): string
     {
@@ -31,69 +32,82 @@ class PluginRegistry
             return rtrim(trim($configured), '/\\');
         }
 
+        if (config('plugins.docker_mode')) {
+            return rtrim(base_path('.docker/plugins-installed'), '/\\');
+        }
+
         return rtrim(storage_path('app/plugins-installed'), '/\\');
     }
 
     /**
-     * Migra pastas de plugins de locais antigos (ex.: /plugins-installed na raiz do projeto) para o destino atual.
-     * Corre uma vez por ambiente (marcador em storage/app).
+     * Migra pastas de plugins de locais antigos para {@see userInstallRoot()}.
+     * Marcadores: storage/app (raiz do projeto) e .docker/ (cópia desde storage quando em Docker).
      */
     public static function migrateLegacyPluginInstallDirectories(): void
     {
         try {
-            $marker = storage_path('app/.getfy-migrated-root-plugins-installed');
-            if (is_file($marker)) {
-                return;
-            }
-
             $destRoot = self::userInstallRoot();
             if (! is_dir($destRoot)) {
                 File::makeDirectory($destRoot, 0755, true);
             }
-            $destReal = realpath($destRoot);
-            $destReal = $destReal !== false ? $destReal : $destRoot;
 
-            $legacy = rtrim(base_path('plugins-installed'), '/\\');
-            if (! is_dir($legacy)) {
-                @file_put_contents($marker, (string) time());
-
-                return;
-            }
-            $legacyReal = realpath($legacy);
-            if ($legacyReal !== false && ($legacyReal === $destReal || str_starts_with($destReal, $legacyReal.DIRECTORY_SEPARATOR))) {
-                @file_put_contents($marker, (string) time());
-
-                return;
+            $markerProjectRoot = storage_path('app/.getfy-migrated-plugins-from-project-root');
+            if (! is_file($markerProjectRoot)) {
+                self::migratePluginSubdirsIfPresent(rtrim(base_path('plugins-installed'), '/\\'), $destRoot);
+                @file_put_contents($markerProjectRoot, (string) time());
             }
 
-            $items = @scandir($legacy);
-            if (! is_array($items)) {
-                @file_put_contents($marker, (string) time());
-
-                return;
-            }
-            foreach (array_diff($items, ['.', '..']) as $name) {
-                $from = $legacy.DIRECTORY_SEPARATOR.$name;
-                if (! is_dir($from) || ! is_file($from.DIRECTORY_SEPARATOR.'plugin.json')) {
-                    continue;
+            if (config('plugins.docker_mode')) {
+                $markerFromStorage = base_path('.docker/.getfy-migrated-plugins-from-storage-app');
+                if (! is_file($markerFromStorage)) {
+                    self::migratePluginSubdirsIfPresent(rtrim(storage_path('app/plugins-installed'), '/\\'), $destRoot);
+                    @file_put_contents($markerFromStorage, (string) time());
                 }
-                $to = $destRoot.DIRECTORY_SEPARATOR.$name;
-                if (is_dir($to)) {
-                    continue;
-                }
-                File::moveDirectory($from, $to);
             }
-
-            $left = @scandir($legacy);
-            if (is_array($left) && count(array_diff($left, ['.', '..'])) === 0) {
-                @rmdir($legacy);
-            }
-
-            @file_put_contents($marker, (string) time());
         } catch (\Throwable $e) {
             Log::warning('Getfy: migração de pasta legacy de plugins falhou.', [
                 'message' => $e->getMessage(),
             ]);
+        }
+    }
+
+    /**
+     * Move cada subpasta com plugin.json de $legacy para $destRoot (não sobrescreve destinos já existentes).
+     */
+    private static function migratePluginSubdirsIfPresent(string $legacy, string $destRoot): void
+    {
+        if ($legacy === '' || ! is_dir($legacy)) {
+            return;
+        }
+        $legacyReal = realpath($legacy);
+        $destReal = realpath($destRoot);
+        if ($legacyReal === false) {
+            return;
+        }
+        $destResolved = $destReal !== false ? $destReal : $destRoot;
+        if ($legacyReal === $destResolved || str_starts_with($destResolved, $legacyReal.DIRECTORY_SEPARATOR)) {
+            return;
+        }
+
+        $items = @scandir($legacy);
+        if (! is_array($items)) {
+            return;
+        }
+        foreach (array_diff($items, ['.', '..']) as $name) {
+            $from = $legacy.DIRECTORY_SEPARATOR.$name;
+            if (! is_dir($from) || ! is_file($from.DIRECTORY_SEPARATOR.'plugin.json')) {
+                continue;
+            }
+            $to = $destRoot.DIRECTORY_SEPARATOR.$name;
+            if (is_dir($to)) {
+                continue;
+            }
+            File::moveDirectory($from, $to);
+        }
+
+        $left = @scandir($legacy);
+        if (is_array($left) && count(array_diff($left, ['.', '..'])) === 0) {
+            @rmdir($legacy);
         }
     }
 

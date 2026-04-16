@@ -20,7 +20,7 @@ services:
     restart: unless-stopped
     volumes:
       - getfy_storage:/var/www/html/storage
-      - getfy_env:/var/www/html/.docker
+      - getfy_env:/var/www/html/.docker # plugins ZIP/loja + dados .docker — persistir nos updates
     environment:
       APP_ENV: ${GETFY_APP_ENV:-local}
       APP_DEBUG: ${GETFY_APP_DEBUG:-true}
@@ -95,7 +95,7 @@ services:
       - "set -e; php artisan queue:work --sleep=3 --tries=3 --timeout=0 --memory=${GETFY_QUEUE_WORKER_MEMORY:-128} --max-time=${GETFY_QUEUE_WORKER_MAX_TIME:-3600} --max-jobs=${GETFY_QUEUE_WORKER_MAX_JOBS:-1000} & Q=$$!; php artisan schedule:work & S=$$!; trap 'kill $$Q $$S 2>/dev/null || true' INT TERM; while kill -0 $$Q 2>/dev/null && kill -0 $$S 2>/dev/null; do sleep 5; done; kill $$Q $$S 2>/dev/null || true; wait $$Q 2>/dev/null || true; wait $$S 2>/dev/null || true; exit 1"
     volumes:
       - getfy_storage:/var/www/html/storage
-      - getfy_env:/var/www/html/.docker
+      - getfy_env:/var/www/html/.docker # plugins ZIP/loja + dados .docker — persistir nos updates
     environment:
       APP_ENV: ${GETFY_APP_ENV:-local}
       APP_DEBUG: ${GETFY_APP_DEBUG:-true}

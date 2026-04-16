@@ -35,6 +35,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -168,6 +169,12 @@ class CheckoutController extends Controller
         } elseif ($resolved['plan'] && $resolved['plan']->checkout_config !== null && $resolved['plan']->checkout_config !== []) {
             $config = array_replace_recursive($config, $resolved['plan']->checkout_config);
         }
+        // Cobrança Pagar.me (modo empresa) vem só do produto — não herdar de oferta/plano.
+        $productPagarmeBilling = $product->checkout_config['pagarme_billing'] ?? [];
+        $config['pagarme_billing'] = array_replace_recursive(
+            $defaults['pagarme_billing'] ?? [],
+            is_array($productPagarmeBilling) ? $productPagarmeBilling : []
+        );
         $productArray = $this->productToCheckoutArray($product, $resolved['offer'], $resolved['plan'], $resolved['amount'], $resolved['currency'], $resolved['checkout_slug']);
         $payload = [
             'product' => $productArray,
@@ -449,6 +456,18 @@ class CheckoutController extends Controller
         $firstCardGatewayForRules = $paymentMethodForRules === 'card'
             ? $paymentService->getFirstAvailableGatewayForMethod($product->tenant_id, 'card', $product)
             : null;
+        $firstBoletoGatewayForRules = $paymentMethodForRules === 'boleto'
+            ? $paymentService->getFirstAvailableGatewayForMethod($product->tenant_id, 'boleto', $product)
+            : null;
+        $pagarmeBillingForRules = array_replace_recursive(
+            Product::defaultCheckoutConfig()['pagarme_billing'] ?? [],
+            is_array($product->checkout_config['pagarme_billing'] ?? null) ? $product->checkout_config['pagarme_billing'] : []
+        );
+        $skipPagarmeAddressValidation = ($pagarmeBillingForRules['mode'] ?? 'customer') === 'company'
+            && (
+                ($paymentMethodForRules === 'card' && in_array($firstCardGatewayForRules, ['pagarme', 'efi'], true))
+                || ($paymentMethodForRules === 'boleto' && in_array($firstBoletoGatewayForRules, ['pagarme', 'efi'], true))
+            );
         $requireCpf = (($customerFields['cpf'] ?? false) && $displayCurrency === 'BRL')
             || ($firstCardGatewayForRules === 'pagarme' && $displayCurrency === 'BRL');
         $phoneRequiredForCheckout = ($customerFields['phone'] ?? false)
@@ -488,28 +507,31 @@ class CheckoutController extends Controller
                 $rules['address_neighborhood'] = ['required', 'string', 'max:255'];
                 $rules['address_city'] = ['required', 'string', 'max:255'];
                 $rules['address_state'] = ['required', 'string', 'max:2'];
-            } elseif ($firstCardGateway === 'pagarme') {
+            } elseif ($firstCardGateway === 'pagarme' || $firstCardGateway === 'efi') {
                 $rules['payment_token'] = ['required', 'string', 'max:10000'];
-                $rules['address_zipcode'] = ['required', 'string', 'max:9'];
-                $rules['address_street'] = ['required', 'string', 'max:255'];
-                $rules['address_number'] = ['required', 'string', 'max:20'];
-                $rules['address_neighborhood'] = ['required', 'string', 'max:255'];
-                $rules['address_city'] = ['required', 'string', 'max:255'];
-                $rules['address_state'] = ['required', 'string', 'max:2'];
+                $addrRule = $skipPagarmeAddressValidation ? 'nullable' : 'required';
+                $rules['address_zipcode'] = [$addrRule, 'string', 'max:9'];
+                $rules['address_street'] = [$addrRule, 'string', 'max:255'];
+                $rules['address_number'] = [$addrRule, 'string', 'max:20'];
+                $rules['address_neighborhood'] = [$addrRule, 'string', 'max:255'];
+                $rules['address_city'] = [$addrRule, 'string', 'max:255'];
+                $rules['address_state'] = [$addrRule, 'string', 'max:2'];
             } else {
                 $rules['payment_token'] = ['required', 'string', 'max:10000'];
             }
             $rules['installments'] = ['nullable', 'integer', 'min:1', 'max:12'];
         }
         if ($request->input('payment_method') === 'boleto') {
-            $rules['address_zipcode'] = ['required', 'string', 'max:9'];
-            $rules['address_street'] = ['required', 'string', 'max:255'];
-            $rules['address_number'] = ['required', 'string', 'max:20'];
-            $rules['address_neighborhood'] = ['required', 'string', 'max:255'];
-            $rules['address_city'] = ['required', 'string', 'max:255'];
-            $rules['address_state'] = ['required', 'string', 'max:2'];
+            $addrRule = $skipPagarmeAddressValidation ? 'nullable' : 'required';
+            $rules['address_zipcode'] = [$addrRule, 'string', 'max:9'];
+            $rules['address_street'] = [$addrRule, 'string', 'max:255'];
+            $rules['address_number'] = [$addrRule, 'string', 'max:20'];
+            $rules['address_neighborhood'] = [$addrRule, 'string', 'max:255'];
+            $rules['address_city'] = [$addrRule, 'string', 'max:255'];
+            $rules['address_state'] = [$addrRule, 'string', 'max:2'];
         }
         $validated = $request->validate($rules);
+        $validated = $this->applyPagarmeCompanyAddressToValidated($validated, $product, $paymentService);
         $idempotencyKey = isset($validated['idempotency_key']) && trim((string) $validated['idempotency_key']) !== ''
             ? trim((string) $validated['idempotency_key'])
             : null;
@@ -1712,5 +1734,51 @@ class CheckoutController extends Controller
         if ($changed) {
             $order->update(['metadata' => $meta]);
         }
+    }
+
+    /**
+     * Quando o produto está em modo empresa para Pagar.me, preenche endereço de cobrança a partir do produto (checkout não envia).
+     *
+     * @param  array<string, mixed>  $validated
+     * @return array<string, mixed>
+     */
+    private function applyPagarmeCompanyAddressToValidated(array $validated, Product $product, PaymentService $paymentService): array
+    {
+        $pb = array_replace_recursive(
+            Product::defaultCheckoutConfig()['pagarme_billing'] ?? [],
+            is_array($product->checkout_config['pagarme_billing'] ?? null) ? $product->checkout_config['pagarme_billing'] : []
+        );
+        if (($pb['mode'] ?? 'customer') !== 'company') {
+            return $validated;
+        }
+        $pm = $validated['payment_method'] ?? '';
+        $cardGw = $pm === 'card' ? $paymentService->getFirstAvailableGatewayForMethod($product->tenant_id, 'card', $product) : null;
+        $boletoGw = $pm === 'boleto' ? $paymentService->getFirstAvailableGatewayForMethod($product->tenant_id, 'boleto', $product) : null;
+        $needsMerge = ($pm === 'card' && in_array($cardGw, ['pagarme', 'efi'], true))
+            || ($pm === 'boleto' && in_array($boletoGw, ['pagarme', 'efi'], true));
+        if (! $needsMerge) {
+            return $validated;
+        }
+        $addr = $pb['company_address'] ?? [];
+        $zipRaw = preg_replace('/\D/', '', (string) ($addr['zipcode'] ?? ''));
+        $street = trim((string) ($addr['street'] ?? ''));
+        $number = trim((string) ($addr['number'] ?? ''));
+        $neighborhood = trim((string) ($addr['neighborhood'] ?? ''));
+        $city = trim((string) ($addr['city'] ?? ''));
+        $state = strtoupper(substr(trim((string) ($addr['state'] ?? '')), 0, 2));
+        if (strlen($zipRaw) < 8 || $street === '' || $number === '' || $neighborhood === '' || $city === '' || strlen($state) !== 2) {
+            throw ValidationException::withMessages([
+                'address_zipcode' => ['Endereço da empresa incompleto. Configure em Configurações do produto (cobrança Pagar.me / Efí).'],
+            ]);
+        }
+
+        $validated['address_zipcode'] = substr($zipRaw, 0, 5).'-'.substr($zipRaw, 5, 3);
+        $validated['address_street'] = $street;
+        $validated['address_number'] = $number;
+        $validated['address_neighborhood'] = $neighborhood;
+        $validated['address_city'] = $city;
+        $validated['address_state'] = $state;
+
+        return $validated;
     }
 }
