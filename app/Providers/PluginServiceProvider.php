@@ -16,6 +16,8 @@ class PluginServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        PluginRegistry::migrateLegacyPluginInstallDirectories();
+
         $plugins = $this->getPluginsToLoad();
         foreach ($plugins as $plugin) {
             $this->loadPluginBootstrap($plugin);

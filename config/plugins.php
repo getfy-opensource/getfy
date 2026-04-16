@@ -1,11 +1,13 @@
 <?php
 
 /**
- * Plugins instalados via ZIP/loja vão para `user_install_path` (padrão: /plugins-installed na raiz do projeto),
- * fora da pasta `plugins/` versionada no Git — assim atualizações do código não apagam white-label etc.
+ * Plugins instalados via ZIP/loja vão para `user_install_path` ou, se vazio, para storage/app/plugins-installed
+ * (costuma persistir quando `storage/` é partilhado entre releases). A pasta `plugins/` no repositório continua
+ * só para exemplos versionados (ex.: example-gateway).
  *
- * GETFY_PLUGINS_USER_PATH: caminho absoluto opcional (ex.: /var/www/getfy/shared/plugins em deploy com releases).
- * GETFY_PLUGINS_EXTRA_SCAN: pastas extras para descobrir plugins, separadas por | (opcional).
+ * GETFY_PLUGINS_USER_PATH: caminho absoluto recomendado em produção se apagarem o projeto inteiro ou `storage/`
+ * (ex.: /var/www/getfy/shared/plugins).
+ * GETFY_PLUGINS_EXTRA_SCAN: pastas extras só de leitura, separadas por | (opcional).
  */
 return [
     'user_install_path' => env('GETFY_PLUGINS_USER_PATH') ?: null,

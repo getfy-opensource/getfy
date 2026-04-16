@@ -5,6 +5,7 @@ namespace App\Plugins;
 use App\Models\Plugin as PluginModel;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Log;
 
 class PluginRegistry
 {
@@ -17,7 +18,11 @@ class PluginRegistry
     }
 
     /**
-     * Pasta persistente para instalações via ZIP/loja (não sobrescrita em git pull típico).
+     * Pasta persistente para instalações via ZIP/loja.
+     *
+     * Por omissão: {@see storage_path}('app/plugins-installed') — em deploys Laravel típicos,
+     * `storage/` aponta para uma pasta partilhada fora da release e sobrevive a atualizações.
+     * Se o teu fluxo apagar `storage/`, define GETFY_PLUGINS_USER_PATH para um caminho absoluto fora do repositório.
      */
     public static function userInstallRoot(): string
     {
@@ -26,7 +31,70 @@ class PluginRegistry
             return rtrim(trim($configured), '/\\');
         }
 
-        return rtrim(base_path('plugins-installed'), '/\\');
+        return rtrim(storage_path('app/plugins-installed'), '/\\');
+    }
+
+    /**
+     * Migra pastas de plugins de locais antigos (ex.: /plugins-installed na raiz do projeto) para o destino atual.
+     * Corre uma vez por ambiente (marcador em storage/app).
+     */
+    public static function migrateLegacyPluginInstallDirectories(): void
+    {
+        try {
+            $marker = storage_path('app/.getfy-migrated-root-plugins-installed');
+            if (is_file($marker)) {
+                return;
+            }
+
+            $destRoot = self::userInstallRoot();
+            if (! is_dir($destRoot)) {
+                File::makeDirectory($destRoot, 0755, true);
+            }
+            $destReal = realpath($destRoot);
+            $destReal = $destReal !== false ? $destReal : $destRoot;
+
+            $legacy = rtrim(base_path('plugins-installed'), '/\\');
+            if (! is_dir($legacy)) {
+                @file_put_contents($marker, (string) time());
+
+                return;
+            }
+            $legacyReal = realpath($legacy);
+            if ($legacyReal !== false && ($legacyReal === $destReal || str_starts_with($destReal, $legacyReal.DIRECTORY_SEPARATOR))) {
+                @file_put_contents($marker, (string) time());
+
+                return;
+            }
+
+            $items = @scandir($legacy);
+            if (! is_array($items)) {
+                @file_put_contents($marker, (string) time());
+
+                return;
+            }
+            foreach (array_diff($items, ['.', '..']) as $name) {
+                $from = $legacy.DIRECTORY_SEPARATOR.$name;
+                if (! is_dir($from) || ! is_file($from.DIRECTORY_SEPARATOR.'plugin.json')) {
+                    continue;
+                }
+                $to = $destRoot.DIRECTORY_SEPARATOR.$name;
+                if (is_dir($to)) {
+                    continue;
+                }
+                File::moveDirectory($from, $to);
+            }
+
+            $left = @scandir($legacy);
+            if (is_array($left) && count(array_diff($left, ['.', '..'])) === 0) {
+                @rmdir($legacy);
+            }
+
+            @file_put_contents($marker, (string) time());
+        } catch (\Throwable $e) {
+            Log::warning('Getfy: migração de pasta legacy de plugins falhou.', [
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

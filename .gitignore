@@ -15,6 +15,7 @@
 /node_modules
 # Plugins instalados pelo painel / ZIP (persistente; não versionar)
 /plugins-installed
+/storage/app/plugins-installed
 /public/hot
 /public/storage
 /public/.install
