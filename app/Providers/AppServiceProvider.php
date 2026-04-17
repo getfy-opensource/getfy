@@ -24,6 +24,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -41,6 +42,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Gera links absolutos (Vite, asset, route) em HTTPS quando APP_URL já é https — evita
+        // mistura http/https atrás de proxy que não envia X-Forwarded-Proto (ex.: domínio custom na cloud).
+        $appUrl = (string) config('app.url', '');
+        if ($appUrl !== '' && str_starts_with($appUrl, 'https://')) {
+            URL::forceScheme('https');
+        }
+
         $this->ensureRuntimeDirectories();
         $this->fallbackRedisToDatabase();
         $this->fallbackInvalidQueueConnectionToSync();
