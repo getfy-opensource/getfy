@@ -4,6 +4,9 @@
 }
 
 {$GETFY_CADDY_HOST} {
+  request_body {
+    max_size 64MB
+  }
   reverse_proxy app:80
   encode zstd gzip
 }
