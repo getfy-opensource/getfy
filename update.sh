@@ -65,3 +65,4 @@ $SUDO sh docker/up.sh
 
 echo ""
 echo "Atualização concluída e stack reiniciado."
+echo "Dica: para conferir limites de upload do PHP no container, na pasta da instalação (ex.: cd \"$INSTALL_DIR\"): sh docker/check-php-upload-limits.sh"

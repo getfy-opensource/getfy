@@ -13,12 +13,8 @@
 
 ### Melhorias
 
-- **Atualização do projeto**: após atualizar o código, execute **`npm install`** uma vez — foi adicionada uma biblioteca necessária só para **mostrar PDFs na tela** na área de membros.
 - **Área de membros**: pequenos ajustes internos na forma como o sistema **reconhece aulas de produtos incorporados** e o progresso do aluno.
 
-### Correções
-
-- **Testes automatizados**: corrigido um teste da área de membros sobre **módulos incorporados** (não altera o dia a dia do utilizador final).
 
 ## [1.0.9] - 16-04-2026
 

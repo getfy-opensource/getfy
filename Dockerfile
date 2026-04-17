@@ -15,6 +15,7 @@ WORKDIR /var/www/html
 
 FROM php_base AS app
 
+COPY docker/php/conf.d/99-getfy-uploads.ini /usr/local/etc/php/conf.d/99-getfy-uploads.ini
 COPY . .
 COPY docker/entrypoint.sh /usr/local/bin/getfy-entrypoint
 
