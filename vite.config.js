@@ -27,6 +27,9 @@ export default defineConfig({
             '@': '/resources/js',
         },
     },
+    optimizeDeps: {
+        include: ['pdfjs-dist'],
+    },
     server: {
         watch: {
             ignored: ['**/storage/framework/views/**'],

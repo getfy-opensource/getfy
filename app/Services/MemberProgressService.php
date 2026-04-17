@@ -5,17 +5,41 @@ namespace App\Services;
 use App\Models\MemberCertificateIssued;
 use App\Models\MemberLesson;
 use App\Models\MemberLessonProgress;
+use App\Models\MemberModule;
 use App\Models\Product;
 use App\Models\User;
 
 class MemberProgressService
 {
     /**
+     * IDs de aulas que contam para o produto host: nativas + aulas de módulos embutidos (outra área).
+     *
+     * @return array<int, int|string>
+     */
+    public function lessonIdsForMemberAreaHost(Product $product): array
+    {
+        $nativeIds = MemberLesson::where('product_id', $product->id)->pluck('id')->all();
+        $sourceModuleIds = MemberModule::where('product_id', $product->id)
+            ->whereNotNull('source_member_module_id')
+            ->pluck('source_member_module_id')
+            ->unique()
+            ->filter()
+            ->values()
+            ->all();
+        if ($sourceModuleIds === []) {
+            return array_values(array_unique($nativeIds));
+        }
+        $embedIds = MemberLesson::whereIn('member_module_id', $sourceModuleIds)->pluck('id')->all();
+
+        return array_values(array_unique(array_merge($nativeIds, $embedIds)));
+    }
+
+    /**
      * Total lessons count for product (for completion %).
      */
     public function totalLessonsCount(Product $product): int
     {
-        return MemberLesson::where('product_id', $product->id)->count();
+        return count($this->lessonIdsForMemberAreaHost($product));
     }
 
     /**
@@ -23,9 +47,15 @@ class MemberProgressService
      */
     public function completedLessonsCount(Product $product, User $user): int
     {
-        return MemberLessonProgress::forProduct($product->id)
+        $ids = $this->lessonIdsForMemberAreaHost($product);
+        if ($ids === []) {
+            return 0;
+        }
+
+        return MemberLessonProgress::query()
             ->forUser($user->id)
             ->whereNotNull('completed_at')
+            ->whereIn('member_lesson_id', $ids)
             ->count();
     }
 

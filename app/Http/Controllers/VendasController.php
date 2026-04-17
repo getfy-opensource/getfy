@@ -494,14 +494,7 @@ class VendasController extends Controller
         $order->syncUtmMetadataFromCheckoutSession();
 
         try {
-            if ($order->product) {
-                $order->product->users()->syncWithoutDetaching([$order->user_id]);
-            }
-            foreach ($order->orderItems as $item) {
-                if ($item->product) {
-                    $item->product->users()->syncWithoutDetaching([$order->user_id]);
-                }
-            }
+            $order->grantPurchasedProductAccessToBuyer();
 
             if ($order->subscription_plan_id && $order->subscriptionPlan) {
                 $plan = $order->subscriptionPlan;

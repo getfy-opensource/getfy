@@ -30,6 +30,7 @@ import {
     BookOpen,
     Trophy,
     BarChart3,
+    Presentation,
 } from 'lucide-vue-next';
 import {
     communityPageIconComponents,
@@ -516,6 +517,11 @@ const modulosLessonFormSaving = ref(false);
 const lessonPdfFileInput = ref(null);
 const lessonPdfUploading = ref(false);
 
+/** Material (download) ou apresentação (visualização com pdf.js) — mesmos campos no backend. */
+function isLessonPdfContentType(type) {
+    return type === 'pdf' || type === 'pdf_presentation';
+}
+
 const modulosSelectedModule = computed(() => {
     const id = modulosSelectedModuleId.value;
     if (!id) return null;
@@ -534,16 +540,17 @@ function selectModuleForAulas(moduleId) {
 function openModulosLessonForm(lesson) {
     if (lesson) {
         const existingFiles = Array.isArray(lesson.content_files) ? lesson.content_files : [];
+        const fileLabel = lesson.type === 'pdf_presentation' ? 'Apresentação' : 'Material';
         const normalizedFiles = existingFiles
             .map((it) => {
-                if (typeof it === 'string') return { url: it, name: 'Material' };
+                if (typeof it === 'string') return { url: it, name: fileLabel };
                 const url = (it?.url ?? '').toString().trim();
                 if (!url) return null;
-                return { url, name: (it?.name ?? 'Material').toString() };
+                return { url, name: (it?.name ?? fileLabel).toString() };
             })
             .filter(Boolean);
         if (normalizedFiles.length === 0 && lesson.content_url) {
-            normalizedFiles.push({ url: lesson.content_url, name: 'Material' });
+            normalizedFiles.push({ url: lesson.content_url, name: fileLabel });
         }
         modulosLessonForm.value = {
             ...lesson,
@@ -637,9 +644,9 @@ function lessonPayload(form) {
     return {
         title: (form.title ?? '').trim() || 'Sem título',
         type: form.type ?? 'video',
-        content_url: (form.type === 'pdf' ? (firstFileUrl || form.content_url) : form.content_url) ?? '',
+        content_url: (isLessonPdfContentType(form.type) ? (firstFileUrl || form.content_url) : form.content_url) ?? '',
         link_title: form.link_title != null ? String(form.link_title).trim() : '',
-        content_files: form.type === 'pdf' ? contentFiles : [],
+        content_files: isLessonPdfContentType(form.type) ? contentFiles : [],
         release_after_days,
         release_at_date,
         content_text: form.content_text ?? '',
@@ -1270,27 +1277,33 @@ async function confirmNewModule() {
             payload.show_title_on_cover = moduleModalShowTitleOnCover.value;
         }
         const { data } = await axios.post(`${base.value}/sections/${sectionId}/modules`, payload, { headers: headers() });
-        let newModule = data?.module;
-        if (!newModule) {
+        const imported = Array.isArray(data?.modules) && data.modules.length ? data.modules : data?.module ? [data.module] : [];
+        if (!imported.length) {
             reload();
             return;
         }
         const hasCoverFile = moduleModalFile.value && moduleModalFile.value.type.startsWith('image/');
-        if (hasCoverFile) {
+        if (hasCoverFile && imported.length === 1) {
+            let newModule = imported[0];
             const formData = new FormData();
             formData.append('file', moduleModalFile.value);
             const up = await axios.post(uploadUrl.value, formData, { headers: uploadHeaders() });
             if (up.data?.url) {
                 await axios.put(`${base.value}/modules/${newModule.id}`, { thumbnail: up.data.url }, { headers: headers() });
                 newModule = { ...newModule, thumbnail: up.data.url };
+                imported[0] = newModule;
             }
         }
         const section = props.produto.sections?.find((s) => s.id === sectionId);
         if (section) {
             if (!section.modules) section.modules = [];
-            section.modules.push(newModule);
+            for (const newModule of imported) {
+                section.modules.push(newModule);
+            }
             expandedSections.value = new Set([...expandedSections.value, sectionId]);
-            expandedModules.value = new Set([...expandedModules.value, newModule.id]);
+            for (const newModule of imported) {
+                expandedModules.value = new Set([...expandedModules.value, newModule.id]);
+            }
         }
         previewKey.value++;
         closeModuleModal();
@@ -1444,13 +1457,14 @@ async function createNewAluno() {
         newAlunoFormErrors.email = 'E-mail é obrigatório.';
         return;
     }
-    if (!password || password.length < 6) {
+    if (password && password.length < 6) {
         newAlunoFormErrors.password = 'Senha deve ter no mínimo 6 caracteres.';
         return;
     }
     addAlunoModalCreateSaving.value = true;
     try {
-        const payload = { name, email, password };
+        const payload = { name, email };
+        if (password) payload.password = password;
         if (addAlunoModalTurma?.id) payload.turma_id = addAlunoModalTurma.id;
         const res = await axios.post(`${base.value}/alunos`, payload, { headers: headers() });
         if (res.data?.errors) {
@@ -2278,6 +2292,8 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                                 <span class="flex min-w-0 flex-1 items-center gap-2 truncate">
                                                     <FileVideo v-if="lesson.type === 'video'" class="h-4 w-4 shrink-0 text-zinc-500" />
                                                     <Link v-else-if="lesson.type === 'link'" class="h-4 w-4 shrink-0 text-zinc-500" />
+                                                    <Presentation v-else-if="lesson.type === 'pdf_presentation'" class="h-4 w-4 shrink-0 text-zinc-500" />
+                                                    <FileText v-else-if="lesson.type === 'pdf'" class="h-4 w-4 shrink-0 text-zinc-500" />
                                                     <FileText v-else class="h-4 w-4 shrink-0 text-zinc-500" />
                                                     <span class="truncate text-zinc-700 dark:text-zinc-300">{{ lesson.title || 'Sem título' }}</span>
                                                 </span>
@@ -2303,6 +2319,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                                     <option value="video">Vídeo</option>
                                                     <option value="link">Link</option>
                                                     <option value="pdf">Material</option>
+                                                    <option value="pdf_presentation">Apresentação (PDF)</option>
                                                     <option value="text">Texto</option>
                                                 </select>
                                             </div>
@@ -2337,19 +2354,21 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Título do link</label>
                                                 <input v-model="modulosLessonForm.link_title" type="text" :class="inputClass" class="w-full" placeholder="Ex: Abrir material complementar" />
                                             </div>
-                                            <div v-if="modulosLessonForm.type === 'video' || modulosLessonForm.type === 'link' || modulosLessonForm.type === 'pdf'">
+                                            <div v-if="modulosLessonForm.type === 'video' || modulosLessonForm.type === 'link' || modulosLessonForm.type === 'pdf' || modulosLessonForm.type === 'pdf_presentation'">
                                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">URL do conteúdo</label>
                                                 <input v-model="modulosLessonForm.content_url" type="url" :class="inputClass" class="w-full" placeholder="https://..." />
                                                 <p v-if="modulosLessonForm.type === 'video'" class="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
                                                     Aceita links do YouTube, Vimeo, Wistia, Loom e outras plataformas de vídeo compatíveis.
                                                 </p>
                                             </div>
-                                            <div v-if="modulosLessonForm.type === 'pdf'" class="space-y-2">
+                                            <div v-if="modulosLessonForm.type === 'pdf' || modulosLessonForm.type === 'pdf_presentation'" class="space-y-2">
                                                 <input ref="lessonPdfFileInput" type="file" accept=".pdf,application/pdf" multiple class="hidden" @change="onLessonPdfChange" />
-                                                <label class="block text-xs font-medium text-zinc-600 dark:text-zinc-400">Enviar arquivo (material)</label>
+                                                <label class="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                                                    {{ modulosLessonForm.type === 'pdf_presentation' ? 'Enviar arquivo (apresentação)' : 'Enviar arquivo (material)' }}
+                                                </label>
                                                 <div class="flex flex-wrap items-center gap-2">
                                                     <Button type="button" size="sm" variant="outline" :disabled="lessonPdfUploading" @click="lessonPdfFileInput?.click()">
-                                                        {{ lessonPdfUploading ? 'Enviando…' : 'Selecionar materiais' }}
+                                                        {{ lessonPdfUploading ? 'Enviando…' : modulosLessonForm.type === 'pdf_presentation' ? 'Selecionar PDFs' : 'Selecionar materiais' }}
                                                     </Button>
                                                     <span v-if="(modulosLessonForm.content_files?.length ?? 0) > 0" class="text-xs text-zinc-500 dark:text-zinc-400">
                                                         {{ modulosLessonForm.content_files.length }} arquivo(s) anexado(s)
@@ -2362,7 +2381,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                                         :key="`${f.url}-${i}`"
                                                         class="flex items-center justify-between gap-2 rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800/50"
                                                     >
-                                                        <span class="min-w-0 flex-1 truncate text-zinc-600 dark:text-zinc-300">{{ f.name || 'Material' }}</span>
+                                                        <span class="min-w-0 flex-1 truncate text-zinc-600 dark:text-zinc-300">{{ f.name || (modulosLessonForm.type === 'pdf_presentation' ? 'Apresentação' : 'Material') }}</span>
                                                         <button type="button" class="shrink-0 text-red-600 hover:underline" @click="removeLessonPdfAt(i)">Remover</button>
                                                     </div>
                                                 </div>
@@ -2372,7 +2391,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Texto</label>
                                                 <textarea v-model="modulosLessonForm.content_text" :class="inputClass" class="w-full" rows="3" placeholder="Conteúdo da aula..." />
                                             </div>
-                                            <div v-if="modulosLessonForm.type === 'video' || modulosLessonForm.type === 'link' || modulosLessonForm.type === 'pdf'">
+                                            <div v-if="modulosLessonForm.type === 'video' || modulosLessonForm.type === 'link' || modulosLessonForm.type === 'pdf' || modulosLessonForm.type === 'pdf_presentation'">
                                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Descrição</label>
                                                 <textarea v-model="modulosLessonForm.content_text" :class="inputClass" class="w-full" rows="3" placeholder="Texto ou links para complementar a aula (opcional)..." />
                                             </div>
@@ -3426,7 +3445,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                             </div>
                         </div>
                         <p v-if="!alunosDisponiveisParaTurma(addAlunoModalTurma).length" class="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
-                            Nenhum aluno disponível. Use "Novo aluno" para cadastrar.
+                            Nenhum aluno deste produto fora da turma. Se o aluno já existir em outro produto seu, abra <strong class="text-zinc-700 dark:text-zinc-300">Novo aluno</strong>, use o mesmo e-mail e deixe a senha em branco.
                         </p>
                     </div>
                     <!-- Formulário criar novo aluno -->
@@ -3469,7 +3488,9 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                 autocomplete="new-password"
                             />
                             <p v-if="newAlunoFormErrors.password" class="mt-1 text-xs text-red-600 dark:text-red-400">{{ newAlunoFormErrors.password }}</p>
-                            <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">O aluno usará esta senha para acessar a área de membros.</p>
+                            <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                                Obrigatória só para e-mail novo. Se o aluno já existir em outro produto desta conta, use o mesmo e-mail e deixe a senha em branco — a senha atual continua valendo.
+                            </p>
                         </div>
                         <p class="text-xs text-zinc-500 dark:text-zinc-400">
                             O aluno será adicionado ao produto e à turma <strong>{{ addAlunoModalTurma?.name }}</strong>.

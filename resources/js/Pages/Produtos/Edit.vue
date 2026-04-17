@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref, onMounted, watch } from 'vue';
+import { computed, reactive, ref, onMounted, onUnmounted, watch } from 'vue';
 import { useForm, Link, router, usePage } from '@inertiajs/vue3';
 import { useSidebar } from '@/composables/useSidebar';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
@@ -32,6 +32,7 @@ import {
     Trash2,
     Layers,
     MapPin,
+    ChevronDown,
 } from 'lucide-vue-next';
 import axios from 'axios';
 import EmailTemplatePreview from '@/components/produtos/EmailTemplatePreview.vue';
@@ -256,9 +257,6 @@ function goToMemberBuilder() {
 }
 
 const { setExpanded } = useSidebar();
-onMounted(() => {
-    setExpanded(false);
-});
 
 const activeTabRef = ref(null);
 watch(currentTab, () => {
@@ -298,6 +296,7 @@ const form = useForm({
     type: props.produto.type,
     billing_type: props.produto.billing_type ?? 'one_time',
     price: props.produto.price_brl ?? props.produto.price,
+    combo_product_ids: Array.isArray(props.produto.combo_product_ids) ? [...props.produto.combo_product_ids] : [],
     base_interval: props.produto.base_interval ?? (props.produto.subscription_plans?.sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0]?.interval) ?? 'monthly',
     currency: props.produto.currency ?? 'BRL',
     is_active: props.produto.is_active,
@@ -491,12 +490,72 @@ function intervalLabel(interval) {
     return INTERVAL_LABELS[interval] || interval;
 }
 
+const comboProductOptions = computed(() => props.produto.available_products_for_combo || []);
+
+/** Marca/desmarca produtos extras do combo (acesso sem alterar valor do pedido). */
+function toggleComboId(which, productId, checked) {
+    const formLike = which === 'main' ? form : which === 'offer' ? offerForm : planForm;
+    const field = 'combo_product_ids';
+    const next = [...(formLike[field] || [])];
+    if (checked) {
+        if (!next.includes(productId)) next.push(productId);
+    } else {
+        const i = next.indexOf(productId);
+        if (i !== -1) next.splice(i, 1);
+    }
+    formLike[field] = next;
+}
+
+/** Dropdown do combo: só um painel aberto (main / offer / plan). */
+const comboDropdownContext = ref(null);
+const comboDropdownMainEl = ref(null);
+const comboDropdownOfferEl = ref(null);
+const comboDropdownPlanEl = ref(null);
+
+function toggleComboDropdown(ctx) {
+    comboDropdownContext.value = comboDropdownContext.value === ctx ? null : ctx;
+}
+
+function comboSelectionSummary(formLike) {
+    const ids = formLike.combo_product_ids || [];
+    const n = ids.length;
+    const opts = comboProductOptions.value;
+    if (n === 0) return 'Nenhum — abrir para escolher';
+    if (n === 1) {
+        const opt = opts.find((o) => o.id === ids[0]);
+        return opt ? opt.name : '1 produto';
+    }
+    return `${n} produtos`;
+}
+
+function onComboDocumentPointerDown(e) {
+    if (!comboDropdownContext.value) return;
+    const el =
+        comboDropdownContext.value === 'main'
+            ? comboDropdownMainEl.value
+            : comboDropdownContext.value === 'offer'
+              ? comboDropdownOfferEl.value
+              : comboDropdownPlanEl.value;
+    if (el && !el.contains(e.target)) {
+        comboDropdownContext.value = null;
+    }
+}
+
+onMounted(() => {
+    setExpanded(false);
+    document.addEventListener('pointerdown', onComboDocumentPointerDown, true);
+});
+onUnmounted(() => {
+    document.removeEventListener('pointerdown', onComboDocumentPointerDown, true);
+});
+
 const offerFormVisible = ref(false);
 const editingOffer = ref(null);
 const offerForm = useForm({
     name: '',
     price: '',
     currency: 'BRL',
+    combo_product_ids: [],
 });
 function openNewOffer() {
     editingOffer.value = null;
@@ -504,6 +563,7 @@ function openNewOffer() {
     offerForm.name = '';
     offerForm.price = '';
     offerForm.currency = props.produto.currency || 'BRL';
+    offerForm.combo_product_ids = [];
     offerFormVisible.value = true;
 }
 function openEditOffer(offer) {
@@ -511,9 +571,13 @@ function openEditOffer(offer) {
     offerForm.name = offer.name;
     offerForm.price = offer.price;
     offerForm.currency = offer.currency || 'BRL';
+    offerForm.combo_product_ids = Array.isArray(offer.combo_product_ids) ? [...offer.combo_product_ids] : [];
     offerFormVisible.value = true;
 }
 function closeOfferForm() {
+    if (comboDropdownContext.value === 'offer') {
+        comboDropdownContext.value = null;
+    }
     offerFormVisible.value = false;
     editingOffer.value = null;
     offerForm.reset();
@@ -543,6 +607,7 @@ const planForm = useForm({
     price: '',
     currency: 'BRL',
     interval: 'monthly',
+    combo_product_ids: [],
 });
 function openNewPlan() {
     editingPlan.value = null;
@@ -551,6 +616,7 @@ function openNewPlan() {
     planForm.price = '';
     planForm.currency = props.produto.currency || 'BRL';
     planForm.interval = 'monthly';
+    planForm.combo_product_ids = [];
     planFormVisible.value = true;
 }
 function openEditPlan(plan) {
@@ -559,9 +625,13 @@ function openEditPlan(plan) {
     planForm.price = plan.price;
     planForm.currency = plan.currency || 'BRL';
     planForm.interval = plan.interval;
+    planForm.combo_product_ids = Array.isArray(plan.combo_product_ids) ? [...plan.combo_product_ids] : [];
     planFormVisible.value = true;
 }
 function closePlanForm() {
+    if (comboDropdownContext.value === 'plan') {
+        comboDropdownContext.value = null;
+    }
     planFormVisible.value = false;
     editingPlan.value = null;
     planForm.reset();
@@ -1065,6 +1135,7 @@ function submit() {
         fd.append('type', form.type);
         fd.append('billing_type', form.billing_type);
         fd.append('price', form.price);
+        (form.combo_product_ids || []).forEach((id) => fd.append('combo_product_ids[]', id));
         if (form.billing_type === 'subscription') {
             fd.append('base_interval', form.base_interval || 'monthly');
         }
@@ -1300,20 +1371,62 @@ function submit() {
                                 </button>
                             </div>
                         </div>
-                        <div class="max-w-xs space-y-4">
-                            <div>
-                                <label class="mb-2 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Preço base (BRL) *</label>
-                                <input
-                                    v-model="form.price"
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    required
-                                    placeholder="0,00"
-                                    :class="inputClass"
-                                />
-                                <p class="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">Aproximado: € {{ priceEur }} · US$ {{ priceUsd }}</p>
-                                <p v-if="form.errors.price" class="mt-1.5 text-sm text-red-600 dark:text-red-400">{{ form.errors.price }}</p>
+                        <div class="max-w-2xl space-y-4">
+                            <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+                                <div class="min-w-0 flex-1 max-w-xs">
+                                    <label class="mb-2 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Preço base (BRL) *</label>
+                                    <input
+                                        v-model="form.price"
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        required
+                                        placeholder="0,00"
+                                        :class="inputClass"
+                                    />
+                                    <p class="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">Aproximado: € {{ priceEur }} · US$ {{ priceUsd }}</p>
+                                    <p v-if="form.errors.price" class="mt-1.5 text-sm text-red-600 dark:text-red-400">{{ form.errors.price }}</p>
+                                </div>
+                                <div class="min-w-0 w-full flex-1 sm:max-w-md">
+                                    <label class="mb-2 flex items-center gap-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                                        <Layers class="h-3.5 w-3.5 text-zinc-400" aria-hidden="true" />
+                                        Combo
+                                    </label>
+                                    <p v-if="!comboProductOptions.length" class="text-xs text-zinc-500 dark:text-zinc-400">Nenhum outro produto ativo no tenant para vincular.</p>
+                                    <div v-else ref="comboDropdownMainEl" class="relative">
+                                        <button
+                                            type="button"
+                                            class="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-left text-sm text-zinc-800 shadow-sm transition hover:border-zinc-300 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-500"
+                                            :aria-expanded="comboDropdownContext === 'main'"
+                                            @click="toggleComboDropdown('main')"
+                                        >
+                                            <span class="min-w-0 flex-1 truncate font-normal">{{ comboSelectionSummary(form) }}</span>
+                                            <ChevronDown
+                                                class="h-4 w-4 shrink-0 text-zinc-500 transition-transform dark:text-zinc-400"
+                                                :class="comboDropdownContext === 'main' ? 'rotate-180' : ''"
+                                                aria-hidden="true"
+                                            />
+                                        </button>
+                                        <div
+                                            v-show="comboDropdownContext === 'main'"
+                                            class="absolute left-0 right-0 z-50 mt-1 max-h-56 space-y-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-600 dark:bg-zinc-900"
+                                            role="listbox"
+                                            @click.stop
+                                        >
+                                            <Checkbox
+                                                v-for="opt in comboProductOptions"
+                                                :key="opt.id"
+                                                :model-value="form.combo_product_ids.includes(opt.id)"
+                                                class="!w-full !items-start !gap-2 py-1"
+                                                @update:model-value="(v) => toggleComboId('main', opt.id, v)"
+                                            >
+                                                <span class="text-sm leading-snug text-zinc-700 dark:text-zinc-300">{{ opt.name }}</span>
+                                            </Checkbox>
+                                        </div>
+                                    </div>
+                                    <p class="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">Abra a lista e marque um ou mais produtos — acesso extra sem alterar o valor do pedido.</p>
+                                    <p v-if="form.errors.combo_product_ids" class="mt-1 text-sm text-red-600 dark:text-red-400">{{ form.errors.combo_product_ids }}</p>
+                                </div>
                             </div>
                             <div v-if="form.billing_type === 'subscription'">
                                 <label class="mb-2 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Recorrência *</label>
@@ -1354,6 +1467,13 @@ function submit() {
                                         <div class="min-w-0 flex-1">
                                             <span class="font-medium text-zinc-900 dark:text-white">{{ offer.name }}</span>
                                             <span class="ml-2 text-sm text-zinc-500 dark:text-zinc-400">{{ offer.currency }} {{ Number(offer.price).toFixed(2) }}</span>
+                                            <span
+                                                v-for="(cname, cidx) in (offer.combo_product_names || [])"
+                                                :key="'oc-' + offer.id + '-' + cidx"
+                                                class="ml-1 inline-block rounded-md bg-zinc-200/80 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
+                                            >
+                                                + {{ cname }}
+                                            </span>
                                             <a
                                                 :href="getOfferCheckoutUrl(offer)"
                                                 target="_blank"
@@ -1388,6 +1508,45 @@ function submit() {
                                             <option value="USD">USD</option>
                                         </select>
                                     </div>
+                                    <div class="mt-3">
+                                        <label class="mb-1 flex items-center gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                                            <Layers class="h-3 w-3" aria-hidden="true" />
+                                            Combo
+                                        </label>
+                                        <p v-if="!comboProductOptions.length" class="text-xs text-zinc-500 dark:text-zinc-400">Nenhum outro produto disponível.</p>
+                                        <div v-else ref="comboDropdownOfferEl" class="relative">
+                                            <button
+                                                type="button"
+                                                class="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm text-zinc-800 shadow-sm transition hover:border-zinc-300 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-500"
+                                                :aria-expanded="comboDropdownContext === 'offer'"
+                                                @click="toggleComboDropdown('offer')"
+                                            >
+                                                <span class="min-w-0 flex-1 truncate font-normal">{{ comboSelectionSummary(offerForm) }}</span>
+                                                <ChevronDown
+                                                    class="h-4 w-4 shrink-0 text-zinc-500 transition-transform dark:text-zinc-400"
+                                                    :class="comboDropdownContext === 'offer' ? 'rotate-180' : ''"
+                                                    aria-hidden="true"
+                                                />
+                                            </button>
+                                            <div
+                                                v-show="comboDropdownContext === 'offer'"
+                                                class="absolute left-0 right-0 z-50 mt-1 max-h-52 space-y-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-600 dark:bg-zinc-900"
+                                                role="listbox"
+                                                @click.stop
+                                            >
+                                                <Checkbox
+                                                    v-for="opt in comboProductOptions"
+                                                    :key="'of-' + opt.id"
+                                                    :model-value="offerForm.combo_product_ids.includes(opt.id)"
+                                                    class="!w-full !items-start !gap-2 py-1"
+                                                    @update:model-value="(v) => toggleComboId('offer', opt.id, v)"
+                                                >
+                                                    <span class="text-sm leading-snug text-zinc-700 dark:text-zinc-300">{{ opt.name }}</span>
+                                                </Checkbox>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <p v-if="offerForm.errors.combo_product_ids" class="mt-1 text-sm text-red-600 dark:text-red-400">{{ offerForm.errors.combo_product_ids }}</p>
                                     <div class="mt-3 flex gap-2">
                                         <Button type="submit" size="sm" :disabled="offerForm.processing">{{ editingOffer ? 'Atualizar' : 'Adicionar' }}</Button>
                                         <Button type="button" size="sm" variant="outline" @click="closeOfferForm">Cancelar</Button>
@@ -1410,6 +1569,13 @@ function submit() {
                                         <div class="min-w-0 flex-1">
                                             <span class="font-medium text-zinc-900 dark:text-white">{{ plan.name }}</span>
                                             <span class="ml-2 text-sm text-zinc-500 dark:text-zinc-400">{{ plan.currency }} {{ Number(plan.price).toFixed(2) }} · {{ intervalLabel(plan.interval) }}</span>
+                                            <span
+                                                v-for="(cname, cidx) in (plan.combo_product_names || [])"
+                                                :key="'pc-' + plan.id + '-' + cidx"
+                                                class="ml-1 inline-block rounded-md bg-zinc-200/80 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
+                                            >
+                                                + {{ cname }}
+                                            </span>
                                             <a
                                                 :href="getPlanCheckoutUrl(plan)"
                                                 target="_blank"
@@ -1451,7 +1617,46 @@ function submit() {
                                             <option value="annual">Anual</option>
                                             <option value="lifetime">Vitalício</option>
                                         </select>
+                                        <div ref="comboDropdownPlanEl" class="relative sm:col-span-2">
+                                            <label class="mb-1 flex items-center gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                                                <Layers class="h-3 w-3" aria-hidden="true" />
+                                                Combo
+                                            </label>
+                                            <p v-if="!comboProductOptions.length" class="text-xs text-zinc-500 dark:text-zinc-400">Nenhum outro produto disponível.</p>
+                                            <template v-else>
+                                                <button
+                                                    type="button"
+                                                    class="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm text-zinc-800 shadow-sm transition hover:border-zinc-300 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-500"
+                                                    :aria-expanded="comboDropdownContext === 'plan'"
+                                                    @click="toggleComboDropdown('plan')"
+                                                >
+                                                    <span class="min-w-0 flex-1 truncate font-normal">{{ comboSelectionSummary(planForm) }}</span>
+                                                    <ChevronDown
+                                                        class="h-4 w-4 shrink-0 text-zinc-500 transition-transform dark:text-zinc-400"
+                                                        :class="comboDropdownContext === 'plan' ? 'rotate-180' : ''"
+                                                        aria-hidden="true"
+                                                    />
+                                                </button>
+                                                <div
+                                                    v-show="comboDropdownContext === 'plan'"
+                                                    class="absolute left-0 right-0 z-50 mt-1 max-h-52 space-y-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-600 dark:bg-zinc-900"
+                                                    role="listbox"
+                                                    @click.stop
+                                                >
+                                                    <Checkbox
+                                                        v-for="opt in comboProductOptions"
+                                                        :key="'pf-' + opt.id"
+                                                        :model-value="planForm.combo_product_ids.includes(opt.id)"
+                                                        class="!w-full !items-start !gap-2 py-1"
+                                                        @update:model-value="(v) => toggleComboId('plan', opt.id, v)"
+                                                    >
+                                                        <span class="text-sm leading-snug text-zinc-700 dark:text-zinc-300">{{ opt.name }}</span>
+                                                    </Checkbox>
+                                                </div>
+                                            </template>
+                                        </div>
                                     </div>
+                                    <p v-if="planForm.errors.combo_product_ids" class="mt-1 text-sm text-red-600 dark:text-red-400">{{ planForm.errors.combo_product_ids }}</p>
                                     <div class="mt-3 flex gap-2">
                                         <Button type="submit" size="sm" :disabled="planForm.processing">{{ editingPlan ? 'Atualizar' : 'Adicionar' }}</Button>
                                         <Button type="button" size="sm" variant="outline" @click="closePlanForm">Cancelar</Button>

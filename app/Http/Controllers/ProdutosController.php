@@ -129,7 +129,32 @@ class ProdutosController extends Controller
     public function edit(Product $produto): Response
     {
         $this->authorizeProduct($produto);
-        $produto->load('users:id,name,email', 'offers', 'subscriptionPlans', 'orderBumps');
+        $produto->load([
+            'users:id,name,email',
+            'offers',
+            'subscriptionPlans',
+            'orderBumps',
+        ]);
+
+        $allComboIds = collect($produto->combo_product_ids ?? []);
+        foreach ($produto->offers as $o) {
+            $allComboIds = $allComboIds->merge($o->combo_product_ids ?? []);
+        }
+        foreach ($produto->subscriptionPlans as $p) {
+            $allComboIds = $allComboIds->merge($p->combo_product_ids ?? []);
+        }
+        $uniqueComboIds = $allComboIds->unique()->filter()->values()->all();
+        $comboNameById = $uniqueComboIds !== []
+            ? Product::whereIn('id', $uniqueComboIds)->pluck('name', 'id')
+            : collect();
+
+        $resolveComboNames = static function (?array $ids) use ($comboNameById): array {
+            if ($ids === null || $ids === []) {
+                return [];
+            }
+
+            return collect($ids)->map(fn ($id) => $comboNameById[$id] ?? null)->filter()->values()->all();
+        };
 
         $rates = config('products.rates', ['brl_eur' => 0.16, 'brl_usd' => 0.18]);
         $productTypes = collect(Product::typeConfig())->map(fn ($config, $value) => [
@@ -142,6 +167,7 @@ class ProdutosController extends Controller
         $billingTypes = collect(Product::billingTypeLabels())->map(fn ($label, $value) => ['value' => $value, 'label' => $label])->values()->all();
 
         $produtoArray = $this->productToArray($produto, $rates);
+        $produtoArray['combo_product_names'] = $resolveComboNames($produto->combo_product_ids ?? []);
         $produtoArray['users'] = $produto->users->map(fn ($u) => ['id' => $u->id, 'name' => $u->name, 'email' => $u->email])->all();
         $produtoArray['offers'] = $produto->offers->map(fn ($o) => [
             'id' => $o->id,
@@ -150,6 +176,8 @@ class ProdutosController extends Controller
             'currency' => $o->currency ?? $produto->currency ?? 'BRL',
             'checkout_slug' => $o->checkout_slug,
             'position' => $o->position,
+            'combo_product_ids' => $o->combo_product_ids ?? [],
+            'combo_product_names' => $resolveComboNames($o->combo_product_ids ?? []),
         ])->values()->all();
         $produtoArray['subscription_plans'] = $produto->subscriptionPlans->map(fn ($p) => [
             'id' => $p->id,
@@ -159,6 +187,8 @@ class ProdutosController extends Controller
             'interval' => $p->interval,
             'checkout_slug' => $p->checkout_slug,
             'position' => $p->position,
+            'combo_product_ids' => $p->combo_product_ids ?? [],
+            'combo_product_names' => $resolveComboNames($p->combo_product_ids ?? []),
         ])->values()->all();
 
         $basePlan = $produto->subscriptionPlans->sortBy('position')->first();
@@ -207,6 +237,23 @@ class ProdutosController extends Controller
                     'price' => (float) $o->price,
                     'currency' => $o->currency ?? $p->currency ?? 'BRL',
                 ])->values()->all(),
+            ];
+        })->values()->all();
+
+        $availableForCombo = Product::forTenant($tenantId)
+            ->where('id', '!=', $produto->id)
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
+        $produtoArray['available_products_for_combo'] = $availableForCombo->map(function (Product $p) {
+            $imageUrl = $p->image ? app(StorageService::class)->url($p->image) : null;
+
+            return [
+                'id' => $p->id,
+                'name' => $p->name,
+                'image_url' => $imageUrl,
+                'price' => (float) $p->price,
+                'currency' => $p->currency ?? 'BRL',
             ];
         })->values()->all();
 
@@ -342,6 +389,8 @@ class ProdutosController extends Controller
             'type' => ['required', 'string', 'in:'.implode(',', self::TYPES)],
             'billing_type' => ['required', 'string', 'in:'.implode(',', self::BILLING_TYPES)],
             'price' => ['required', 'numeric', 'min:0'],
+            'combo_product_ids' => ['nullable', 'array'],
+            'combo_product_ids.*' => ['string', 'exists:products,id'],
             'currency' => ['nullable', 'string', 'in:BRL,EUR,USD'],
             'is_active' => ['boolean'],
             'image' => ['nullable', 'image', 'max:2048'],
@@ -424,6 +473,13 @@ class ProdutosController extends Controller
         ]);
         $validated['is_active'] = $request->boolean('is_active', true);
         $validated['currency'] = $validated['currency'] ?? config('products.currency_default', 'BRL');
+
+        $tenantId = auth()->user()->tenant_id;
+        $validated['combo_product_ids'] = $this->assertValidComboProductIdsForHost(
+            $tenantId,
+            $produto->id,
+            $request->input('combo_product_ids', [])
+        );
 
         $beforeEvent = new ProductBeforeSave($produto, $validated, false);
         event($beforeEvent);
@@ -687,9 +743,17 @@ class ProdutosController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'price' => ['required', 'numeric', 'min:0'],
             'currency' => ['nullable', 'string', 'in:BRL,EUR,USD'],
+            'combo_product_ids' => ['nullable', 'array'],
+            'combo_product_ids.*' => ['string', 'exists:products,id'],
         ]);
         $validated['product_id'] = $produto->id;
         $validated['currency'] = $validated['currency'] ?? $produto->currency ?? 'BRL';
+        $tenantId = auth()->user()->tenant_id;
+        $validated['combo_product_ids'] = $this->assertValidComboProductIdsForHost(
+            $tenantId,
+            $produto->id,
+            $request->input('combo_product_ids', [])
+        );
         $maxPosition = $produto->offers()->max('position') ?? 0;
         $validated['position'] = $maxPosition + 1;
         ProductOffer::create($validated);
@@ -706,8 +770,16 @@ class ProdutosController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'price' => ['required', 'numeric', 'min:0'],
             'currency' => ['nullable', 'string', 'in:BRL,EUR,USD'],
+            'combo_product_ids' => ['nullable', 'array'],
+            'combo_product_ids.*' => ['string', 'exists:products,id'],
         ]);
         $validated['currency'] = $validated['currency'] ?? $produto->currency ?? 'BRL';
+        $tenantId = auth()->user()->tenant_id;
+        $validated['combo_product_ids'] = $this->assertValidComboProductIdsForHost(
+            $tenantId,
+            $produto->id,
+            $request->input('combo_product_ids', [])
+        );
         $offer->update($validated);
         return back()->with('success', 'Oferta atualizada.');
     }
@@ -805,9 +877,17 @@ class ProdutosController extends Controller
             'price' => ['required', 'numeric', 'min:0'],
             'currency' => ['nullable', 'string', 'in:BRL,EUR,USD'],
             'interval' => ['required', 'string', 'in:weekly,monthly,quarterly,semi_annual,annual,lifetime'],
+            'combo_product_ids' => ['nullable', 'array'],
+            'combo_product_ids.*' => ['string', 'exists:products,id'],
         ]);
         $validated['product_id'] = $produto->id;
         $validated['currency'] = $validated['currency'] ?? $produto->currency ?? 'BRL';
+        $tenantId = auth()->user()->tenant_id;
+        $validated['combo_product_ids'] = $this->assertValidComboProductIdsForHost(
+            $tenantId,
+            $produto->id,
+            $request->input('combo_product_ids', [])
+        );
         $maxPosition = $produto->subscriptionPlans()->max('position') ?? 0;
         $validated['position'] = $maxPosition + 1;
         SubscriptionPlan::create($validated);
@@ -825,8 +905,16 @@ class ProdutosController extends Controller
             'price' => ['required', 'numeric', 'min:0'],
             'currency' => ['nullable', 'string', 'in:BRL,EUR,USD'],
             'interval' => ['required', 'string', 'in:weekly,monthly,quarterly,semi_annual,annual,lifetime'],
+            'combo_product_ids' => ['nullable', 'array'],
+            'combo_product_ids.*' => ['string', 'exists:products,id'],
         ]);
         $validated['currency'] = $validated['currency'] ?? $produto->currency ?? 'BRL';
+        $tenantId = auth()->user()->tenant_id;
+        $validated['combo_product_ids'] = $this->assertValidComboProductIdsForHost(
+            $tenantId,
+            $produto->id,
+            $request->input('combo_product_ids', [])
+        );
         $plan->update($validated);
         return back()->with('success', 'Plano atualizado.');
     }
@@ -895,7 +983,45 @@ class ProdutosController extends Controller
             'price_usd' => $priceUsd,
             'is_active' => $p->is_active,
             'conversion_pixels' => $p->conversion_pixels,
+            'combo_product_ids' => $p->combo_product_ids ?? [],
         ];
+    }
+
+    /**
+     * @param  mixed  $input
+     * @return array<int, string>
+     */
+    private function assertValidComboProductIdsForHost(?int $tenantId, string $hostProductId, $input): array
+    {
+        if ($input === null || $input === '' || $input === []) {
+            return [];
+        }
+        $ids = is_array($input) ? $input : [$input];
+        $ids = array_values(array_unique(array_filter(array_map(static function ($v) {
+            if ($v === null || $v === '') {
+                return null;
+            }
+
+            return is_string($v) || is_numeric($v) ? (string) $v : null;
+        }, $ids))));
+
+        $out = [];
+        foreach ($ids as $id) {
+            $combo = Product::forTenant($tenantId)->where('id', $id)->first();
+            if (! $combo || $combo->id === $hostProductId) {
+                throw ValidationException::withMessages([
+                    'combo_product_ids' => ['Produto de combo inválido.'],
+                ]);
+            }
+            if (! $combo->is_active) {
+                throw ValidationException::withMessages([
+                    'combo_product_ids' => ['O produto do combo deve estar ativo: '.$combo->name],
+                ]);
+            }
+            $out[] = $combo->id;
+        }
+
+        return array_values(array_unique($out));
     }
 
     /**

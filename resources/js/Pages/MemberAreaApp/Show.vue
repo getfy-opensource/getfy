@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue';
 import { Link } from '@inertiajs/vue3';
-import { ChevronLeft, ChevronRight } from 'lucide-vue-next';
+import { ChevronLeft, ChevronRight, Lock, LockOpen } from 'lucide-vue-next';
 import MemberAreaAppLayout from '@/Layouts/MemberAreaAppLayout.vue';
 import Button from '@/components/ui/Button.vue';
 
@@ -56,6 +56,18 @@ const hero = props.config?.hero ?? {};
 const heroDesktopBg = hero.image_url_desktop || hero.image_url || null;
 const heroMobileBg = hero.image_url_mobile || hero.image_url_desktop || hero.image_url || null;
 const heroGradient = 'linear-gradient(135deg, var(--ma-primary) 0%, #27272a 100%)';
+
+function isPaidProductSection(mod) {
+    return (mod.access_type ?? 'paid') === 'paid';
+}
+
+function productSectionNeedsCheckout(mod) {
+    return isPaidProductSection(mod) && !mod.has_access;
+}
+
+function productSectionUnlocked(mod) {
+    return !productSectionNeedsCheckout(mod);
+}
 
 </script>
 
@@ -206,26 +218,35 @@ const heroGradient = 'linear-gradient(135deg, var(--ma-primary) 0%, #27272a 100%
                         </div>
                     </template>
                 </template>
-                <!-- Outros produtos: link para área do produto (se tem acesso) ou checkout (se pago) -->
+                <!-- Outros produtos: embed na mesma área (módulos importados) ou checkout / outra área (legado) -->
                 <template v-else-if="(section.section_type ?? 'courses') === 'products'">
                     <component
                         v-for="mod in section.modules"
                         :key="mod.id"
-                        :is="(!mod.has_access && mod.access_type === 'paid') ? 'a' : Link"
-                        :href="(!mod.has_access && mod.access_type === 'paid') ? (mod.related_product?.checkout_url || `/c/${mod.related_product?.checkout_slug}`) : `/m/${mod.related_product?.member_area_slug ?? mod.related_product?.checkout_slug}`"
-                        :target="(!mod.has_access && mod.access_type === 'paid') ? '_blank' : undefined"
-                        :rel="(!mod.has_access && mod.access_type === 'paid') ? 'noopener' : undefined"
+                        :is="productSectionNeedsCheckout(mod) ? 'a' : Link"
+                        :href="productSectionNeedsCheckout(mod)
+                            ? (mod.related_product?.checkout_url || `/c/${mod.related_product?.checkout_slug}`)
+                            : (mod.embed ? `/m/${slug}/modulo/${mod.id}` : `/m/${mod.related_product?.member_area_slug ?? mod.related_product?.checkout_slug}`)"
+                        :target="productSectionNeedsCheckout(mod) ? '_blank' : undefined"
+                        :rel="productSectionNeedsCheckout(mod) ? 'noopener' : undefined"
                         class="flex w-64 shrink-0 flex-col rounded-xl overflow-hidden bg-zinc-800/50 text-left transition hover:bg-zinc-800"
                     >
                         <div :class="[(section.cover_mode === 'horizontal' ? 'aspect-video' : 'aspect-[2/3]'), 'relative w-full bg-zinc-700 flex items-center justify-center overflow-hidden']">
+                            <div
+                                class="pointer-events-none absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white shadow-md ring-1 ring-white/10 backdrop-blur-sm"
+                                aria-hidden="true"
+                            >
+                                <LockOpen v-if="productSectionUnlocked(mod)" class="h-4 w-4 text-emerald-300" />
+                                <Lock v-else class="h-4 w-4 text-amber-300" />
+                            </div>
                             <img v-if="mod.related_product?.image_url || mod.thumbnail" :src="mod.related_product?.image_url || mod.thumbnail" :alt="mod.title" class="absolute inset-0 h-full w-full object-cover" />
                             <svg v-else class="h-12 w-12 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14" /></svg>
                             <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-3 pb-3 pt-8">
                                 <p class="truncate text-base font-medium text-white">{{ mod.title }}</p>
                                 <p v-if="mod.related_product?.name" class="truncate text-sm text-white/80">{{ mod.related_product.name }}</p>
-                                <span v-if="!mod.has_access && mod.access_type === 'paid'" class="mt-1 inline-block text-xs font-medium text-amber-300">Comprar para acessar</span>
-                                <span v-else-if="mod.has_access" class="mt-1 inline-block text-xs font-medium text-emerald-300">Acessar</span>
-                                <span v-else class="mt-1 inline-block text-xs font-medium text-white/80">Liberado</span>
+                                <span v-if="productSectionNeedsCheckout(mod)" class="mt-1 inline-block text-xs font-medium text-amber-300">Comprar para acessar</span>
+                                <span v-else-if="!isPaidProductSection(mod)" class="mt-1 inline-block text-xs font-medium text-white/80">Liberado</span>
+                                <span v-else class="mt-1 inline-block text-xs font-medium text-emerald-300">Acessar</span>
                             </div>
                         </div>
                     </component>

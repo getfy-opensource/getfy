@@ -198,6 +198,7 @@ class MemberBuilderController extends Controller
                     ];
                     $extra = array_filter([
                         'related_product_id' => $m->related_product_id,
+                        'source_member_module_id' => $m->source_member_module_id,
                         'access_type' => $m->access_type,
                         'external_url' => $m->external_url,
                         'related_product' => $m->relatedProduct ? [
@@ -549,6 +550,7 @@ class MemberBuilderController extends Controller
             abort(404);
         }
         $sectionType = $section->section_type ?? 'courses';
+        $createdModules = null;
 
         if ($sectionType === 'courses') {
             $validated = $request->validate([
@@ -594,16 +596,65 @@ class MemberBuilderController extends Controller
                 return back()->with('error', 'Não é possível referenciar o próprio produto.');
             }
             $max = MemberModule::where('member_section_id', $section->id)->max('position') ?? 0;
-            $module = MemberModule::create([
-                'member_section_id' => $section->id,
-                'product_id' => $produto->id,
-                'title' => $validated['title'],
-                'position' => $max + 1,
-                'related_product_id' => $validated['related_product_id'],
-                'access_type' => $validated['access_type'],
-                'thumbnail' => $validated['thumbnail'] ?? null,
-                'show_title_on_cover' => $validated['show_title_on_cover'] ?? true,
-            ]);
+            $module = null;
+            $createdModules = [];
+
+            if ($related->type === Product::TYPE_AREA_MEMBROS) {
+                $sourceSections = $related->memberSections()
+                    ->where('section_type', 'courses')
+                    ->orderBy('position')
+                    ->with(['modules' => fn ($q) => $q->orderBy('position')])
+                    ->get();
+                $existingSourceIds = MemberModule::where('member_section_id', $section->id)
+                    ->whereNotNull('source_member_module_id')
+                    ->pluck('source_member_module_id')
+                    ->flip()
+                    ->all();
+                $position = $max;
+                foreach ($sourceSections as $sourceSection) {
+                    foreach ($sourceSection->modules as $sourceMod) {
+                        if (isset($existingSourceIds[$sourceMod->id])) {
+                            continue;
+                        }
+                        $position++;
+                        $createdModules[] = MemberModule::create([
+                            'member_section_id' => $section->id,
+                            'product_id' => $produto->id,
+                            'title' => $sourceMod->title !== '' ? $sourceMod->title : $validated['title'],
+                            'position' => $position,
+                            'related_product_id' => $validated['related_product_id'],
+                            'source_member_module_id' => $sourceMod->id,
+                            'access_type' => $validated['access_type'],
+                            'thumbnail' => $validated['thumbnail'] ?? $sourceMod->thumbnail,
+                            'show_title_on_cover' => $validated['show_title_on_cover'] ?? true,
+                        ]);
+                        $existingSourceIds[$sourceMod->id] = true;
+                    }
+                }
+                if ($createdModules !== []) {
+                    $module = $createdModules[0];
+                } elseif ($sourceSections->sum(fn (MemberSection $s) => $s->modules->count()) > 0) {
+                    if ($request->expectsJson()) {
+                        return response()->json(['message' => 'Todos os módulos deste produto já foram adicionados nesta seção.'], 422);
+                    }
+
+                    return back()->with('error', 'Todos os módulos deste produto já foram adicionados nesta seção.');
+                }
+            }
+
+            if ($module === null) {
+                $module = MemberModule::create([
+                    'member_section_id' => $section->id,
+                    'product_id' => $produto->id,
+                    'title' => $validated['title'],
+                    'position' => $max + 1,
+                    'related_product_id' => $validated['related_product_id'],
+                    'access_type' => $validated['access_type'],
+                    'thumbnail' => $validated['thumbnail'] ?? null,
+                    'show_title_on_cover' => $validated['show_title_on_cover'] ?? true,
+                ]);
+                $createdModules = [$module];
+            }
         } else {
             // external_links
             $validated = $request->validate([
@@ -625,42 +676,63 @@ class MemberBuilderController extends Controller
         }
 
         if ($request->expectsJson()) {
-            $payload = [
-                'id' => $module->id,
-                'title' => $module->title,
-                'position' => $module->position,
-                'thumbnail' => $module->thumbnail,
-                'show_title_on_cover' => $module->show_title_on_cover ?? true,
-                'release_after_days' => $module->release_after_days,
-                'release_at_date' => $module->release_at_date?->format('Y-m-d'),
-                'lessons' => $module->relationLoaded('lessons') ? $module->lessons->map(fn (MemberLesson $l) => [
-                    'id' => $l->id,
-                    'title' => $l->title,
-                    'position' => $l->position,
-                    'type' => $l->type,
-                    'content_url' => $l->content_url,
-                    'content_text' => \App\Support\HtmlSanitizer::sanitize($l->content_text),
-                    'duration_seconds' => $l->duration_seconds,
-                    'is_free' => $l->is_free,
-                    'watermark_enabled' => (bool) ($l->watermark_enabled ?? false),
-                ])->values()->all() : [],
-            ];
-            if ($module->related_product_id) {
-                $module->load('relatedProduct');
-                $payload['related_product_id'] = $module->related_product_id;
-                $payload['access_type'] = $module->access_type;
-                $payload['related_product'] = $module->relatedProduct ? [
-                    'id' => $module->relatedProduct->id,
-                    'name' => $module->relatedProduct->name,
-                    'image_url' => $module->relatedProduct->image ? app(StorageService::class)->url($module->relatedProduct->image) : null,
-                ] : null;
+            if (is_array($createdModules) && count($createdModules) > 1) {
+                $payloads = array_map(fn (MemberModule $m) => $this->moduleJsonPayloadForStore($m), $createdModules);
+
+                return response()->json([
+                    'message' => 'Módulos importados.',
+                    'modules' => $payloads,
+                    'module' => $payloads[0],
+                ]);
             }
-            if ($module->external_url) {
-                $payload['external_url'] = $module->external_url;
-            }
-            return response()->json(['message' => 'Módulo criado.', 'module' => $payload]);
+            $payload = $this->moduleJsonPayloadForStore($module);
+
+            return response()->json(['message' => 'Módulo criado.', 'module' => $payload, 'modules' => [$payload]]);
         }
         return back()->with('success', 'Módulo criado.');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function moduleJsonPayloadForStore(MemberModule $module): array
+    {
+        $payload = [
+            'id' => $module->id,
+            'title' => $module->title,
+            'position' => $module->position,
+            'thumbnail' => $module->thumbnail,
+            'show_title_on_cover' => $module->show_title_on_cover ?? true,
+            'release_after_days' => $module->release_after_days,
+            'release_at_date' => $module->release_at_date?->format('Y-m-d'),
+            'lessons' => $module->relationLoaded('lessons') ? $module->lessons->map(fn (MemberLesson $l) => [
+                'id' => $l->id,
+                'title' => $l->title,
+                'position' => $l->position,
+                'type' => $l->type,
+                'content_url' => $l->content_url,
+                'content_text' => \App\Support\HtmlSanitizer::sanitize($l->content_text),
+                'duration_seconds' => $l->duration_seconds,
+                'is_free' => $l->is_free,
+                'watermark_enabled' => (bool) ($l->watermark_enabled ?? false),
+            ])->values()->all() : [],
+        ];
+        if ($module->related_product_id) {
+            $module->load('relatedProduct');
+            $payload['related_product_id'] = $module->related_product_id;
+            $payload['access_type'] = $module->access_type;
+            $payload['source_member_module_id'] = $module->source_member_module_id;
+            $payload['related_product'] = $module->relatedProduct ? [
+                'id' => $module->relatedProduct->id,
+                'name' => $module->relatedProduct->name,
+                'image_url' => $module->relatedProduct->image ? app(StorageService::class)->url($module->relatedProduct->image) : null,
+            ] : null;
+        }
+        if ($module->external_url) {
+            $payload['external_url'] = $module->external_url;
+        }
+
+        return $payload;
     }
 
     public function updateModule(Request $request, Product $produto, MemberModule $module): JsonResponse|RedirectResponse
@@ -754,7 +826,7 @@ class MemberBuilderController extends Controller
         }
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:255'],
-            'type' => ['required', 'string', 'in:video,link,pdf,text'],
+            'type' => ['required', 'string', 'in:video,link,pdf,pdf_presentation,text'],
             'content_url' => ['nullable', 'string', 'max:2000'],
             'link_title' => ['nullable', 'string', 'max:255'],
             'content_files' => ['nullable', 'array', 'max:30'],
@@ -776,7 +848,8 @@ class MemberBuilderController extends Controller
             $validated['release_at_date'] = null;
         }
         $contentFiles = $this->normalizeLessonContentFiles($request->input('content_files'));
-        if (($validated['type'] ?? null) === 'pdf' && empty($validated['content_url']) && count($contentFiles) > 0) {
+        if (in_array($validated['type'] ?? null, [MemberLesson::TYPE_PDF, MemberLesson::TYPE_PDF_PRESENTATION], true)
+            && empty($validated['content_url']) && count($contentFiles) > 0) {
             $validated['content_url'] = $contentFiles[0]['url'];
         }
         $max = MemberLesson::where('member_module_id', $module->id)->max('position') ?? 0;
@@ -788,7 +861,9 @@ class MemberBuilderController extends Controller
             'type' => $validated['type'],
             'content_url' => $validated['content_url'] ?? null,
             'link_title' => $validated['link_title'] ?? null,
-            'content_files' => $validated['type'] === 'pdf' ? ($contentFiles !== [] ? $contentFiles : null) : null,
+            'content_files' => in_array($validated['type'], [MemberLesson::TYPE_PDF, MemberLesson::TYPE_PDF_PRESENTATION], true)
+                ? ($contentFiles !== [] ? $contentFiles : null)
+                : null,
             'release_after_days' => $validated['release_after_days'] ?? null,
             'release_at_date' => $validated['release_at_date'] ?? null,
             'content_text' => $validated['content_text'] ?? null,
@@ -811,7 +886,7 @@ class MemberBuilderController extends Controller
         $validated = $request->validate([
             'title' => ['sometimes', 'string', 'max:255'],
             'position' => ['sometimes', 'integer', 'min:0'],
-            'type' => ['sometimes', 'string', 'in:video,link,pdf,text'],
+            'type' => ['sometimes', 'string', 'in:video,link,pdf,pdf_presentation,text'],
             'content_url' => ['nullable', 'string', 'max:2000'],
             'link_title' => ['nullable', 'string', 'max:255'],
             'content_files' => ['nullable', 'array', 'max:30'],
@@ -846,7 +921,7 @@ class MemberBuilderController extends Controller
         }
         $type = $validated['type'] ?? $lesson->type;
         $contentFiles = $this->normalizeLessonContentFiles($request->input('content_files'));
-        if ($type === 'pdf') {
+        if (in_array($type, [MemberLesson::TYPE_PDF, MemberLesson::TYPE_PDF_PRESENTATION], true)) {
             if (count($contentFiles) > 0) {
                 $validated['content_files'] = $contentFiles;
                 if (empty($validated['content_url'])) {
@@ -987,15 +1062,15 @@ class MemberBuilderController extends Controller
     }
 
     /**
-     * Criar novo aluno (nome, email, senha), dar acesso ao produto e opcionalmente adicionar à turma.
+     * Criar novo aluno ou vincular aluno existente (mesmo e-mail e tenant), dar acesso ao produto e opcionalmente à turma.
      */
     public function storeNewAluno(Request $request, Product $produto): JsonResponse|RedirectResponse
     {
         $this->authorizeProduct($produto);
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:6', 'max:255'],
+            'email' => ['required', 'email', 'max:255'],
+            'password' => ['nullable', 'string', 'min:6', 'max:255'],
             'turma_id' => ['nullable', 'integer', 'exists:member_turmas,id'],
         ]);
         $turmaId = $validated['turma_id'] ?? null;
@@ -1008,6 +1083,51 @@ class MemberBuilderController extends Controller
                 return back()->with('error', 'Turma inválida.');
             }
         }
+
+        $emailNormalized = strtolower(trim($validated['email']));
+        $existing = User::query()->whereRaw('LOWER(email) = ?', [$emailNormalized])->first();
+
+        if ($existing) {
+            if ((int) $existing->tenant_id !== (int) $produto->tenant_id) {
+                $msg = 'Este e-mail já está cadastrado em outra conta. Use outro e-mail.';
+                if ($request->expectsJson()) {
+                    return response()->json(['message' => $msg, 'errors' => ['email' => [$msg]]], 422);
+                }
+                return back()->with('error', $msg);
+            }
+            if (! $existing->isAluno()) {
+                $msg = 'Este e-mail pertence a um usuário da equipe ou administrador. Use outro e-mail para alunos.';
+                if ($request->expectsJson()) {
+                    return response()->json(['message' => $msg, 'errors' => ['email' => [$msg]]], 422);
+                }
+                return back()->with('error', $msg);
+            }
+
+            $existing->update(['name' => $validated['name']]);
+            $produto->users()->syncWithoutDetaching([$existing->id]);
+            if ($turmaId) {
+                MemberTurma::find($turmaId)->users()->syncWithoutDetaching([$existing->id]);
+            }
+            $message = 'Aluno vinculado: acesso ao produto e à turma atualizados.';
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => $message,
+                    'linked_existing' => true,
+                    'user' => ['id' => $existing->id, 'name' => $existing->name, 'email' => $existing->email],
+                ]);
+            }
+
+            return back()->with('success', $message);
+        }
+
+        if (empty($validated['password'])) {
+            $msg = 'Informe uma senha para criar um novo aluno. Se o aluno já tiver conta em outro produto seu, use o mesmo e-mail: o sistema detecta e não precisa de senha nova.';
+            if ($request->expectsJson()) {
+                return response()->json(['message' => $msg, 'errors' => ['password' => [$msg]]], 422);
+            }
+            return back()->with('error', $msg);
+        }
+
         $user = User::create([
             'name' => $validated['name'],
             'email' => $validated['email'],
@@ -1020,7 +1140,11 @@ class MemberBuilderController extends Controller
             MemberTurma::find($turmaId)->users()->syncWithoutDetaching([$user->id]);
         }
         if ($request->expectsJson()) {
-            return response()->json(['message' => 'Aluno criado e adicionado.', 'user' => ['id' => $user->id, 'name' => $user->name, 'email' => $user->email]]);
+            return response()->json([
+                'message' => 'Aluno criado e adicionado.',
+                'linked_existing' => false,
+                'user' => ['id' => $user->id, 'name' => $user->name, 'email' => $user->email],
+            ]);
         }
         return back()->with('success', 'Aluno criado e adicionado.');
     }

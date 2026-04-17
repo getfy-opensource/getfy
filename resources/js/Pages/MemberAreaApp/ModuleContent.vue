@@ -4,6 +4,7 @@ import { Link, router } from '@inertiajs/vue3';
 import MemberAreaAppLayout from '@/Layouts/MemberAreaAppLayout.vue';
 import Button from '@/components/ui/Button.vue';
 import MemberAreaVideoPlayer from '@/components/MemberAreaVideoPlayer.vue';
+import MemberPdfPresentationViewer from '@/components/MemberPdfPresentationViewer.vue';
 import { formatLessonDescription } from '@/lib/utils';
 import { Link as LinkIcon, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-vue-next';
 
@@ -23,23 +24,28 @@ const props = defineProps({
     lesson_comments: { type: Array, default: () => [] },
 });
 
-function normalizePdfFiles(lesson) {
+function normalizePdfFiles(lesson, defaultName = 'Material') {
     const list = Array.isArray(lesson?.content_files) ? lesson.content_files : [];
     const normalized = list
         .map((it) => {
-            if (typeof it === 'string') return { url: it, name: 'Material' };
+            if (typeof it === 'string') return { url: it, name: defaultName };
             const url = (it?.url ?? '').toString().trim();
             if (!url) return null;
-            return { url, name: (it?.name ?? 'Material').toString().trim() || 'Material' };
+            return { url, name: (it?.name ?? defaultName).toString().trim() || defaultName };
         })
         .filter(Boolean);
     if (normalized.length === 0 && lesson?.content_url) {
-        normalized.push({ url: lesson.content_url, name: 'Material' });
+        normalized.push({ url: lesson.content_url, name: defaultName });
     }
     return normalized;
 }
 
 const currentPdfFiles = computed(() => normalizePdfFiles(props.current_lesson));
+const currentPresentationFiles = computed(() =>
+    props.current_lesson?.type === 'pdf_presentation'
+        ? normalizePdfFiles(props.current_lesson, 'Apresentação')
+        : []
+);
 
 const completedLessonIds = ref(new Set());
 const completed = ref(props.current_lesson?.is_completed ?? false);
@@ -74,6 +80,7 @@ function scheduleAutoComplete() {
 function shouldAutoCompleteNonVideo() {
     if (!props.current_lesson || completed.value) return false;
     const t = props.current_lesson.type;
+    if (t === 'pdf_presentation') return false;
     return t === 'link' || t === 'pdf' || t === 'text' || (t !== 'video' && (props.current_lesson.content_url || props.current_lesson.content_text));
 }
 
@@ -171,6 +178,16 @@ function scrollCarousel(sectionId, direction) {
                         </div>
                     </template>
                     <div v-else-if="current_lesson.type === 'link' && current_lesson.content_text" class="prose prose-invert max-w-none border-t border-zinc-700 p-6" v-html="formatLessonDescription(current_lesson.content_text)" />
+                    <template v-else-if="current_lesson.type === 'pdf_presentation' && currentPresentationFiles.length">
+                        <div class="p-4">
+                            <MemberPdfPresentationViewer :files="currentPresentationFiles" />
+                        </div>
+                        <div
+                            v-if="current_lesson.content_text"
+                            class="prose prose-invert max-w-none border-t border-zinc-700 p-6"
+                            v-html="formatLessonDescription(current_lesson.content_text)"
+                        />
+                    </template>
                     <template v-else-if="current_lesson.type === 'pdf' && currentPdfFiles.length">
                         <div class="p-6">
                             <div class="space-y-2">

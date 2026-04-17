@@ -38,6 +38,7 @@ class Product extends Model
         'is_active',
         'conversion_pixels',
         'member_area_config',
+        'combo_product_ids',
     ];
 
     protected function casts(): array
@@ -48,6 +49,7 @@ class Product extends Model
             'checkout_config' => 'array',
             'member_area_config' => 'array',
             'conversion_pixels' => 'array',
+            'combo_product_ids' => 'array',
         ];
     }
 

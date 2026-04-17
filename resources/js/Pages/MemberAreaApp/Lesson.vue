@@ -4,6 +4,7 @@ import { Link, router } from '@inertiajs/vue3';
 import MemberAreaAppLayout from '@/Layouts/MemberAreaAppLayout.vue';
 import Button from '@/components/ui/Button.vue';
 import MemberAreaVideoPlayer from '@/components/MemberAreaVideoPlayer.vue';
+import MemberPdfPresentationViewer from '@/components/MemberPdfPresentationViewer.vue';
 import { formatLessonDescription } from '@/lib/utils';
 
 defineOptions({ layout: MemberAreaAppLayout });
@@ -18,23 +19,26 @@ const props = defineProps({
     lesson_comments: { type: Array, default: () => [] },
 });
 
-function normalizePdfFiles(lesson) {
+function normalizePdfFiles(lesson, defaultName = 'Material') {
     const list = Array.isArray(lesson?.content_files) ? lesson.content_files : [];
     const normalized = list
         .map((it) => {
-            if (typeof it === 'string') return { url: it, name: 'Material' };
+            if (typeof it === 'string') return { url: it, name: defaultName };
             const url = (it?.url ?? '').toString().trim();
             if (!url) return null;
-            return { url, name: (it?.name ?? 'Material').toString().trim() || 'Material' };
+            return { url, name: (it?.name ?? defaultName).toString().trim() || defaultName };
         })
         .filter(Boolean);
     if (normalized.length === 0 && lesson?.content_url) {
-        normalized.push({ url: lesson.content_url, name: 'Material' });
+        normalized.push({ url: lesson.content_url, name: defaultName });
     }
     return normalized;
 }
 
 const pdfFiles = computed(() => normalizePdfFiles(props.lesson));
+const presentationFiles = computed(() =>
+    props.lesson?.type === 'pdf_presentation' ? normalizePdfFiles(props.lesson, 'Apresentação') : []
+);
 
 const completed = ref(props.lesson.is_completed ?? false);
 const commentContent = ref('');
@@ -61,6 +65,7 @@ function scheduleAutoComplete() {
 function shouldAutoCompleteNonVideo() {
     if (!props.lesson || completed.value) return false;
     const t = props.lesson.type;
+    if (t === 'pdf_presentation') return false;
     return t === 'link' || t === 'pdf' || t === 'text' || (t !== 'video' && (props.lesson.content_url || props.lesson.content_text));
 }
 
@@ -127,6 +132,16 @@ function formatCommentDate(iso) {
                 </div>
             </template>
             <div v-else-if="lesson.type === 'link' && lesson.content_text" class="prose prose-invert max-w-none border-t border-zinc-700 p-6" v-html="formatLessonDescription(lesson.content_text)" />
+            <template v-else-if="lesson.type === 'pdf_presentation' && presentationFiles.length">
+                <div class="p-4">
+                    <MemberPdfPresentationViewer :files="presentationFiles" />
+                </div>
+                <div
+                    v-if="lesson.content_text"
+                    class="prose prose-invert max-w-none border-t border-zinc-700 p-6"
+                    v-html="formatLessonDescription(lesson.content_text)"
+                />
+            </template>
             <template v-else-if="lesson.type === 'pdf' && pdfFiles.length">
                 <div class="p-6">
                     <div class="space-y-2">

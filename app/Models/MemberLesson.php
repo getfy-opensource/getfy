@@ -11,6 +11,8 @@ class MemberLesson extends Model
     public const TYPE_VIDEO = 'video';
     public const TYPE_LINK = 'link';
     public const TYPE_PDF = 'pdf';
+    /** Slides / leitura em tela com navegação por páginas (pdf.js), distinto de "Material" (download). */
+    public const TYPE_PDF_PRESENTATION = 'pdf_presentation';
     public const TYPE_TEXT = 'text';
 
     protected $fillable = [

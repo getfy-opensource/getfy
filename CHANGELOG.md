@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.0.10] - 17-04-2026
+
+### Novidades
+
+- **Área de membros — aulas em PDF**: novo tipo de aula **“Apresentação (PDF)”** para o aluno **ler o PDF na própria tela** (estilo apresentação): botões anterior/próxima, **setas do teclado**, **tela cheia**, tentativa de **paisagem** em telemóvel quando faz sentido, e **clique ou toque na metade esquerda** (página anterior) ou **direita** (próxima) da zona da apresentação.
+- **Área de membros — material em PDF**: o tipo **“Material”** mantém-se como antes: o aluno **descarrega** o ficheiro.
+- **Construtor da área de membros**: ao criar ou editar aulas, pode escolher **Material** ou **Apresentação (PDF)** (mesma ideia de ficheiros e links), com **ícone distinto** na lista de aulas.
+- **Conclusão da aula**: nas apresentações em PDF a aula **não fica concluída sozinha** ao abrir; o aluno confirma com **“Marcar como concluído”** (comportamento mais justo para conteúdo longo).
+- **Outros produtos dentro da mesma área de membros**: quando o hub mostra **outros produtos** (cursos ligados) e o aluno **já tem permissão** (comprou, está num **combo** / pacote com vários produtos, módulo gratuito, etc.), as **aulas desse outro curso podem abrir no mesmo sítio** — mesma área de membros, mesma barra e navegação — **sem sair** para o endereço antigo da área desse produto. Quem ainda não tem acesso continua a ser encaminhado para o **checkout** quando for o caso.
+- **Combos e vários produtos**: quem tem acesso a mais do que um produto (por exemplo por **combo**) beneficia desta experiência **única e contínua** no hub, em vez de saltar entre áreas diferentes só para ver aulas de cada produto.
+
+### Melhorias
+
+- **Atualização do projeto**: após atualizar o código, execute **`npm install`** uma vez — foi adicionada uma biblioteca necessária só para **mostrar PDFs na tela** na área de membros.
+- **Área de membros**: pequenos ajustes internos na forma como o sistema **reconhece aulas de produtos incorporados** e o progresso do aluno.
+
+### Correções
+
+- **Testes automatizados**: corrigido um teste da área de membros sobre **módulos incorporados** (não altera o dia a dia do utilizador final).
+
 ## [1.0.9] - 16-04-2026
 
 ### Novidades

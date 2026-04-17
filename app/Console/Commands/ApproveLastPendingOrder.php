@@ -53,10 +53,8 @@ class ApproveLastPendingOrder extends Command
             $order->update(['status' => 'completed']);
 
             try {
-                $order->product->users()->syncWithoutDetaching([$order->user_id]);
-                foreach ($order->orderItems as $item) {
-                    $item->product->users()->syncWithoutDetaching([$order->user_id]);
-                }
+                $order->loadMissing('orderItems.product');
+                $order->grantPurchasedProductAccessToBuyer();
 
                 if ($order->subscription_plan_id && $order->subscriptionPlan) {
                     $plan = $order->subscriptionPlan;

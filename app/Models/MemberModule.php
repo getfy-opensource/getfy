@@ -16,6 +16,7 @@ class MemberModule extends Model
         'thumbnail',
         'show_title_on_cover',
         'related_product_id',
+        'source_member_module_id',
         'access_type',
         'external_url',
         'release_after_days',
@@ -45,6 +46,11 @@ class MemberModule extends Model
     public function relatedProduct(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'related_product_id');
+    }
+
+    public function sourceModule(): BelongsTo
+    {
+        return $this->belongsTo(MemberModule::class, 'source_member_module_id');
     }
 
     public function lessons(): HasMany

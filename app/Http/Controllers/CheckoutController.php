@@ -700,10 +700,7 @@ class CheckoutController extends Controller
         };
 
         $grantAccessForOrder = function (Order $order) {
-            $order->product->users()->syncWithoutDetaching([$order->user_id]);
-            foreach ($order->orderItems as $item) {
-                $item->product->users()->syncWithoutDetaching([$order->user_id]);
-            }
+            $order->grantPurchasedProductAccessToBuyer();
         };
 
         $updateCheckoutSession = function (Order $order) use ($validated) {

@@ -170,16 +170,45 @@ class Order extends Model
 
     /**
      * Attach buyer to main product and order bump products (same rules as public checkout after payment).
+     * Also attaches the buyer to the combo product (if configured) without creating an order line — revenue stays on the main product only.
      */
     public function grantPurchasedProductAccessToBuyer(): void
     {
-        $this->loadMissing('orderItems.product', 'product');
+        $this->loadMissing(
+            'orderItems.product',
+            'product',
+            'subscriptionPlan',
+            'productOffer'
+        );
         if ($this->product) {
             $this->product->users()->syncWithoutDetaching([$this->user_id]);
         }
         foreach ($this->orderItems as $item) {
             if ($item->product) {
                 $item->product->users()->syncWithoutDetaching([$this->user_id]);
+            }
+        }
+
+        if (! $this->user_id) {
+            return;
+        }
+
+        $comboProductIds = [];
+        if ($this->subscription_plan_id && $this->subscriptionPlan) {
+            $comboProductIds = $this->subscriptionPlan->combo_product_ids ?? [];
+        } elseif ($this->product_offer_id && $this->productOffer) {
+            $comboProductIds = $this->productOffer->combo_product_ids ?? [];
+        } elseif ($this->product) {
+            $comboProductIds = $this->product->combo_product_ids ?? [];
+        }
+
+        foreach ($comboProductIds as $comboProductId) {
+            if (! $comboProductId || $comboProductId === $this->product_id) {
+                continue;
+            }
+            $combo = Product::query()->find($comboProductId);
+            if ($combo) {
+                $combo->users()->syncWithoutDetaching([$this->user_id]);
             }
         }
     }

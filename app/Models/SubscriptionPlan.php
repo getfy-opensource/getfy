@@ -25,6 +25,7 @@ class SubscriptionPlan extends Model
         'checkout_config',
         'position',
         'gateway_plan_id',
+        'combo_product_ids',
     ];
 
     protected function casts(): array
@@ -32,6 +33,7 @@ class SubscriptionPlan extends Model
         return [
             'price' => 'decimal:2',
             'checkout_config' => 'array',
+            'combo_product_ids' => 'array',
         ];
     }
 
