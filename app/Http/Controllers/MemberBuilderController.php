@@ -277,12 +277,21 @@ class MemberBuilderController extends Controller
                 'image_url' => $p->image ? app(StorageService::class)->url($p->image) : null,
             ])->values()->all();
 
+        $imgKb = (int) config('member_builder_uploads.image_max_kb', 10240);
+        $badgeKb = (int) config('member_builder_uploads.badge_image_max_kb', 5120);
+        $pdfKb = (int) config('member_builder_uploads.pdf_max_kb', 51200);
+
         return view('member-builder', [
             'produto' => $produtoPayload,
             'tenant_products' => $tenant_products,
             'app_url' => rtrim(config('app.url'), '/'),
             'dns_target_host' => $dnsTargetHost,
             'dns_target_ip' => $dnsTargetIp,
+            'upload_limits' => [
+                'image_max_mb' => (int) max(1, floor($imgKb / 1024)),
+                'badge_max_mb' => (int) max(1, floor($badgeKb / 1024)),
+                'pdf_max_mb' => (int) max(1, floor($pdfKb / 1024)),
+            ],
         ]);
     }
 
@@ -439,12 +448,13 @@ class MemberBuilderController extends Controller
     public function uploadImage(Request $request, Product $produto): JsonResponse
     {
         $this->authorizeProduct($produto);
+        $maxKb = (int) config('member_builder_uploads.image_max_kb', 10240);
         $request->validate([
-            'file' => ['required', 'file', 'image', 'max:4096'],
+            'file' => ['required', 'file', 'image', 'max:'.$maxKb],
         ], [
             'file.required' => 'Nenhum arquivo enviado.',
             'file.image' => 'O arquivo deve ser uma imagem (JPG, PNG, GIF ou WebP).',
-            'file.max' => 'A imagem deve ter no máximo 4 MB.',
+            'file.max' => 'A imagem deve ter no máximo '.(int) max(1, floor($maxKb / 1024)).' MB.',
         ]);
         $storage = app(StorageService::class);
         $path = $storage->putFile('member-area/' . $produto->id, $request->file('file'));
@@ -454,12 +464,13 @@ class MemberBuilderController extends Controller
     public function uploadPdf(Request $request, Product $produto): JsonResponse
     {
         $this->authorizeProduct($produto);
+        $maxKb = (int) config('member_builder_uploads.pdf_max_kb', 51200);
         $request->validate([
-            'file' => ['required', 'file', 'mimetypes:application/pdf', 'max:20480'],
+            'file' => ['required', 'file', 'mimetypes:application/pdf', 'max:'.$maxKb],
         ], [
             'file.required' => 'Nenhum arquivo enviado.',
             'file.mimetypes' => 'O arquivo deve ser um material em formato PDF.',
-            'file.max' => 'O material deve ter no máximo 20 MB.',
+            'file.max' => 'O PDF deve ter no máximo '.(int) max(1, floor($maxKb / 1024)).' MB.',
         ]);
         $file = $request->file('file');
         $name = $file->getClientOriginalName();
@@ -475,12 +486,13 @@ class MemberBuilderController extends Controller
         if ($produto->type !== Product::TYPE_AREA_MEMBROS) {
             abort(403);
         }
+        $maxKb = (int) config('member_builder_uploads.badge_image_max_kb', 5120);
         $request->validate([
-            'file' => ['required', 'file', 'image', 'max:2048'],
+            'file' => ['required', 'file', 'image', 'max:'.$maxKb],
         ], [
             'file.required' => 'Nenhum arquivo enviado.',
             'file.image' => 'O arquivo deve ser uma imagem (JPG, PNG, GIF ou WebP).',
-            'file.max' => 'A imagem da badge deve ter no máximo 2 MB.',
+            'file.max' => 'A imagem da badge deve ter no máximo '.(int) max(1, floor($maxKb / 1024)).' MB.',
         ]);
         $storage = app(StorageService::class);
         $path = $storage->putFile('member-area-gamification/' . $produto->id . '/badges', $request->file('file'));

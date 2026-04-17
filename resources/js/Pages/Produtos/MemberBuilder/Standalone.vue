@@ -45,7 +45,23 @@ const props = defineProps({
     app_url: { type: String, default: '' },
     dns_target_host: { type: String, default: null },
     dns_target_ip: { type: String, default: null },
+    /** Limites exibidos e usados nas mensagens (valores reais vêm do backend / .env). */
+    upload_limits: {
+        type: Object,
+        default: () => ({ image_max_mb: 10, badge_max_mb: 5, pdf_max_mb: 50 }),
+    },
 });
+
+const uploadLimits = computed(() => ({
+    image_max_mb: props.upload_limits?.image_max_mb ?? 10,
+    badge_max_mb: props.upload_limits?.badge_max_mb ?? 5,
+    pdf_max_mb: props.upload_limits?.pdf_max_mb ?? 50,
+}));
+
+function memberBuilderImageUploadError(e, fallbackLabel = 'imagem') {
+    const m = uploadLimits.value.image_max_mb;
+    return e?.response?.data?.message || `Falha ao enviar ${fallbackLabel}. Verifique o tamanho (máx. ${m} MB) e o formato.`;
+}
 
 const csrfToken = () => document.querySelector('meta[name="csrf-token"]')?.content ?? '';
 
@@ -602,7 +618,7 @@ async function onLessonPdfChange(event) {
         const first = modulosLessonForm.value.content_files?.[0]?.url ?? '';
         modulosLessonForm.value.content_url = first || modulosLessonForm.value.content_url || '';
     } catch (e) {
-        const msg = e.response?.data?.message ?? e.message ?? 'Erro ao enviar material.';
+        const msg = e.response?.data?.message ?? e.message ?? `Erro ao enviar material. Tamanho máx. ${uploadLimits.value.pdf_max_mb} MB.`;
         alert(msg);
     } finally {
         lessonPdfUploading.value = false;
@@ -957,7 +973,7 @@ async function onHeroDesktopChange(event) {
     try {
         await doUpload(file, (url) => { configForm.member_area_config.hero.image_url_desktop = url; });
     } catch (e) {
-        alert(e?.response?.data?.message || 'Falha ao enviar imagem. Verifique o tamanho (máx. 4 MB) e o formato.');
+        alert(memberBuilderImageUploadError(e, 'imagem'));
     } finally {
         heroDesktopUploading.value = false;
         if (heroDesktopFileInput.value) heroDesktopFileInput.value.value = '';
@@ -971,7 +987,7 @@ async function onHeroMobileChange(event) {
     try {
         await doUpload(file, (url) => { configForm.member_area_config.hero.image_url_mobile = url; });
     } catch (e) {
-        alert(e?.response?.data?.message || 'Falha ao enviar imagem. Verifique o tamanho (máx. 4 MB) e o formato.');
+        alert(memberBuilderImageUploadError(e, 'imagem'));
     } finally {
         heroMobileUploading.value = false;
         if (heroMobileFileInput.value) heroMobileFileInput.value.value = '';
@@ -994,7 +1010,7 @@ async function onCertBgChange(event) {
     try {
         await doUpload(file, (url) => { configForm.member_area_config.certificate.background_image_url = url; });
     } catch (e) {
-        alert(e?.response?.data?.message || 'Falha ao enviar imagem.');
+        alert(memberBuilderImageUploadError(e, 'imagem'));
     }
     if (certBgFileInput.value) certBgFileInput.value.value = '';
 }
@@ -1014,7 +1030,7 @@ async function onHeaderLogoChange(event) {
             configForm.member_area_config.header.logo_url = url;
         });
     } catch (e) {
-        alert(e?.response?.data?.message || 'Falha ao enviar logo. Verifique o tamanho (máx. 4 MB) e o formato.');
+        alert(memberBuilderImageUploadError(e, 'logo'));
     } finally {
         headerLogoUploading.value = false;
         if (headerLogoFileInput.value) headerLogoFileInput.value.value = '';
@@ -1033,7 +1049,7 @@ async function onLoginLogoChange(event) {
     try {
         await doUpload(file, (url) => { configForm.member_area_config.login.logo = url; });
     } catch (e) {
-        alert(e?.response?.data?.message || 'Falha ao enviar logo. Verifique o tamanho (máx. 4 MB) e o formato.');
+        alert(memberBuilderImageUploadError(e, 'logo'));
     } finally {
         loginLogoUploading.value = false;
         if (loginLogoFileInput.value) loginLogoFileInput.value.value = '';
@@ -1055,7 +1071,7 @@ async function onFaviconChange(event) {
             configForm.member_area_config.logos.favicon = url;
         });
     } catch (e) {
-        alert(e?.response?.data?.message || 'Falha ao enviar ícone. Verifique o tamanho (máx. 4 MB) e o formato.');
+        alert(memberBuilderImageUploadError(e, 'ícone'));
     } finally {
         faviconUploading.value = false;
         if (faviconFileInput.value) faviconFileInput.value.value = '';
@@ -1074,7 +1090,7 @@ async function onLoginBackgroundChange(event) {
     try {
         await doUpload(file, (url) => { configForm.member_area_config.login.background_image = url; });
     } catch (e) {
-        alert(e?.response?.data?.message || 'Falha ao enviar imagem. Verifique o tamanho (máx. 4 MB) e o formato.');
+        alert(memberBuilderImageUploadError(e, 'imagem'));
     } finally {
         loginBackgroundUploading.value = false;
         if (loginBackgroundFileInput.value) loginBackgroundFileInput.value.value = '';
@@ -1742,7 +1758,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                         </Button>
                                     </template>
                                 </div>
-                                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Tamanho ideal: 180×40 px (ou proporção similar). PNG ou SVG com fundo transparente. Máx. 4 MB.</p>
+                                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Tamanho ideal: 180×40 px (ou proporção similar). PNG ou SVG com fundo transparente. Máx. {{ uploadLimits.image_max_mb }} MB.</p>
                             </div>
                             <div>
                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Favicon (ícone da aba do navegador)</label>
@@ -1759,7 +1775,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                         {{ faviconUploading ? 'Enviando…' : 'Enviar favicon (192×192 ou 512×512)' }}
                                     </Button>
                                 </div>
-                                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Usado na aba do navegador e no PWA. Tamanho ideal: 192×192 ou 512×512 px. Máx. 4 MB.</p>
+                                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Usado na aba do navegador e no PWA. Tamanho ideal: 192×192 ou 512×512 px. Máx. {{ uploadLimits.image_max_mb }} MB.</p>
                             </div>
                             <div>
                                 <input v-model="configForm.member_area_config.theme.primary" type="color" class="h-9 w-full cursor-pointer rounded-lg border dark:border-zinc-600" />
@@ -1795,7 +1811,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                         </Button>
                                     </template>
                                 </div>
-                                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Tamanho ideal: 1920×600 px (banner horizontal). Usado em telas maiores. Máx. 4 MB.</p>
+                                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Tamanho ideal: 1920×600 px (banner horizontal). Usado em telas maiores. Máx. {{ uploadLimits.image_max_mb }} MB.</p>
                             </div>
                             <div>
                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Banner do hero — Mobile</label>
@@ -1824,7 +1840,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                         </Button>
                                     </template>
                                 </div>
-                                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Tamanho ideal: 800×600 px ou 800×900 px (vertical). Usado em celulares. Se não enviar, usa o banner desktop. Máx. 4 MB.</p>
+                                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Tamanho ideal: 800×600 px ou 800×900 px (vertical). Usado em celulares. Se não enviar, usa o banner desktop. Máx. {{ uploadLimits.image_max_mb }} MB.</p>
                             </div>
                             <div>
                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Título do hero</label>
@@ -2121,7 +2137,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                                             <Button type="button" size="sm" variant="outline" class="!py-1.5 !text-xs" :disabled="moduleThumbnailUploading" @click="moduleThumbnailFileInput?.click()">
                                                                 {{ moduleThumbnailUploading ? 'Enviando…' : 'Enviar capa' }}
                                                             </Button>
-                                                            <span class="text-xs text-zinc-500 dark:text-zinc-400">{{ section.cover_mode === 'horizontal' ? 'Banner.' : 'Vertical.' }} Máx. 4 MB.</span>
+                                                            <span class="text-xs text-zinc-500 dark:text-zinc-400">{{ section.cover_mode === 'horizontal' ? 'Banner.' : 'Vertical.' }} Máx. {{ uploadLimits.image_max_mb }} MB.</span>
                                                         </div>
                                                     </template>
                                                     <div class="flex gap-2">
@@ -2189,7 +2205,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                                                 <Button type="button" size="sm" variant="outline" class="!py-1.5 !text-xs" :disabled="moduleThumbnailUploading" @click="moduleThumbnailFileInput?.click()">
                                                                     {{ moduleThumbnailUploading ? 'Enviando…' : 'Enviar capa' }}
                                                                 </Button>
-                                                                <span class="text-xs text-zinc-500 dark:text-zinc-400">{{ section.cover_mode === 'horizontal' ? 'Recomendado: 1200×630 px (banner).' : 'Recomendado: 400×600 px (vertical).' }} Máx. 4 MB.</span>
+                                                                <span class="text-xs text-zinc-500 dark:text-zinc-400">{{ section.cover_mode === 'horizontal' ? 'Recomendado: 1200×630 px (banner).' : 'Recomendado: 400×600 px (vertical).' }} Máx. {{ uploadLimits.image_max_mb }} MB.</span>
                                                             </div>
                                                         </template>
                                                     </div>
@@ -2246,7 +2262,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                                                 <Button type="button" size="sm" variant="outline" class="!py-1.5 !text-xs" :disabled="moduleThumbnailUploading" @click="moduleThumbnailFileInput?.click()">
                                                                     {{ moduleThumbnailUploading ? 'Enviando…' : 'Enviar capa' }}
                                                                 </Button>
-                                                                <span class="text-xs text-zinc-500 dark:text-zinc-400">{{ section.cover_mode === 'horizontal' ? 'Recomendado: 1200×630 px (banner).' : 'Recomendado: 400×600 px (vertical).' }} Máx. 4 MB.</span>
+                                                                <span class="text-xs text-zinc-500 dark:text-zinc-400">{{ section.cover_mode === 'horizontal' ? 'Recomendado: 1200×630 px (banner).' : 'Recomendado: 400×600 px (vertical).' }} Máx. {{ uploadLimits.image_max_mb }} MB.</span>
                                                             </div>
                                                         </template>
                                                     </div>
@@ -2385,7 +2401,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                                         <button type="button" class="shrink-0 text-red-600 hover:underline" @click="removeLessonPdfAt(i)">Remover</button>
                                                     </div>
                                                 </div>
-                                                <p class="text-xs text-zinc-500 dark:text-zinc-400">Ou use a URL acima se o material estiver hospedado em outro site. Máx. 20 MB.</p>
+                                                <p class="text-xs text-zinc-500 dark:text-zinc-400">Ou use a URL acima se o material estiver hospedado em outro site. Máx. {{ uploadLimits.pdf_max_mb }} MB.</p>
                                             </div>
                                             <div v-if="modulosLessonForm.type === 'text'">
                                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Texto</label>
@@ -2819,6 +2835,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                                     <input v-else-if="ach.trigger === 'completion_percent'" v-model.number="ach.trigger_config.percent" type="number" min="1" max="100" class="block rounded border px-2 py-1 text-sm w-20" placeholder="%" />
                                                 </div>
                                                 <textarea v-model="ach.description" rows="2" class="mt-2 block w-full rounded border px-2 py-1 text-sm" placeholder="Descrição (modal)"></textarea>
+                                                <p class="mt-1 text-xs text-zinc-500">Imagem enviada: máx. {{ uploadLimits.badge_max_mb }} MB.</p>
                                                 <div class="mt-2 flex items-center justify-between gap-2">
                                                     <div>
                                                         <input
@@ -3260,7 +3277,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                 <Button v-else type="button" size="sm" variant="outline" class="w-full !py-2 !text-xs" @click="moduleModalFileInputRef?.click()">
                                     Escolher imagem
                                 </Button>
-                                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{{ moduleModalCoverMode === 'horizontal' ? 'Recomendado: 1200×630 px (banner).' : 'Recomendado: 400×600 px (vertical).' }} Máx. 4 MB.</p>
+                                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{{ moduleModalCoverMode === 'horizontal' ? 'Recomendado: 1200×630 px (banner).' : 'Recomendado: 400×600 px (vertical).' }} Máx. {{ uploadLimits.image_max_mb }} MB.</p>
                             </div>
                         </template>
                         <!-- Outros produtos: selecionar produto + acesso + capa -->
@@ -3303,7 +3320,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                 <Button v-else type="button" size="sm" variant="outline" class="w-full !py-2 !text-xs" @click="moduleModalFileInputRef?.click()">
                                     Escolher imagem
                                 </Button>
-                                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{{ moduleModalCoverMode === 'horizontal' ? 'Recomendado: 1200×630 px (banner).' : 'Recomendado: 400×600 px (vertical).' }} Máx. 4 MB.</p>
+                                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{{ moduleModalCoverMode === 'horizontal' ? 'Recomendado: 1200×630 px (banner).' : 'Recomendado: 400×600 px (vertical).' }} Máx. {{ uploadLimits.image_max_mb }} MB.</p>
                             </div>
                         </template>
                         <!-- Links externos: URL + capa -->
@@ -3337,7 +3354,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                 <Button v-else type="button" size="sm" variant="outline" class="w-full !py-2 !text-xs" @click="moduleModalFileInputRef?.click()">
                                     Escolher imagem
                                 </Button>
-                                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{{ moduleModalCoverMode === 'horizontal' ? 'Recomendado: 1200×630 px (banner).' : 'Recomendado: 400×600 px (vertical).' }} Máx. 4 MB.</p>
+                                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{{ moduleModalCoverMode === 'horizontal' ? 'Recomendado: 1200×630 px (banner).' : 'Recomendado: 400×600 px (vertical).' }} Máx. {{ uploadLimits.image_max_mb }} MB.</p>
                             </div>
                         </template>
                     </div>
@@ -3603,7 +3620,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                             <Button v-else type="button" size="sm" variant="outline" class="w-full" :disabled="communityPageModalBannerUploading" @click="communityPageModalBannerInputRef?.click()">
                                 {{ communityPageModalBannerUploading ? 'Enviando…' : 'Escolher imagem' }}
                             </Button>
-                            <p class="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">Tamanho ideal: 1200×400 px (proporção 3:1). Máx. 4 MB.</p>
+                            <p class="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">Tamanho ideal: 1200×400 px (proporção 3:1). Máx. {{ uploadLimits.image_max_mb }} MB.</p>
                         </div>
                         <div>
                             <p class="mb-2 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Quem pode publicar?</p>
@@ -3697,6 +3714,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                     <input ref="gamificationModalFileRef" type="file" accept="image/*" class="hidden" @change="onGamificationModalFileChange" />
                                     <Button type="button" size="sm" variant="outline" @click="gamificationModalFileRef?.click()">Upload</Button>
                                 </div>
+                                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Upload personalizado: máx. {{ uploadLimits.badge_max_mb }} MB.</p>
                             </div>
                             <div class="mt-2 flex flex-wrap gap-2">
                                 <button
