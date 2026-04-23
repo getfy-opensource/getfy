@@ -14,6 +14,7 @@ class Order extends Model
         'api_application_id', 'api_checkout_session_id',
         'status', 'amount', 'email', 'cpf', 'phone', 'customer_ip', 'coupon_code',
         'gateway', 'gateway_id', 'approved_manually', 'metadata', 'period_start', 'period_end', 'is_renewal',
+        'recovery_email_stage', 'recovery_email_last_sent_at', 'recovery_email_next_at',
     ];
 
     protected function casts(): array
@@ -25,6 +26,8 @@ class Order extends Model
             'period_end' => 'date',
             'is_renewal' => 'boolean',
             'approved_manually' => 'boolean',
+            'recovery_email_last_sent_at' => 'datetime',
+            'recovery_email_next_at' => 'datetime',
         ];
     }
 

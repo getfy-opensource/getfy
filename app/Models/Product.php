@@ -239,6 +239,26 @@ class Product extends Model
                 'custom_body_end_html' => '',
                 'custom_js' => '',
             ],
+            'cart_recovery_email' => [
+                'enabled' => false,
+                'stages' => [
+                    // 10 minutos
+                    '10m' => [
+                        'subject' => 'Você ainda quer garantir {nome_produto}?',
+                        'body_html' => '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;margin:0 auto;font-family:\'Segoe UI\',Tahoma,sans-serif;background:#f8fafc;padding:32px 24px;"><tr><td style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:28px 32px;"><h1 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#0f172a;">Olá, {nome_cliente}!</h1><p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#334155;">Percebi que você iniciou sua compra de <strong>{nome_produto}</strong> e não concluiu.</p><p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#334155;">Se ainda faz sentido para você, é só retomar pelo link abaixo:</p><p style="margin:0 0 22px;text-align:center;"><a href=\"{link_checkout}\" style=\"display:inline-block;padding:14px 28px;background:#0ea5e9;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;border-radius:10px;\">Continuar compra</a></p><p style=\"margin:0 0 18px;font-size:13px;line-height:1.5;color:#64748b;\">Se o botão não abrir, copie e cole no navegador:<br/><a href=\"{link_checkout}\" style=\"color:#0ea5e9;word-break:break-all;\">{link_checkout}</a></p><p style=\"margin:0;font-size:13px;line-height:1.6;color:#64748b;\">Se tiver qualquer dúvida, responda este e-mail.</p></td></tr></table></td></tr></table>',
+                    ],
+                    // 5 horas
+                    '5h' => [
+                        'subject' => 'Última chance de garantir {nome_produto}',
+                        'body_html' => '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width:600px;margin:0 auto;font-family:\'Segoe UI\',Tahoma,sans-serif;background:#f8fafc;padding:32px 24px;\"><tr><td style=\"background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"padding:28px 32px;\"><h1 style=\"margin:0 0 12px;font-size:20px;font-weight:700;color:#0f172a;\">{nome_cliente}, posso te ajudar?</h1><p style=\"margin:0 0 16px;font-size:15px;line-height:1.6;color:#334155;\">Sua compra de <strong>{nome_produto}</strong> ainda não foi finalizada.</p><p style=\"margin:0 0 22px;font-size:15px;line-height:1.6;color:#334155;\">Se você quiser garantir a oferta agora, retome por aqui:</p><p style=\"margin:0 0 22px;text-align:center;\"><a href=\"{link_checkout}\" style=\"display:inline-block;padding:14px 28px;background:#0ea5e9;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;border-radius:10px;\">Garantir minha vaga</a></p><p style=\"margin:0;font-size:13px;line-height:1.6;color:#64748b;\">Se você encontrou algum erro no pagamento, basta tentar novamente pelo link.</p></td></tr></table></td></tr></table>',
+                    ],
+                    // 24 horas
+                    '24h' => [
+                        'subject' => 'Seu link para {nome_produto} (caso ainda queira)',
+                        'body_html' => '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width:600px;margin:0 auto;font-family:\'Segoe UI\',Tahoma,sans-serif;background:#f8fafc;padding:32px 24px;\"><tr><td style=\"background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"padding:28px 32px;\"><h1 style=\"margin:0 0 12px;font-size:20px;font-weight:700;color:#0f172a;\">Último lembrete</h1><p style=\"margin:0 0 16px;font-size:15px;line-height:1.6;color:#334155;\">Deixando aqui seu link para concluir a compra de <strong>{nome_produto}</strong> quando for melhor:</p><p style=\"margin:0 0 22px;text-align:center;\"><a href=\"{link_checkout}\" style=\"display:inline-block;padding:14px 28px;background:#0ea5e9;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;border-radius:10px;\">Concluir compra</a></p><p style=\"margin:0;font-size:13px;line-height:1.6;color:#64748b;\">Se você já concluiu, pode ignorar este e-mail.</p></td></tr></table></td></tr></table>',
+                    ],
+                ],
+            ],
         ];
     }
 

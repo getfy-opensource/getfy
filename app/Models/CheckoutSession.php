@@ -24,6 +24,7 @@ class CheckoutSession extends Model
         'email', 'name',
         'customer_ip', 'order_id', 'utm_source', 'utm_medium', 'utm_campaign',
         'abandoned_webhook_fired_at',
+        'recovery_email_stage', 'recovery_email_last_sent_at', 'recovery_email_next_at',
     ];
 
     protected function casts(): array
@@ -32,6 +33,8 @@ class CheckoutSession extends Model
             'form_started_at' => 'datetime',
             'form_filled_at' => 'datetime',
             'abandoned_webhook_fired_at' => 'datetime',
+            'recovery_email_last_sent_at' => 'datetime',
+            'recovery_email_next_at' => 'datetime',
         ];
     }
 

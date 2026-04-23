@@ -91,8 +91,9 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withSchedule(function (Schedule $schedule): void {
         $schedule->job(new \App\Jobs\SendSubscriptionRemindersJob)->dailyAt('09:00');
         $schedule->command('checkout:fire-abandoned-cart-webhooks')->everyTenMinutes();
+        $schedule->command('checkout:send-cart-recovery-emails')->everyMinute();
         $schedule->command('email-campaign:process')->everyMinute();
-        $schedule->command('payments:reconcile-pending --limit=200 --days=45')->everyFiveMinutes();
+        $schedule->command('payments:reconcile-pending --limit=200 --days=45')->everyTwoMinutes();
         $schedule->command('schedule:heartbeat')->everyMinute();
         $schedule->job(new \App\Jobs\QueueHeartbeatJob)->everyMinute();
     })
