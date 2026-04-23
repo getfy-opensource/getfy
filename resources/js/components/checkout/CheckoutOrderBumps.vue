@@ -101,7 +101,7 @@ defineExpose({
                 v-for="bump in orderBumps"
                 :key="bump.id"
                 :data-order-bump-id="bump.id"
-                class="relative overflow-hidden rounded-2xl border-2 border-dashed p-4 shadow-sm transition bg-white"
+                class="relative overflow-visible rounded-2xl border-2 border-dashed p-4 shadow-sm transition bg-white"
                 data-checkout="order-bump-card"
                 :style="orderBumpCardStyle"
             >
@@ -112,7 +112,7 @@ defineExpose({
                         class="sr-only"
                         @change="toggle(bump)"
                     />
-                    <div class="absolute right-3 top-3">
+                    <div class="absolute right-4 top-0 -translate-y-1/2">
                         <span
                             class="inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide"
                             :style="orderBumpTagStyle"

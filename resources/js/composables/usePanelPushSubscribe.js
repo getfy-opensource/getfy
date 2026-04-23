@@ -51,7 +51,8 @@ export function usePanelPushSubscribe() {
         }
 
         try {
-            await navigator.serviceWorker.register('/painel-sw.js', { scope: '/' });
+            // Scope restrito evita registros legados em '/' (isso pode quebrar no Android após updates).
+            await navigator.serviceWorker.register('/painel-sw.js', { scope: '/painel/' });
         } catch (e) {
             console.warn('Panel SW registration failed:', e);
             lastPushError.value = 'service_worker_registration_failed';
@@ -75,7 +76,7 @@ export function usePanelPushSubscribe() {
 
         pushSubscribing.value = true;
         try {
-            const reg = await navigator.serviceWorker.getRegistration('/');
+            const reg = await navigator.serviceWorker.getRegistration('/painel/');
             if (!reg) {
                 lastPushError.value = 'service_worker_not_found';
                 return false;
@@ -115,8 +116,8 @@ export function usePanelPushSubscribe() {
         if (typeof navigator === 'undefined' || !navigator.serviceWorker?.getRegistration) return;
         if (typeof Notification !== 'undefined' && Notification.permission !== 'granted') return false;
         try {
-            await navigator.serviceWorker.register('/painel-sw.js', { scope: '/' });
-            const reg = await navigator.serviceWorker.getRegistration('/');
+            await navigator.serviceWorker.register('/painel-sw.js', { scope: '/painel/' });
+            const reg = await navigator.serviceWorker.getRegistration('/painel/');
             const existing = await reg?.pushManager?.getSubscription?.();
             if (existing) {
                 const synced = await syncSubscriptionToServer(existing);

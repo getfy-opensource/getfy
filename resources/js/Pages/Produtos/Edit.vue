@@ -66,7 +66,29 @@ const DEFAULT_EMAIL_TEMPLATE = {
     logo_url: '',
     from_name: '',
     subject: 'Seu acesso a {nome_produto}',
-    body_html: '<p>Olá, {nome_cliente}!</p><p>Obrigado por adquirir <strong>{nome_produto}</strong>.</p><p>Use o link abaixo para acessar seu conteúdo:</p><p><a href="{link_acesso}" style="display:inline-block;padding:12px 24px;background:#0ea5e9;color:#fff;text-decoration:none;border-radius:8px;">Acessar agora</a></p><p>Ou copie e cole no navegador: {link_acesso}</p><p>Qualquer dúvida, responda este e-mail.</p>',
+    body_text:
+        'Olá, {nome_cliente}!\n\nObrigado por adquirir {nome_produto}.\n\nUse o link abaixo para acessar seu conteúdo:\n{link_acesso}\n\nQualquer dúvida, responda este e-mail.',
+};
+
+const DEFAULT_CART_RECOVERY_EMAIL = {
+    enabled: false,
+    stages: {
+        '10m': {
+            subject: 'Você ainda quer garantir {nome_produto}?',
+            body_text:
+                'Olá, {nome_cliente}!\n\nPercebi que você iniciou sua compra de {nome_produto} e não concluiu.\n\nSe ainda faz sentido pra você, é só retomar pelo link abaixo:\n{link_checkout}\n\nSe precisar de ajuda, é só responder este e-mail.',
+        },
+        '5h': {
+            subject: 'Última chance de garantir {nome_produto}',
+            body_text:
+                '{nome_cliente}, posso te ajudar?\n\nSua compra de {nome_produto} ainda não foi finalizada.\n\nPara concluir agora, use este link:\n{link_checkout}\n\nSe teve algum erro no pagamento, basta tentar novamente pelo link.',
+        },
+        '24h': {
+            subject: 'Seu link para {nome_produto} (caso ainda queira)',
+            body_text:
+                'Último lembrete.\n\nDeixando aqui seu link para concluir a compra de {nome_produto} quando for melhor:\n{link_checkout}\n\nSe você já concluiu, pode ignorar este e-mail.',
+        },
+    },
 };
 
 const ENTRY_FLAGS = {
@@ -268,6 +290,15 @@ watch(currentTab, () => {
 const pg = props.produto.checkout_config?.payment_gateways ?? {};
 const et = props.produto.checkout_config?.email_template ?? {};
 const ci = props.produto.checkout_config?.card_installments ?? { enabled: false, max: 1 };
+const creRaw = props.produto.checkout_config?.cart_recovery_email;
+const cartRecoveryInitial = {
+    ...DEFAULT_CART_RECOVERY_EMAIL,
+    ...(creRaw && typeof creRaw === 'object' ? creRaw : {}),
+    stages: {
+        ...DEFAULT_CART_RECOVERY_EMAIL.stages,
+        ...(creRaw?.stages && typeof creRaw.stages === 'object' ? creRaw.stages : {}),
+    },
+};
 const PAGARME_BILLING_DEFAULT = {
     mode: 'customer',
     company_address: {
@@ -324,8 +355,9 @@ const form = useForm({
         logo_url: et.logo_url ?? DEFAULT_EMAIL_TEMPLATE.logo_url,
         from_name: et.from_name ?? DEFAULT_EMAIL_TEMPLATE.from_name,
         subject: et.subject ?? DEFAULT_EMAIL_TEMPLATE.subject,
-        body_html: et.body_html ?? DEFAULT_EMAIL_TEMPLATE.body_html,
+        body_text: et.body_text ?? DEFAULT_EMAIL_TEMPLATE.body_text,
     },
+    cart_recovery_email: cartRecoveryInitial,
     pagarme_billing: pagarmeBillingInitial,
 });
 
@@ -1142,6 +1174,30 @@ function submit() {
         fd.append('currency', form.currency);
         fd.append('is_active', form.is_active ? '1' : '0');
         fd.append('conversion_pixels', JSON.stringify(form.conversion_pixels));
+        // Envia texto simples; o backend monta o HTML bonito automaticamente.
+        const cre = form.cart_recovery_email && typeof form.cart_recovery_email === 'object' ? form.cart_recovery_email : {};
+        const creStages = cre?.stages && typeof cre.stages === 'object' ? cre.stages : {};
+        const crePayload = {
+            enabled: !!cre.enabled,
+            stages: {
+                '10m': {
+                    subject: String(creStages?.['10m']?.subject ?? ''),
+                    body_text: String(creStages?.['10m']?.body_text ?? ''),
+                    body_html: '',
+                },
+                '5h': {
+                    subject: String(creStages?.['5h']?.subject ?? ''),
+                    body_text: String(creStages?.['5h']?.body_text ?? ''),
+                    body_html: '',
+                },
+                '24h': {
+                    subject: String(creStages?.['24h']?.subject ?? ''),
+                    body_text: String(creStages?.['24h']?.body_text ?? ''),
+                    body_html: '',
+                },
+            },
+        };
+        fd.append('cart_recovery_email', JSON.stringify(crePayload));
         if (form.payment_gateways) {
             fd.append('payment_gateways[pix]', form.payment_gateways.pix || '');
             (form.payment_gateways.pix_redundancy || []).forEach((s) => fd.append('payment_gateways[pix_redundancy][]', s));
@@ -1167,7 +1223,9 @@ function submit() {
             fd.append('email_template[logo_url]', form.email_template.logo_url || '');
             fd.append('email_template[from_name]', form.email_template.from_name || '');
             fd.append('email_template[subject]', form.email_template.subject || '');
-            fd.append('email_template[body_html]', form.email_template.body_html || '');
+            fd.append('email_template[body_text]', form.email_template.body_text || '');
+            // Mantém compatibilidade mas evita o usuário ter que digitar HTML.
+            fd.append('email_template[body_html]', '');
         }
         fd.append('deliverable_link', form.deliverable_link || '');
         if (form.pagarme_billing) {
@@ -2554,8 +2612,8 @@ function submit() {
                                 <input v-model="form.email_template.subject" type="text" placeholder="Seu acesso a {nome_produto}" :class="inputClass" />
                             </div>
                             <div>
-                                <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Corpo do e-mail (HTML)</label>
-                                <textarea v-model="form.email_template.body_html" rows="14" :class="inputClass + ' font-mono text-sm'" placeholder="<p>Olá, {nome_cliente}!</p>..." />
+                                <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Mensagem (texto)</label>
+                                <textarea v-model="form.email_template.body_text" rows="14" :class="inputClass" placeholder="Digite a mensagem (texto simples)..." />
                                 <p class="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
                                     Placeholders: <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-700">{nome_cliente}</code>,
                                     <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-700">{nome_produto}</code>,
@@ -2567,6 +2625,74 @@ function submit() {
                             </div>
                         </div>
                     </section>
+
+                    <!-- Recuperação de carrinho -->
+                    <section class="overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-sm dark:border-zinc-700/80 dark:bg-zinc-800/95">
+                        <div class="border-b border-zinc-200/80 bg-gradient-to-r from-zinc-50/90 to-zinc-100/50 px-6 py-5 dark:from-zinc-800/80 dark:to-zinc-800/50">
+                            <div class="flex items-start justify-between gap-4">
+                                <div>
+                                    <h2 class="text-base font-semibold text-zinc-900 dark:text-white">Recuperação de carrinho (e-mail)</h2>
+                                    <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                                        Envia lembretes automáticos para sessões abandonadas e pedidos pendentes (PIX/Boleto) nos tempos de 10m, 5h e 24h.
+                                    </p>
+                                </div>
+                                <Toggle v-model="form.cart_recovery_email.enabled" />
+                            </div>
+                        </div>
+                        <div class="p-6 space-y-6">
+                            <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                                Placeholders disponíveis:
+                                <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-700">{nome_cliente}</code>,
+                                <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-700">{email_cliente}</code>,
+                                <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-700">{nome_produto}</code>,
+                                <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-700">{valor}</code>,
+                                <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-700">{link_checkout}</code>
+                            </p>
+
+                            <div class="rounded-xl border border-zinc-200/80 bg-zinc-50/40 p-4 dark:border-zinc-700/80 dark:bg-zinc-900/20 space-y-3">
+                                <div class="flex items-center justify-between gap-3">
+                                    <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">Etapa 1 — 10 minutos</h3>
+                                </div>
+                                <div>
+                                    <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Assunto</label>
+                                    <input v-model="form.cart_recovery_email.stages['10m'].subject" :disabled="!form.cart_recovery_email.enabled" type="text" :class="inputClass" placeholder="Você ainda quer garantir {nome_produto}?" />
+                                </div>
+                                <div>
+                                    <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Mensagem (texto)</label>
+                                    <textarea v-model="form.cart_recovery_email.stages['10m'].body_text" :disabled="!form.cart_recovery_email.enabled" rows="10" :class="inputClass" placeholder="Digite a mensagem (texto simples)..." />
+                                </div>
+                            </div>
+
+                            <div class="rounded-xl border border-zinc-200/80 bg-zinc-50/40 p-4 dark:border-zinc-700/80 dark:bg-zinc-900/20 space-y-3">
+                                <div class="flex items-center justify-between gap-3">
+                                    <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">Etapa 2 — 5 horas</h3>
+                                </div>
+                                <div>
+                                    <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Assunto</label>
+                                    <input v-model="form.cart_recovery_email.stages['5h'].subject" :disabled="!form.cart_recovery_email.enabled" type="text" :class="inputClass" placeholder="Última chance de garantir {nome_produto}" />
+                                </div>
+                                <div>
+                                    <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Mensagem (texto)</label>
+                                    <textarea v-model="form.cart_recovery_email.stages['5h'].body_text" :disabled="!form.cart_recovery_email.enabled" rows="10" :class="inputClass" placeholder="Digite a mensagem (texto simples)..." />
+                                </div>
+                            </div>
+
+                            <div class="rounded-xl border border-zinc-200/80 bg-zinc-50/40 p-4 dark:border-zinc-700/80 dark:bg-zinc-900/20 space-y-3">
+                                <div class="flex items-center justify-between gap-3">
+                                    <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">Etapa 3 — 24 horas</h3>
+                                </div>
+                                <div>
+                                    <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Assunto</label>
+                                    <input v-model="form.cart_recovery_email.stages['24h'].subject" :disabled="!form.cart_recovery_email.enabled" type="text" :class="inputClass" placeholder="Seu link para {nome_produto} (caso ainda queira)" />
+                                </div>
+                                <div>
+                                    <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Mensagem (texto)</label>
+                                    <textarea v-model="form.cart_recovery_email.stages['24h'].body_text" :disabled="!form.cart_recovery_email.enabled" rows="10" :class="inputClass" placeholder="Digite a mensagem (texto simples)..." />
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
                     <!-- Preview do e-mail -->
                     <section class="overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-sm dark:border-zinc-700/80 dark:bg-zinc-800/95 xl:sticky xl:top-6">
                         <div class="border-b border-zinc-200/80 bg-zinc-50/80 px-6 py-4 dark:border-zinc-700/80 dark:bg-zinc-800/50">
@@ -2577,7 +2703,7 @@ function submit() {
                             <EmailTemplatePreview
                                 :logo-url="form.email_template.logo_url"
                                 :subject="form.email_template.subject"
-                                :body-html="form.email_template.body_html"
+                                :body-html="(form.email_template.body_text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').split('\\n\\n').filter((p) => p.trim()).map((p) => `<p style=&quot;margin:0 0 16px;font-size:15px;line-height:1.6;color:#334155;&quot;>${p.replace(/\\n/g, '<br/>')}</p>`).join('')"
                                 :from-name="form.email_template.from_name"
                             />
                         </div>

@@ -744,7 +744,17 @@ class CheckoutController extends Controller
                     'email' => $validated['email'],
                     'phone' => trim((string) ($validated['phone'] ?? '')),
                 ];
+                $pixStart = microtime(true);
                 $pixResult = $paymentService->createPixPayment($order, $product, $consumer);
+                $pixMs = (int) round((microtime(true) - $pixStart) * 1000);
+                if ($pixMs >= 1500) {
+                    Log::info('Checkout: PIX generation slow', [
+                        'order_id' => $order->id,
+                        'tenant_id' => $order->tenant_id,
+                        'gateway' => $pixResult['gateway'] ?? null,
+                        'duration_ms' => $pixMs,
+                    ]);
+                }
                 event(new PixGenerated($order, [
                     'qrcode' => $pixResult['qrcode'] ?? null,
                     'copy_paste' => $pixResult['copy_paste'] ?? null,

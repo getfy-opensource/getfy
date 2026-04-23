@@ -9,6 +9,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 
 class AccessEmailService
 {
@@ -55,9 +56,13 @@ class AccessEmailService
         $config = $product->checkout_config ?? [];
         $template = array_merge(Product::defaultEmailTemplate(), $config['email_template'] ?? []);
         $subject = (string) ($template['subject'] ?? 'Seu acesso');
+        $bodyText = (string) ($template['body_text'] ?? '');
         $bodyHtml = (string) ($template['body_html'] ?? '');
 
-        if ($bodyHtml === '') {
+        // Preferir texto simples (UI). Se vazio, cai no HTML legado.
+        if (trim($bodyText) !== '') {
+            $bodyHtml = $this->wrapAccessTextInPrettyHtml($bodyText, '{link_acesso}');
+        } elseif ($bodyHtml === '') {
             $bodyHtml = (string) (Product::defaultEmailTemplate()['body_html'] ?? '');
         }
 
@@ -154,6 +159,7 @@ class AccessEmailService
                 return true;
             }
             $bodyHtmlBeforeReplace = $bodyHtml;
+            $bodyTextBeforeReplace = $bodyText;
             $replace = [
                 '{nome_cliente}' => $customerName,
                 '{nome_produto}' => $product->name,
@@ -162,13 +168,18 @@ class AccessEmailService
                 '{senha}' => $senha,
             ];
             $subject = str_replace(array_keys($replace), array_values($replace), $subject);
-            $bodyHtml = str_replace(array_keys($replace), array_values($replace), $bodyHtml);
+            if (trim($bodyTextBeforeReplace) !== '') {
+                $text = str_replace(array_keys($replace), array_values($replace), $bodyTextBeforeReplace);
+                $bodyHtml = $this->wrapAccessTextInPrettyHtml($text, $linkAcesso);
+            } else {
+                $bodyHtml = str_replace(array_keys($replace), array_values($replace), $bodyHtml);
+            }
             if (! empty($template['logo_url'])) {
                 $bodyHtml = $this->prependLogoToBody($template['logo_url'], $bodyHtml);
             }
             if ($product->type === Product::TYPE_AREA_MEMBROS
                 && $senha !== ''
-                && ! str_contains($bodyHtmlBeforeReplace, '{senha}')
+                && ! str_contains($bodyTextBeforeReplace !== '' ? $bodyTextBeforeReplace : $bodyHtmlBeforeReplace, '{senha}')
             ) {
                 $bodyHtml = $this->appendMemberAreaPasswordCredentialsBlock($bodyHtml, $customerEmail, $senha);
             }
@@ -268,9 +279,12 @@ class AccessEmailService
         $config = $product->checkout_config ?? [];
         $template = array_merge(Product::defaultEmailTemplate(), $config['email_template'] ?? []);
         $subject = (string) ($template['subject'] ?? 'Seu acesso');
+        $bodyText = (string) ($template['body_text'] ?? '');
         $bodyHtml = (string) ($template['body_html'] ?? '');
 
-        if ($bodyHtml === '') {
+        if (trim($bodyText) !== '') {
+            $bodyHtml = $this->wrapAccessTextInPrettyHtml($bodyText, '{link_acesso}');
+        } elseif ($bodyHtml === '') {
             return false;
         }
 
@@ -292,7 +306,12 @@ class AccessEmailService
             '{senha}' => '',
         ];
         $subject = str_replace(array_keys($replace), array_values($replace), $subject);
-        $bodyHtml = str_replace(array_keys($replace), array_values($replace), $bodyHtml);
+        if (trim($bodyText) !== '') {
+            $text = str_replace(array_keys($replace), array_values($replace), $bodyText);
+            $bodyHtml = $this->wrapAccessTextInPrettyHtml($text, $linkAcesso);
+        } else {
+            $bodyHtml = str_replace(array_keys($replace), array_values($replace), $bodyHtml);
+        }
 
         if (! empty($template['logo_url'])) {
             $bodyHtml = $this->prependLogoToBody($template['logo_url'], $bodyHtml);
@@ -404,6 +423,28 @@ class AccessEmailService
             .'</div>';
 
         return $bodyHtml.$block;
+    }
+
+    private function wrapAccessTextInPrettyHtml(string $text, string $accessUrl): string
+    {
+        $safe = htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $safe = str_replace(["\r\n", "\r"], "\n", $safe);
+        $paragraphs = array_values(array_filter(array_map('trim', explode("\n\n", $safe)), fn ($p) => $p !== ''));
+        $htmlParagraphs = '';
+        foreach ($paragraphs as $p) {
+            $p = nl2br($p, false);
+            $htmlParagraphs .= '<p style="margin:0 0 16px;font-size:16px;line-height:1.65;color:#334155;">' . $p . '</p>';
+        }
+
+        $urlSafe = htmlspecialchars($accessUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $buttonLabel = Str::contains($accessUrl, '/m/') ? 'Acessar agora' : 'Acessar link';
+
+        return '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;margin:0 auto;font-family:\'Segoe UI\',Tahoma,sans-serif;background:#f8fafc;padding:32px 24px;"><tr><td style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:28px 32px;">'
+            . $htmlParagraphs
+            . '<p style="margin:0 0 22px;text-align:center;"><a href="' . $urlSafe . '" style="display:inline-block;padding:14px 32px;background:#0ea5e9;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;border-radius:10px;">' . htmlspecialchars($buttonLabel, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</a></p>'
+            . '<p style="margin:0 0 18px;font-size:13px;line-height:1.5;color:#64748b;">Se o botão não abrir, copie e cole no navegador:<br/><a href="' . $urlSafe . '" style="color:#0ea5e9;word-break:break-all;">' . $urlSafe . '</a></p>'
+            . '<p style="margin:0;font-size:13px;line-height:1.6;color:#64748b;">Qualquer dúvida, responda este e-mail.</p>'
+            . '</td></tr></table></td></tr></table>';
     }
 
     private function buildRenewalSuccessBody(string $customerName, string $productName): string

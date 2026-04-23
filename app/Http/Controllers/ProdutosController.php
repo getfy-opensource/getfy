@@ -382,6 +382,11 @@ class ProdutosController extends Controller
             $request->merge(['conversion_pixels' => is_array($decoded) ? $decoded : null]);
         }
 
+        if ($request->has('cart_recovery_email') && is_string($request->cart_recovery_email)) {
+            $decoded = json_decode($request->cart_recovery_email, true);
+            $request->merge(['cart_recovery_email' => is_array($decoded) ? $decoded : null]);
+        }
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['required', 'string', 'max:255'],
@@ -458,7 +463,23 @@ class ProdutosController extends Controller
             'email_template.logo_url' => ['nullable', 'string', 'max:500'],
             'email_template.from_name' => ['nullable', 'string', 'max:255'],
             'email_template.subject' => ['nullable', 'string', 'max:255'],
+            'email_template.body_text' => ['nullable', 'string', 'max:65535'],
             'email_template.body_html' => ['nullable', 'string', 'max:65535'],
+            'cart_recovery_email' => ['nullable', 'array'],
+            'cart_recovery_email.enabled' => ['nullable', 'boolean'],
+            'cart_recovery_email.stages' => ['nullable', 'array'],
+            'cart_recovery_email.stages.10m' => ['nullable', 'array'],
+            'cart_recovery_email.stages.10m.subject' => ['nullable', 'string', 'max:255'],
+            'cart_recovery_email.stages.10m.body_text' => ['nullable', 'string', 'max:65535'],
+            'cart_recovery_email.stages.10m.body_html' => ['nullable', 'string', 'max:65535'],
+            'cart_recovery_email.stages.5h' => ['nullable', 'array'],
+            'cart_recovery_email.stages.5h.subject' => ['nullable', 'string', 'max:255'],
+            'cart_recovery_email.stages.5h.body_text' => ['nullable', 'string', 'max:65535'],
+            'cart_recovery_email.stages.5h.body_html' => ['nullable', 'string', 'max:65535'],
+            'cart_recovery_email.stages.24h' => ['nullable', 'array'],
+            'cart_recovery_email.stages.24h.subject' => ['nullable', 'string', 'max:255'],
+            'cart_recovery_email.stages.24h.body_text' => ['nullable', 'string', 'max:65535'],
+            'cart_recovery_email.stages.24h.body_html' => ['nullable', 'string', 'max:65535'],
             'deliverable_link' => ['nullable', 'string', 'url', 'max:500'],
             'base_interval' => ['nullable', 'string', 'in:weekly,monthly,quarterly,semi_annual,annual,lifetime'],
             'pagarme_billing' => ['nullable', 'array'],
@@ -526,6 +547,8 @@ class ProdutosController extends Controller
         unset($validated['stripe_link_enabled']);
         $emailTemplate = $validated['email_template'] ?? null;
         unset($validated['email_template']);
+        $cartRecoveryEmail = $validated['cart_recovery_email'] ?? null;
+        unset($validated['cart_recovery_email']);
         $deliverableLink = $validated['deliverable_link'] ?? null;
         unset($validated['deliverable_link']);
         $conversionPixels = $validated['conversion_pixels'] ?? null;
@@ -618,6 +641,13 @@ class ProdutosController extends Controller
             $config['email_template'] = array_merge(
                 Product::defaultEmailTemplate(),
                 $emailTemplate
+            );
+            $configUpdated = true;
+        }
+        if (is_array($cartRecoveryEmail)) {
+            $config['cart_recovery_email'] = array_replace_recursive(
+                Product::defaultCheckoutConfig()['cart_recovery_email'] ?? [],
+                $cartRecoveryEmail
             );
             $configUpdated = true;
         }

@@ -231,6 +231,44 @@ const form = useForm({
     address_state: '',
 });
 
+const isPixLike = computed(() => form.payment_method === 'pix' || form.payment_method === 'pix_auto');
+const showPixProcessingHints = computed(() => isPixLike.value && form.processing);
+
+const pixProcessingMsgIdx = ref(0);
+let pixProcessingMsgTimer = null;
+
+const pixProcessingMessages = computed(() => {
+    const processing = tf('checkout.processing', 'Processando');
+    const secureEnv = tf('checkout.secure_env_loading', 'Carregando ambiente seguro');
+    return [processing, secureEnv].filter((s) => String(s || '').trim() !== '');
+});
+
+const pixProcessingMessage = computed(() => {
+    const msgs = pixProcessingMessages.value;
+    if (!msgs.length) return tf('checkout.processing', 'Processando...');
+    const idx = ((pixProcessingMsgIdx.value % msgs.length) + msgs.length) % msgs.length;
+    return msgs[idx];
+});
+
+watch(showPixProcessingHints, (enabled) => {
+    if (pixProcessingMsgTimer) {
+        clearInterval(pixProcessingMsgTimer);
+        pixProcessingMsgTimer = null;
+    }
+    pixProcessingMsgIdx.value = 0;
+    if (!enabled) return;
+    pixProcessingMsgTimer = setInterval(() => {
+        pixProcessingMsgIdx.value += 1;
+    }, 1300);
+});
+
+onBeforeUnmount(() => {
+    if (pixProcessingMsgTimer) {
+        clearInterval(pixProcessingMsgTimer);
+        pixProcessingMsgTimer = null;
+    }
+});
+
 const pagarmeBillingMode = computed(() => props.config?.pagarme_billing?.mode ?? 'customer');
 const isBoletoGatewayEfi = computed(() => boletoGatewaySlug.value === 'efi');
 /** Modo empresa: Pagar.me ou Efí (cartão e/ou boleto), endereço vem do produto. */
@@ -2336,7 +2374,36 @@ function submit() {
                 <CreditCard v-else-if="form.payment_method === 'card'" class="h-5 w-5" />
                 <FileText v-else-if="form.payment_method === 'boleto'" class="h-5 w-5" />
                 <ShoppingBag v-else class="h-5 w-5" />
-                {{ cardApproved ? 'Aprovado!' : (form.processing || cardTokenizing) ? t('checkout.processing') : (form.payment_method === 'pix' ? t('checkout.gerar_pix') : form.payment_method === 'pix_auto' ? (t('checkout.gerar_pix_auto') || 'Gerar PIX (renovação automática)') : form.payment_method === 'card' ? (isCardGatewayAsaas && asaasCardStep === 1 ? 'Continuar' : (t('checkout.pagar_cartao') || 'Pagar com cartão')) : form.payment_method === 'boleto' ? (t('checkout.gerar_boleto') || 'Gerar boleto') : t('checkout.submit_button')) }}
+                <template v-if="cardApproved">
+                    Aprovado!
+                </template>
+                <template v-else-if="showPixProcessingHints">
+                    <span class="inline-flex items-center gap-2">
+                        <Shield class="h-4 w-4 opacity-90" />
+                        <span class="relative">
+                            <span class="inline-block">{{ pixProcessingMessage }}</span>
+                            <span class="ml-1 inline-flex w-[1.2em] justify-start">
+                                <span class="animate-pulse">…</span>
+                            </span>
+                        </span>
+                    </span>
+                </template>
+                <template v-else-if="form.processing || cardTokenizing">
+                    {{ t('checkout.processing') }}
+                </template>
+                <template v-else>
+                    {{
+                        form.payment_method === 'pix'
+                            ? t('checkout.gerar_pix')
+                            : form.payment_method === 'pix_auto'
+                              ? (t('checkout.gerar_pix_auto') || 'Gerar PIX (renovação automática)')
+                              : form.payment_method === 'card'
+                                ? (isCardGatewayAsaas && asaasCardStep === 1 ? 'Continuar' : (t('checkout.pagar_cartao') || 'Pagar com cartão'))
+                                : form.payment_method === 'boleto'
+                                  ? (t('checkout.gerar_boleto') || 'Gerar boleto')
+                                  : t('checkout.submit_button')
+                    }}
+                </template>
             </button>
         </form>
         <!-- Form vazio: tokenizecard.js; campos cartão Pagar.me associam-se via atributo HTML form="" -->

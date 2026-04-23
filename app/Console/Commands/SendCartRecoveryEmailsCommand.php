@@ -8,6 +8,8 @@ use App\Models\CheckoutSession;
 use App\Models\Order;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 
 class SendCartRecoveryEmailsCommand extends Command
 {
@@ -33,9 +35,32 @@ class SendCartRecoveryEmailsCommand extends Command
         return self::SUCCESS;
     }
 
+    private function shouldDispatchSync(): bool
+    {
+        // Sem worker, enfileirar faria o e-mail nunca sair. Então executa sync quando:
+        // - queue.default == sync
+        // - OU não existe heartbeat recente do worker (QueueHeartbeatJob)
+        // - OU explicitamente em ambientes sem fila confiável
+        $default = (string) config('queue.default', 'sync');
+        if ($default === 'sync') {
+            return true;
+        }
+        $heartbeat = Cache::get('queue_heartbeat');
+        if (! is_string($heartbeat) || $heartbeat === '') {
+            return true;
+        }
+        try {
+            $last = \Illuminate\Support\Carbon::parse($heartbeat);
+        } catch (\Throwable) {
+            return true;
+        }
+        return $last->lt(now()->subMinutes(3));
+    }
+
     private function processCheckoutSessions(int $limit): int
     {
         $now = now();
+        $dispatchSync = $this->shouldDispatchSync();
 
         $q = CheckoutSession::query()
             ->whereIn('step', [CheckoutSession::STEP_FORM_STARTED, CheckoutSession::STEP_FORM_FILLED])
@@ -70,7 +95,11 @@ class SendCartRecoveryEmailsCommand extends Command
             }
 
             $stageKey = (string) $meta['key'];
-            SendCheckoutSessionRecoveryEmailJob::dispatch($s->id, $stageKey);
+            if ($dispatchSync) {
+                SendCheckoutSessionRecoveryEmailJob::dispatchSync($s->id, $stageKey);
+            } else {
+                SendCheckoutSessionRecoveryEmailJob::dispatch($s->id, $stageKey);
+            }
 
             $s->update([
                 'recovery_email_stage' => $nextStage,
@@ -88,6 +117,7 @@ class SendCartRecoveryEmailsCommand extends Command
     private function processPendingOrders(int $limit): int
     {
         $now = now();
+        $dispatchSync = $this->shouldDispatchSync();
 
         $q = Order::query()
             ->where('status', 'pending')
@@ -121,7 +151,11 @@ class SendCartRecoveryEmailsCommand extends Command
             }
 
             $stageKey = (string) $meta['key'];
-            SendPendingOrderRecoveryEmailJob::dispatch($o->id, $stageKey);
+            if ($dispatchSync) {
+                SendPendingOrderRecoveryEmailJob::dispatchSync($o->id, $stageKey);
+            } else {
+                SendPendingOrderRecoveryEmailJob::dispatch($o->id, $stageKey);
+            }
 
             $o->update([
                 'recovery_email_stage' => $nextStage,

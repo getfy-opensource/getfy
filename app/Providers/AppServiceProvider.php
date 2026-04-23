@@ -61,6 +61,16 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
         });
 
+        // Limite específico para geração de PIX no checkout (por IP).
+        // Só conta quando payment_method === 'pix'. Para outros métodos não impõe limite extra.
+        RateLimiter::for('checkout-pix', function (Request $request) {
+            $method = strtolower((string) $request->input('payment_method', ''));
+            if ($method !== 'pix') {
+                return Limit::none();
+            }
+            return Limit::perMinutes(5, 3)->by($request->ip());
+        });
+
         Queue::after(function (): void {
             Cache::put('queue_heartbeat', now()->toIso8601String(), now()->addMinutes(5));
         });
