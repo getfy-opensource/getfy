@@ -733,6 +733,19 @@ class CheckoutController extends Controller
             $order->load('orderItems');
             event(new OrderPending($order));
             try {
+                $pixLockKey = 'checkout_pix_generation_lock:' . $order->id;
+                // Evita duplicidade caso o usuário dê duplo clique / navegador retente / request fique lento.
+                // TTL curto: suficiente para o tempo de geração do PIX.
+                if (! Cache::add($pixLockKey, 1, now()->addSeconds(45))) {
+                    if ($request->expectsJson()) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Aguarde: estamos gerando seu PIX. Não clique novamente.',
+                        ], 409);
+                    }
+                    return back()->with('error', 'Aguarde: estamos gerando seu PIX. Não clique novamente.');
+                }
+
                 $paymentService = app(PaymentService::class);
                 $fake = FakeConsumerData::getForGateway($order->id);
                 $rawDoc = preg_replace('/\D/', '', $validated['cpf'] ?? '');
@@ -799,6 +812,12 @@ class CheckoutController extends Controller
                     ], 422);
                 }
                 return back()->with('error', $e->getMessage() ?: 'Não foi possível gerar o PIX. Tente novamente.');
+            } finally {
+                try {
+                    Cache::forget($pixLockKey ?? '');
+                } catch (\Throwable) {
+                    // ignore
+                }
             }
         }
 
