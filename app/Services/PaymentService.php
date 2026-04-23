@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Route;
 class PaymentService
 {
     private const PAYMENT_TOTAL_TIMEOUT_SECONDS = 25;
+    private const SLOW_GATEWAY_CALL_MS = 1500;
 
     /**
      * Create a PIX payment for the order. Tries gateways in redundancy order until one succeeds.
@@ -62,10 +63,19 @@ class PaymentService
                     (string) $order->id,
                     $postbackUrl
                 );
+                $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
                 $order->update([
                     'gateway' => $gatewaySlug,
                     'gateway_id' => $result['transaction_id'] ?? null,
                 ]);
+                if ($durationMs >= self::SLOW_GATEWAY_CALL_MS) {
+                    Log::info('PaymentService: PIX gateway slow success.', [
+                        'gateway' => $gatewaySlug,
+                        'order_id' => $order->id,
+                        'tenant_id' => $tenantId,
+                        'duration_ms' => $durationMs,
+                    ]);
+                }
                 return [
                     'transaction_id' => $result['transaction_id'] ?? '',
                     'gateway' => $gatewaySlug,

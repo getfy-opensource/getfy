@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\Log;
 
 class EfiDriver implements GatewayDriver
 {
+    private const SLOW_PIX_STEP_MS = 1000;
+
     /**
      * Build SDK options from credentials. Certificate path must be absolute and file must exist.
      *
@@ -96,6 +98,7 @@ class EfiDriver implements GatewayDriver
         string $externalId,
         string $postbackUrl
     ): array {
+        $flowStart = microtime(true);
         $options = $this->buildOptions($credentials);
         if (empty($options['certificate'])) {
             throw new \RuntimeException('Efí: certificado P12 não configurado.');
@@ -105,6 +108,8 @@ class EfiDriver implements GatewayDriver
         if ($pixKey === '') {
             throw new \RuntimeException('Efí: chave PIX não configurada.');
         }
+
+        $sandbox = ! empty($options['sandbox']);
 
         $document = preg_replace('/\D/', '', $consumer['document'] ?? '');
         if (strlen($document) < 11) {
@@ -129,9 +134,17 @@ class EfiDriver implements GatewayDriver
             ],
         ];
 
+        $instanceMs = null;
+        $chargeMs = null;
+
         try {
+            $instanceStart = microtime(true);
             $api = EfiPay::getInstance($options);
+            $instanceMs = (int) round((microtime(true) - $instanceStart) * 1000);
+
+            $chargeStart = microtime(true);
             $pix = $api->pixCreateImmediateCharge([], $body);
+            $chargeMs = (int) round((microtime(true) - $chargeStart) * 1000);
         } catch (EfiException $e) {
             Log::warning('EfiDriver createPixPayment failed', [
                 'order_id' => $externalId,
@@ -151,15 +164,36 @@ class EfiDriver implements GatewayDriver
 
         $qrcode = null;
         $copyPaste = null;
+        $locId = null;
+        $qrMs = null;
 
         if (! empty($pix['loc']['id'])) {
+            $locId = (int) $pix['loc']['id'];
             try {
-                $qrcodeResponse = $api->pixGenerateQRCode(['id' => $pix['loc']['id']]);
+                $qrStart = microtime(true);
+                $qrcodeResponse = $api->pixGenerateQRCode(['id' => $locId]);
+                $qrMs = (int) round((microtime(true) - $qrStart) * 1000);
                 $qrcode = $qrcodeResponse['imagemQrcode'] ?? null;
                 $copyPaste = $qrcodeResponse['qrcode'] ?? $qrcodeResponse['copiaECola'] ?? null;
             } catch (\Throwable $e) {
                 Log::warning('EfiDriver pixGenerateQRCode failed', ['txid' => $txid]);
             }
+        }
+
+        $totalMs = (int) round((microtime(true) - $flowStart) * 1000);
+        if ($totalMs >= self::SLOW_PIX_STEP_MS) {
+            Log::info('EfiDriver: slow PIX create', [
+                'order_id' => $externalId,
+                'txid' => $txid,
+                'sandbox' => $sandbox,
+                'duration_total_ms' => $totalMs,
+                'duration_get_instance_ms' => $instanceMs ?? null,
+                'duration_pix_create_immediate_charge_ms' => $chargeMs ?? null,
+                'duration_pix_generate_qrcode_ms' => $qrMs,
+                'loc_id' => $locId,
+                'has_qrcode_image' => $qrcode !== null && $qrcode !== '',
+                'has_copy_paste' => $copyPaste !== null && $copyPaste !== '',
+            ]);
         }
 
         return [

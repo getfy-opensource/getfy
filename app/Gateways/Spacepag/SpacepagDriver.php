@@ -4,12 +4,15 @@ namespace App\Gateways\Spacepag;
 
 use App\Gateways\Contracts\GatewayDriver;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class SpacepagDriver implements GatewayDriver
 {
     private const BASE_URL = 'https://api.spacepag.com.br/v1';
+    private const TOKEN_CACHE_PREFIX = 'spacepag:access_token:';
+    private const SLOW_STEP_MS = 1000;
 
     public function testConnection(array $credentials): bool
     {
@@ -25,7 +28,15 @@ class SpacepagDriver implements GatewayDriver
         string $externalId,
         string $postbackUrl
     ): array {
+        $tokenStart = microtime(true);
         $token = $this->getToken($credentials);
+        $tokenMs = (int) round((microtime(true) - $tokenStart) * 1000);
+        if ($tokenMs >= self::SLOW_STEP_MS) {
+            Log::info('Spacepag: slow auth/token', [
+                'order_id' => $externalId,
+                'duration_ms' => $tokenMs,
+            ]);
+        }
         if ($token === null) {
             throw new \RuntimeException('Spacepag: falha na autenticação.');
         }
@@ -51,9 +62,45 @@ class SpacepagDriver implements GatewayDriver
         $body['split'] = $this->buildSplit();
 
         $url = rtrim($this->baseUrl($credentials), '/').'/cob';
+        $cobStart = microtime(true);
         $response = $this->requestWithFallback(function (bool $forceIpv4, ?int $timeoutSeconds, ?int $connectTimeoutSeconds) use ($credentials, $token, $url, $body) {
             return $this->httpWithToken($token, $credentials, $forceIpv4, $timeoutSeconds, $connectTimeoutSeconds)->post($url, $body);
         }, $credentials, $url);
+        $cobMs = (int) round((microtime(true) - $cobStart) * 1000);
+        if ($cobMs >= self::SLOW_STEP_MS) {
+            Log::info('Spacepag: slow pix create', [
+                'order_id' => $externalId,
+                'duration_ms' => $cobMs,
+                'http_status' => $response->status(),
+            ]);
+        }
+
+        // Se token expirar/for inválido, limpa cache e tenta 1 vez novamente.
+        if ($response->status() === 401) {
+            $this->forgetTokenCache($credentials);
+            $tokenRetryStart = microtime(true);
+            $token = $this->getToken($credentials);
+            $tokenRetryMs = (int) round((microtime(true) - $tokenRetryStart) * 1000);
+            Log::info('Spacepag: token retry after 401', [
+                'order_id' => $externalId,
+                'duration_ms' => $tokenRetryMs,
+                'token_present' => $token !== null,
+            ]);
+            if ($token !== null) {
+                $cobRetryStart = microtime(true);
+                $response = $this->requestWithFallback(function (bool $forceIpv4, ?int $timeoutSeconds, ?int $connectTimeoutSeconds) use ($credentials, $token, $url, $body) {
+                    return $this->httpWithToken($token, $credentials, $forceIpv4, $timeoutSeconds, $connectTimeoutSeconds)->post($url, $body);
+                }, $credentials, $url);
+                $cobRetryMs = (int) round((microtime(true) - $cobRetryStart) * 1000);
+                if ($cobRetryMs >= self::SLOW_STEP_MS) {
+                    Log::info('Spacepag: slow pix create (retry)', [
+                        'order_id' => $externalId,
+                        'duration_ms' => $cobRetryMs,
+                        'http_status' => $response->status(),
+                    ]);
+                }
+            }
+        }
 
         if (! $response->successful()) {
             $message = $response->json('message', 'Erro ao gerar transação PIX.');
@@ -132,14 +179,29 @@ class SpacepagDriver implements GatewayDriver
             return null;
         }
 
+        $cacheKey = $this->tokenCacheKey($credentials);
+        $cached = Cache::get($cacheKey);
+        if (is_string($cached) && $cached !== '') {
+            return $cached;
+        }
+
         $url = rtrim($this->baseUrl($credentials), '/').'/auth';
         try {
+            $authStart = microtime(true);
             $response = $this->requestWithFallback(function (bool $forceIpv4, ?int $timeoutSeconds, ?int $connectTimeoutSeconds) use ($credentials, $url, $publicKey, $secretKey) {
                 return $this->http($credentials, $forceIpv4, $timeoutSeconds, $connectTimeoutSeconds)->post($url, [
                     'public_key' => $publicKey,
                     'secret_key' => $secretKey,
                 ]);
             }, $credentials, $url);
+            $authMs = (int) round((microtime(true) - $authStart) * 1000);
+            if ($authMs >= self::SLOW_STEP_MS) {
+                Log::info('Spacepag: slow auth request', [
+                    'duration_ms' => $authMs,
+                    'url' => $url,
+                    'http_status' => $response->status(),
+                ]);
+            }
         } catch (\Throwable $e) {
             Log::warning('Spacepag: auth request failed', [
                 'message' => $e->getMessage(),
@@ -153,7 +215,15 @@ class SpacepagDriver implements GatewayDriver
             return null;
         }
 
-        return $response->json('access_token');
+        $token = $response->json('access_token');
+        if (! is_string($token) || $token === '') {
+            return null;
+        }
+
+        $ttlSeconds = $this->tokenCacheTtlSeconds($credentials, $response->json('expires_in'));
+        Cache::put($cacheKey, $token, now()->addSeconds($ttlSeconds));
+
+        return $token;
     }
 
     private function normalizeDocument(string $document): string
@@ -259,6 +329,44 @@ class SpacepagDriver implements GatewayDriver
         }
 
         return self::BASE_URL;
+    }
+
+    private function tokenCacheKey(array $credentials): string
+    {
+        $publicKey = (string) ($credentials['public_key'] ?? '');
+        $secretKey = (string) ($credentials['secret_key'] ?? '');
+        $baseUrl = $this->baseUrl($credentials);
+        $salt = substr(hash('sha256', $publicKey.'|'.$secretKey.'|'.$baseUrl), 0, 32);
+
+        return self::TOKEN_CACHE_PREFIX.$salt;
+    }
+
+    private function forgetTokenCache(array $credentials): void
+    {
+        try {
+            Cache::forget($this->tokenCacheKey($credentials));
+        } catch (\Throwable) {
+            // ignora
+        }
+    }
+
+    private function tokenCacheTtlSeconds(array $credentials, mixed $expiresIn): int
+    {
+        $override = $credentials['token_ttl_seconds'] ?? null;
+        if (is_numeric($override)) {
+            $n = (int) $override;
+            return min(86400, max(60, $n));
+        }
+
+        // Usa expires_in do provider quando disponível; aplica margem de segurança.
+        if (is_numeric($expiresIn)) {
+            $n = (int) $expiresIn;
+            $n = $n > 120 ? ($n - 60) : $n;
+            return min(86400, max(60, $n));
+        }
+
+        // Default conservador: 30 min.
+        return 1800;
     }
 
     private function timeoutSeconds(array $credentials): int
@@ -398,7 +506,8 @@ class SpacepagDriver implements GatewayDriver
                 return $doRequest(true, null, null);
             }
 
-            $fastTimeoutSeconds = min(10, max(5, (int) floor($this->timeoutSeconds($credentials) / 4)));
+            // Fast path: mantém UX do checkout responsiva em falhas intermitentes.
+            $fastTimeoutSeconds = min(8, max(5, (int) floor($this->timeoutSeconds($credentials) / 4)));
             $fastConnectTimeoutSeconds = min(5, max(2, (int) floor($this->connectTimeoutSeconds($credentials) / 2)));
 
             return $doRequest(false, $fastTimeoutSeconds, $fastConnectTimeoutSeconds);
