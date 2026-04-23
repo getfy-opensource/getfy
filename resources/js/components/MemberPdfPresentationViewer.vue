@@ -126,7 +126,7 @@ async function loadDocuments() {
     } catch (e) {
         console.error(e);
         error.value =
-            'Não foi possível carregar o PDF. Verifique o link ou se o arquivo permite acesso a partir deste site (CORS).';
+            'Não foi possível carregar o PDF. Tente atualizar a página ou contacte o suporte se o problema continuar.';
         await destroyDocs();
     } finally {
         loading.value = false;

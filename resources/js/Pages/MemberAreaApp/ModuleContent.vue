@@ -40,10 +40,19 @@ function normalizePdfFiles(lesson, defaultName = 'Material') {
     return normalized;
 }
 
+/** URLs na mesma origem (proxy Laravel) para o pdf.js evitar CORS no R2. */
+function pdfPresentationViewerFiles(slug, lesson, defaultName = 'Apresentação') {
+    const norm = normalizePdfFiles(lesson, defaultName);
+    return norm.map((f, i) => ({
+        ...f,
+        url: `/m/${slug}/aula/${lesson.id}/pdf/${i}`,
+    }));
+}
+
 const currentPdfFiles = computed(() => normalizePdfFiles(props.current_lesson));
 const currentPresentationFiles = computed(() =>
     props.current_lesson?.type === 'pdf_presentation'
-        ? normalizePdfFiles(props.current_lesson, 'Apresentação')
+        ? pdfPresentationViewerFiles(props.slug, props.current_lesson)
         : []
 );
 

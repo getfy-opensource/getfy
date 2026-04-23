@@ -9,10 +9,13 @@ import ConversionPixels from '@/components/checkout/ConversionPixels.vue';
 defineOptions({ layout: null });
 
 const conversionPixelsRef = ref(null);
+const pixelsReady = ref(false);
+const pendingPurchase = ref(false);
 
 const props = defineProps({
     token: { type: String, required: true },
     order_id: { type: Number, required: true },
+    amount: { type: Number, default: 0 },
     amount_formatted: { type: String, default: 'R$ 0,00' },
     expire_at: { type: String, default: null },
     barcode: { type: String, default: '' },
@@ -53,8 +56,10 @@ async function checkOrderStatus() {
                 clearInterval(pollInterval);
                 pollInterval = null;
             }
-            if (conversionPixelsRef.value?.firePurchase) {
-                conversionPixelsRef.value.firePurchase(0, 'BRL', String(props.order_id), false, 'boleto');
+            pendingPurchase.value = true;
+            if (pixelsReady.value && conversionPixelsRef.value?.firePurchase) {
+                conversionPixelsRef.value.firePurchase(props.amount, 'BRL', String(props.order_id), false, 'boleto');
+                pendingPurchase.value = false;
             }
             const url = data.redirect_url || props.redirect_after_purchase || '/area-membros';
             if (url.startsWith('http') || url.startsWith('//')) {
@@ -66,6 +71,14 @@ async function checkOrderStatus() {
         return data;
     } catch {
         return { status: 'pending' };
+    }
+}
+
+function onConversionPixelsReady() {
+    pixelsReady.value = true;
+    if (pendingPurchase.value && conversionPixelsRef.value?.firePurchase) {
+        conversionPixelsRef.value.firePurchase(props.amount, 'BRL', String(props.order_id), false, 'boleto');
+        pendingPurchase.value = false;
     }
 }
 
@@ -110,7 +123,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <ConversionPixels ref="conversionPixelsRef" :pixels="props.conversion_pixels" />
+    <ConversionPixels ref="conversionPixelsRef" :pixels="props.conversion_pixels" @ready="onConversionPixelsReady" />
     <Head>
         <title>Boleto gerado</title>
     </Head>

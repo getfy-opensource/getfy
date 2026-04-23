@@ -138,7 +138,7 @@ const props = defineProps({
     cardGatewayKeys: { type: Object, default: () => ({}) },
 });
 
-const emit = defineEmits(['coupon-applied', 'coupon-cleared', 'update:orderBumpIds']);
+const emit = defineEmits(['coupon-applied', 'coupon-cleared', 'update:orderBumpIds', 'payment-approved']);
 
 const customerFields = computed(() => props.config?.customer_fields ?? { name: true, cpf: true, phone: true, coupon: false });
 const showName = computed(() => customerFields.value.name !== false);
@@ -1474,6 +1474,14 @@ function submit() {
                     const url = data.redirect_url;
                     const isPostUrl = (u) => !u || u.replace(/\/$/, '') === window.location.origin + '/checkout';
                     if (url && !isPostUrl(url)) {
+                        if (data.order_id) {
+                            emit('payment-approved', {
+                                order_id: data.order_id,
+                                amount: props.checkoutTotalBrl || 0,
+                                currency: 'BRL',
+                                method: 'card',
+                            });
+                        }
                         cardApproved.value = true;
                         cardApprovedRedirectUrl.value = url;
                         setTimeout(() => router.visit(url), 1800);
@@ -1485,6 +1493,12 @@ function submit() {
                     }
                     if (data.order_id) {
                         const fallback = `/checkout/obrigado?order_id=${encodeURIComponent(String(data.order_id))}&next=login`;
+                        emit('payment-approved', {
+                            order_id: data.order_id,
+                            amount: props.checkoutTotalBrl || 0,
+                            currency: 'BRL',
+                            method: 'card',
+                        });
                         cardApproved.value = true;
                         cardApprovedRedirectUrl.value = fallback;
                         setTimeout(() => router.visit(fallback), 800);

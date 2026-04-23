@@ -10,6 +10,8 @@ import ConversionPixels from '@/components/checkout/ConversionPixels.vue';
 defineOptions({ layout: null });
 
 const conversionPixelsRef = ref(null);
+const pixelsReady = ref(false);
+const pendingPurchase = ref(false);
 
 const props = defineProps({
     token: { type: String, required: true },
@@ -81,8 +83,10 @@ async function checkOrderStatus() {
                 clearInterval(pollInterval);
                 pollInterval = null;
             }
-            if (conversionPixelsRef.value?.firePurchase) {
+            pendingPurchase.value = true;
+            if (pixelsReady.value && conversionPixelsRef.value?.firePurchase) {
                 conversionPixelsRef.value.firePurchase(props.amount, 'BRL', String(props.order_id), false, 'pix');
+                pendingPurchase.value = false;
             }
             const url = data.redirect_url || props.redirect_after_purchase || '/area-membros';
             if (url.startsWith('http') || url.startsWith('//')) {
@@ -94,6 +98,14 @@ async function checkOrderStatus() {
         return data;
     } catch {
         return { status: 'pending' };
+    }
+}
+
+function onConversionPixelsReady() {
+    pixelsReady.value = true;
+    if (pendingPurchase.value && conversionPixelsRef.value?.firePurchase) {
+        conversionPixelsRef.value.firePurchase(props.amount, 'BRL', String(props.order_id), false, 'pix');
+        pendingPurchase.value = false;
     }
 }
 
@@ -145,7 +157,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <ConversionPixels ref="conversionPixelsRef" :pixels="props.conversion_pixels" />
+    <ConversionPixels ref="conversionPixelsRef" :pixels="props.conversion_pixels" @ready="onConversionPixelsReady" />
     <Head>
         <title>Pagamento PIX</title>
     </Head>

@@ -182,12 +182,37 @@ const conversionPixels = computed(() => props.conversion_pixels || {});
 
 const conversionPixelsRef = ref(null);
 let initiateCheckoutFiredForLoad = false;
+const pixelsReady = ref(false);
+const pendingPurchase = ref(null);
+
+function tryFirePendingPurchase() {
+    const api = conversionPixelsRef.value;
+    if (!pixelsReady.value || !api?.firePurchase || !pendingPurchase.value) return;
+    const p = pendingPurchase.value;
+    api.firePurchase(p.amount, p.currency || 'BRL', String(p.order_id || ''), false, 'approved');
+    pendingPurchase.value = null;
+}
+
 function onConversionPixelsReady() {
+    pixelsReady.value = true;
     if (initiateCheckoutFiredForLoad) return;
     const api = conversionPixelsRef.value;
     if (!api?.fireInitiateCheckout) return;
     initiateCheckoutFiredForLoad = true;
     api.fireInitiateCheckout(checkoutTotalBrl.value, 'BRL');
+    tryFirePendingPurchase();
+}
+
+function onPaymentApproved(payload) {
+    if (!payload || typeof payload !== 'object') return;
+    const orderId = payload.order_id;
+    if (!orderId) return;
+    pendingPurchase.value = {
+        order_id: orderId,
+        amount: Number(payload.amount) || 0,
+        currency: typeof payload.currency === 'string' && payload.currency ? payload.currency : 'BRL',
+    };
+    tryFirePendingPurchase();
 }
 
 const advancedForCustomCode = computed(() => effectiveConfig.value?.advanced ?? {});
@@ -323,6 +348,7 @@ const hasCustomBodyEnd = computed(() => String(customBodyEndHtml.value).trim() !
                             :checkout-total-brl="checkoutTotalBrl"
                             @coupon-applied="onCouponApplied"
                             @coupon-cleared="onCouponCleared"
+                            @payment-approved="onPaymentApproved"
                         />
                     </div>
                 </div>

@@ -1395,10 +1395,12 @@ class CheckoutController extends Controller
 
         $product = $order->product;
         $conversionPixels = $product ? ($product->conversion_pixels ?? Product::defaultConversionPixels()) : Product::defaultConversionPixels();
+        $amount = (float) ($stored['amount'] ?? $order->amount ?? 0);
 
         return Inertia::render('Checkout/Boleto', [
             'token' => $token,
             'order_id' => $orderId,
+            'amount' => $amount,
             'amount_formatted' => $stored['amount_formatted'] ?? 'R$ 0,00',
             'expire_at' => $stored['expire_at'] ?? null,
             'barcode' => $stored['barcode'] ?? '',
