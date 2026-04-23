@@ -3,15 +3,11 @@
 namespace App\Listeners;
 
 use App\Events\OrderCompleted;
-use App\Services\PanelPushService;
+use App\Jobs\SendPanelPushJob;
 use Illuminate\Support\Facades\Log;
 
 class SendPanelPushOnOrderCompleted
 {
-    public function __construct(
-        protected PanelPushService $panelPushService
-    ) {}
-
     public function handle(OrderCompleted $event): void
     {
         $order = $event->order;
@@ -23,7 +19,7 @@ class SendPanelPushOnOrderCompleted
             $body = "{$productName} - R$ {$amount}";
             $url = url('/vendas?order=' . $order->id);
 
-            $this->panelPushService->sendAndPersistToTenant(
+            SendPanelPushJob::dispatchAfterResponse(
                 $order->tenant_id,
                 'sale_approved',
                 $title,

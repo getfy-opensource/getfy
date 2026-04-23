@@ -89,7 +89,9 @@ class WebhookEventSubscriber
 
                 try {
                     if ($dispatchSync) {
-                        (new DispatchWebhookJob($webhook->id, $eventClass, $payload))->handle();
+                        // Não bloquear fluxos sensíveis (checkout/pagamento) quando a fila estiver em sync/instável.
+                        // `dispatchAfterResponse` executa após enviar a resposta (e/ou via worker se houver fila async).
+                        DispatchWebhookJob::dispatchAfterResponse($webhook->id, $eventClass, $payload);
                     } else {
                         DispatchWebhookJob::dispatch($webhook->id, $eventClass, $payload);
                     }

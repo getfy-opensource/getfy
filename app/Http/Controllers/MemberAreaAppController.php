@@ -26,8 +26,10 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class MemberAreaAppController extends Controller
 {
@@ -361,6 +363,45 @@ class MemberAreaAppController extends Controller
             'lesson_comments' => $lessonComments,
             ...$this->pushProps($product),
         ] + $this->gamificationProps($product, $user));
+    }
+
+    /**
+     * Proxy para PDFs de apresentação (mesma origem): o pdf.js usa fetch; URLs no R2 sem CORS falham no browser.
+     */
+    public function presentationPdf(Request $request, string $slug, MemberLesson $lesson, int $fileIndex): SymfonyResponse
+    {
+        $this->assertLessonViewableForPdf($request, $lesson);
+        if ($lesson->type !== MemberLesson::TYPE_PDF_PRESENTATION) {
+            abort(404);
+        }
+        $urls = $this->pdfPresentationSourceUrls($lesson);
+        if ($fileIndex < 0 || $fileIndex >= count($urls)) {
+            abort(404);
+        }
+        $url = $urls[$fileIndex];
+        if (! preg_match('#^https?://#i', $url)) {
+            abort(404);
+        }
+
+        $this->progressService->ensureLessonStarted($lesson, $request->user());
+
+        $remote = Http::timeout(120)->connectTimeout(30)->get($url);
+        if (! $remote->successful()) {
+            abort(502, 'Não foi possível obter o arquivo.');
+        }
+
+        $path = parse_url($url, PHP_URL_PATH);
+        $filename = $path ? basename($path) : 'apresentacao.pdf';
+        if ($filename === '' || $filename === '/') {
+            $filename = 'apresentacao.pdf';
+        }
+
+        return response($remote->body(), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="'.$filename.'"',
+            'Cache-Control' => 'private, max-age=120',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     public function completeLesson(Request $request, string $slug, MemberLesson $lesson): JsonResponse|RedirectResponse
@@ -1222,5 +1263,74 @@ class MemberAreaAppController extends Controller
         }
 
         return $this->resolver->baseUrlForProduct($product);
+    }
+
+    private function assertLessonViewableForPdf(Request $request, MemberLesson $lesson): void
+    {
+        $product = $this->getProduct($request);
+        $user = $request->user();
+        if (! $user) {
+            abort(401);
+        }
+        $lesson->loadMissing('module');
+        $wrapper = $this->findWrapperForEmbeddedLesson($lesson, $product);
+        if ((string) $lesson->product_id !== (string) $product->id && $wrapper === null) {
+            abort(404);
+        }
+        if ($wrapper !== null) {
+            $redirect = $this->assertEmbeddedProductLinkAccess($wrapper, $user);
+            if ($redirect !== null) {
+                abort(403, 'Sem acesso a este conteúdo.');
+            }
+        }
+        $accessStartAt = $this->userAccessStartAt($product, $user);
+        $now = now();
+        $effectiveModule = $wrapper !== null
+            ? $this->resolveContentModuleForWrapper($wrapper)
+            : $lesson->module;
+        if ($effectiveModule) {
+            $moduleLock = $this->moduleLockPayload($effectiveModule, $accessStartAt, $now);
+            if (($moduleLock['is_locked'] ?? false) === true) {
+                abort(403, $moduleLock['lock_message'] ?? 'Módulo ainda não liberado.');
+            }
+        }
+        $lessonLock = $this->lessonLockPayload($lesson, $effectiveModule, $accessStartAt, $now);
+        if (($lessonLock['is_locked'] ?? false) === true) {
+            abort(403, $lessonLock['lock_message'] ?? 'Aula ainda não liberada.');
+        }
+    }
+
+    /**
+     * Mesma ordem que `normalizePdfFiles` no frontend (MemberAreaApp).
+     *
+     * @return list<string>
+     */
+    private function pdfPresentationSourceUrls(MemberLesson $lesson): array
+    {
+        $urls = [];
+        $files = $lesson->content_files;
+        if (is_array($files)) {
+            foreach ($files as $it) {
+                if (is_string($it)) {
+                    $u = trim($it);
+                    if ($u !== '') {
+                        $urls[] = $u;
+                    }
+                } elseif (is_array($it)) {
+                    $u = trim((string) ($it['url'] ?? ''));
+                    if ($u !== '') {
+                        $urls[] = $u;
+                    }
+                }
+            }
+        }
+        if ($urls === [] && $lesson->content_url) {
+            $u = trim((string) $lesson->content_url);
+            if ($u !== '') {
+                $urls[] = $u;
+            }
+        }
+
+        return $urls;
     }
 }

@@ -81,7 +81,8 @@ class UtmifyEventSubscriber
             }
 
             if ($this->shouldDispatchSync()) {
-                UtmifySendOrderJob::dispatchSync(
+                // Em ambientes sem worker (sync) ou com fila instável, não bloqueia a resposta do checkout.
+                UtmifySendOrderJob::dispatchAfterResponse(
                     $integration->id,
                     $order->id,
                     $utmifyStatus,

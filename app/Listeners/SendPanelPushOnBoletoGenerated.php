@@ -3,15 +3,11 @@
 namespace App\Listeners;
 
 use App\Events\BoletoGenerated;
-use App\Services\PanelPushService;
+use App\Jobs\SendPanelPushJob;
 use Illuminate\Support\Facades\Log;
 
 class SendPanelPushOnBoletoGenerated
 {
-    public function __construct(
-        protected PanelPushService $panelPushService
-    ) {}
-
     public function handle(BoletoGenerated $event): void
     {
         $order = $event->order;
@@ -23,7 +19,7 @@ class SendPanelPushOnBoletoGenerated
             $body = "{$productName} - R$ {$amount} - Aguardando pagamento";
             $url = url('/vendas');
 
-            $this->panelPushService->sendAndPersistToTenant(
+            SendPanelPushJob::dispatchAfterResponse(
                 $order->tenant_id,
                 'boleto_generated',
                 $title,
