@@ -14,6 +14,14 @@ if [ ! -f .env ]; then
   cp .env.example .env
 fi
 
+# Em Nginx+PHP-FPM o request roda como www-data, então o wizard (/docker-setup)
+# precisa conseguir escrever no .env (ex.: APP_URL, DOCKER_SETUP_DONE).
+# No build, o arquivo pode ficar como root e quebrar o setup.
+if [ -f .env ]; then
+  chown www-data:www-data .env 2>/dev/null || true
+  chmod 664 .env 2>/dev/null || true
+fi
+
 rm -f public/hot 2>/dev/null || true
 
 # VAPID compartilhado (.docker/pwa_vapid.env): só no worker (GETFY_RUN_SETUP!=true).
