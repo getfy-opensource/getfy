@@ -973,6 +973,20 @@ class MemberAreaAppController extends Controller
             abort(403);
         }
 
+        // If the embedded product is a "Link" deliverable, open the deliverable link instead of
+        // trying to render it as member-area content (which would 404).
+        $related = Product::find($wrapper->related_product_id);
+        if ($related?->type === Product::TYPE_LINK) {
+            $config = is_array($related->checkout_config) ? $related->checkout_config : [];
+            $link = $config['deliverable_link'] ?? '';
+            $link = is_string($link) ? trim($link) : '';
+            if ($link !== '') {
+                return str_starts_with($link, 'http://') || str_starts_with($link, 'https://')
+                    ? redirect()->away($link)
+                    : redirect('/' . ltrim($link, '/'));
+            }
+        }
+
         return null;
     }
 

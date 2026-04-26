@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.0.11] - 26-04-2026
+
+### Novidades
+
+- **Nova função de recuperação de carrinho**.
+- **Mais hooks** para atender diversos tipos de plugins.
+
+### Melhorias
+
+- Melhorias e correções de bugs diversos.
+
+### Correções
+
+- Correções de eventos do **Meta Pixel**.
+- Correções de **UTMs**.
+
 ## [1.0.10] - 17-04-2026
 
 ### Novidades

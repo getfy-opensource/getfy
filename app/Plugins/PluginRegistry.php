@@ -6,6 +6,7 @@ use App\Models\Plugin as PluginModel;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\URL;
 
 class PluginRegistry
 {
@@ -231,6 +232,8 @@ class PluginRegistry
                     'description' => $manifest['description'] ?? null,
                     'author' => $manifest['author'] ?? null,
                     'settings_tab' => $manifest['settings_tab'] ?? null,
+                    'integration_app' => $manifest['integration_app'] ?? null,
+                    'product_panel' => $manifest['product_panel'] ?? null,
                 ];
             }
         }
@@ -282,6 +285,80 @@ class PluginRegistry
             $id = trim((string) ($tab['id'] ?? ''));
             $label = trim((string) ($tab['label'] ?? ''));
             $component = trim((string) ($tab['component'] ?? ''));
+            if ($id === '' || $label === '' || $component === '') {
+                continue;
+            }
+            if (! str_starts_with($component, 'Plugin/')) {
+                continue;
+            }
+            $items[] = [
+                'id' => $id,
+                'label' => $label,
+                'component' => $component,
+            ];
+        }
+
+        return $items;
+    }
+
+    /**
+     * Apps extras na página de Integrações declarados no plugin.json (plugins ativos).
+     *
+     * @return array<int, array{id: string, name: string, description?: string, image?: string, component: string}>
+     */
+    public static function getIntegrationApps(): array
+    {
+        $items = [];
+        foreach (self::enabled() as $plugin) {
+            $app = $plugin['integration_app'] ?? null;
+            if (! is_array($app)) {
+                continue;
+            }
+            $id = trim((string) ($app['id'] ?? $plugin['slug'] ?? ''));
+            $name = trim((string) ($app['name'] ?? $plugin['name'] ?? $id));
+            $component = trim((string) ($app['component'] ?? ''));
+            if ($id === '' || $name === '' || $component === '') {
+                continue;
+            }
+            if (! str_starts_with($component, 'Plugin/')) {
+                continue;
+            }
+            $description = isset($app['description']) ? trim((string) $app['description']) : '';
+            $image = isset($app['image']) ? trim((string) $app['image']) : '';
+
+            // If plugin declares a relative image path, serve from /plugins/{slug}/assets/{path}.
+            if ($image !== '' && ! str_contains($image, '://') && ! str_starts_with($image, '/')) {
+                $image = URL::route('plugins.asset', ['slug' => $plugin['slug'], 'path' => $image]);
+            }
+
+            $items[] = [
+                'id' => $id,
+                'name' => $name,
+                'description' => $description !== '' ? $description : null,
+                'image' => $image !== '' ? $image : null,
+                'component' => $component,
+            ];
+        }
+
+        return $items;
+    }
+
+    /**
+     * Painéis extras na edição de produto declarados no plugin.json (plugins ativos).
+     *
+     * @return array<int, array{id: string, label: string, component: string}>
+     */
+    public static function getProductPanels(): array
+    {
+        $items = [];
+        foreach (self::enabled() as $plugin) {
+            $panel = $plugin['product_panel'] ?? null;
+            if (! is_array($panel)) {
+                continue;
+            }
+            $id = trim((string) ($panel['id'] ?? $plugin['slug'] ?? ''));
+            $label = trim((string) ($panel['label'] ?? $plugin['name'] ?? $id));
+            $component = trim((string) ($panel['component'] ?? ''));
             if ($id === '' || $label === '' || $component === '') {
                 continue;
             }

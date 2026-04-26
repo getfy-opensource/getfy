@@ -11,6 +11,7 @@ return [
         // Pagamento
         \App\Events\OrderPending::class => 'Pedido pendente',
         \App\Events\OrderCompleted::class => 'Pedido pago',
+        \App\Events\AccessDeliveryReady::class => 'Envio de acesso (pós-aprovação)',
         \App\Events\OrderRejected::class => 'Pagamento recusado',
         \App\Events\OrderCancelled::class => 'Pedido cancelado',
         \App\Events\OrderRefunded::class => 'Reembolso',
@@ -33,6 +34,7 @@ return [
     'event_slugs' => [
         \App\Events\OrderPending::class => 'pedido_pendente',
         \App\Events\OrderCompleted::class => 'pedido_pago',
+        \App\Events\AccessDeliveryReady::class => 'envio_acesso',
         \App\Events\OrderRejected::class => 'pagamento_recusado',
         \App\Events\OrderCancelled::class => 'pedido_cancelado',
         \App\Events\OrderRefunded::class => 'reembolso',

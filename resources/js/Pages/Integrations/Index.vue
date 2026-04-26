@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, defineAsyncComponent } from 'vue';
 import { router, usePage } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import Button from '@/components/ui/Button.vue';
@@ -58,10 +58,29 @@ const props = defineProps({
     spedy_integrations: { type: Array, default: () => [] },
     cademi_integrations: { type: Array, default: () => [] },
     products: { type: Array, default: () => [] },
+    plugin_apps: { type: Array, default: () => [] },
 });
 
+const pluginPagesGlob = import.meta.glob('../../PluginPages/**/*.vue');
+const pluginComponentCache = new Map();
+function resolvePluginComponent(componentName) {
+    if (!componentName || typeof componentName !== 'string') return null;
+    if (pluginComponentCache.has(componentName)) return pluginComponentCache.get(componentName);
+    const rel = componentName.startsWith('Plugin/') ? componentName.slice(7) : componentName;
+    const path = `../../PluginPages/${rel}.vue`;
+    const loader = pluginPagesGlob[path];
+    if (!loader) {
+        pluginComponentCache.set(componentName, null);
+        return null;
+    }
+    const asyncComp = defineAsyncComponent(loader);
+    pluginComponentCache.set(componentName, asyncComp);
+    return asyncComp;
+}
+
 const APPS = computed(() =>
-    APPS_BASE.map((app) => {
+    [
+        ...APPS_BASE.map((app) => {
         if (app.id === 'utmify') {
             const hasActive = (props.utmify_integrations || []).some(
                 (i) => i.configured && i.is_active
@@ -90,7 +109,17 @@ const APPS = computed(() =>
             };
         }
         return app;
-    })
+    }),
+        ...((props.plugin_apps || []).map((p) => ({
+            id: `plugin:${p.id}`,
+            plugin: true,
+            plugin_component: p.component,
+            name: p.name,
+            description: p.description,
+            image: p.image,
+            status: p.status,
+        }))),
+    ]
 );
 
 const gatewaySidebarOpen = ref(false);
@@ -99,6 +128,9 @@ const webhookSidebarOpen = ref(false);
 const utmifySidebarOpen = ref(false);
 const spedySidebarOpen = ref(false);
 const cademiSidebarOpen = ref(false);
+const pluginSidebarOpen = ref(false);
+const selectedPluginComponentName = ref(null);
+const selectedPluginAppName = ref(null);
 
 function openGatewaySidebar(slug) {
     selectedGatewaySlug.value = slug;
@@ -142,6 +174,18 @@ function closeCademiSidebar() {
     cademiSidebarOpen.value = false;
 }
 
+function openPluginSidebar(app) {
+    selectedPluginComponentName.value = app?.plugin_component || null;
+    selectedPluginAppName.value = app?.name || 'Integração';
+    pluginSidebarOpen.value = true;
+}
+
+function closePluginSidebar() {
+    pluginSidebarOpen.value = false;
+    selectedPluginComponentName.value = null;
+    selectedPluginAppName.value = null;
+}
+
 function onGatewaySaved() {
     router.reload({ only: ['gateways', 'gateway_order'] });
 }
@@ -172,6 +216,8 @@ function onAppClick(app) {
         openSpedySidebar();
     } else if (app.id === 'cademi') {
         openCademiSidebar();
+    } else if (app.plugin) {
+        openPluginSidebar(app);
     }
 }
 
@@ -293,5 +339,65 @@ function setTab(tabId) {
             @close="closeCademiSidebar"
             @saved="onCademiSaved"
         />
+
+        <!-- Plugin sidebars (ex.: AutoZap) -->
+        <Teleport to="body">
+            <Transition
+                enter-active-class="transition-opacity duration-200"
+                enter-from-class="opacity-0"
+                enter-to-class="opacity-100"
+                leave-active-class="transition-opacity duration-200"
+                leave-from-class="opacity-100"
+                leave-to-class="opacity-0"
+            >
+                <div
+                    v-if="pluginSidebarOpen"
+                    class="fixed inset-0 z-[100000] bg-black/30"
+                    aria-hidden="true"
+                    @click="closePluginSidebar"
+                />
+            </Transition>
+            <Transition
+                enter-active-class="transition-transform duration-300 ease-out"
+                enter-from-class="translate-x-full"
+                enter-to-class="translate-x-0"
+                leave-active-class="transition-transform duration-300 ease-in"
+                leave-from-class="translate-x-0"
+                leave-to-class="translate-x-full"
+            >
+                <aside
+                    v-if="pluginSidebarOpen"
+                    class="fixed top-0 right-0 z-[100001] flex h-full w-full max-w-md flex-col bg-white shadow-2xl dark:bg-zinc-900"
+                    role="dialog"
+                    aria-label="Configuração da integração"
+                    @click.stop
+                >
+                    <div class="flex shrink-0 items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
+                        <div class="text-lg font-semibold text-zinc-900 dark:text-white">
+                            {{ selectedPluginAppName || 'Integração' }}
+                        </div>
+                        <button
+                            type="button"
+                            class="rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"
+                            aria-label="Fechar"
+                            @click="closePluginSidebar"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto p-4">
+                        <component
+                            v-if="selectedPluginComponentName && resolvePluginComponent(selectedPluginComponentName)"
+                            :is="resolvePluginComponent(selectedPluginComponentName)"
+                            @saved="router.reload()"
+                            @close="closePluginSidebar"
+                        />
+                        <div v-else class="rounded-xl border border-dashed border-zinc-300 p-4 text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
+                            Não foi possível carregar o painel desta integração do plugin.
+                        </div>
+                    </div>
+                </aside>
+            </Transition>
+        </Teleport>
     </div>
 </template>

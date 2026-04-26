@@ -16,6 +16,7 @@ use App\Models\ProductOffer;
 use App\Models\ProductOrderBump;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Plugins\PluginRegistry;
 use App\Services\StorageService;
 use App\Services\TeamAccessService;
 use Illuminate\Http\Request;
@@ -316,6 +317,7 @@ class ProdutosController extends Controller
             'exchange_rates' => $rates,
             'gateways_by_method' => $gatewaysByMethod,
             'cademi_integrations' => $cademiIntegrations,
+            'plugin_product_panels' => PluginRegistry::getProductPanels(),
             'layoutContentFlushLeft' => true,
             'pageTitleBadge' => $produto->name,
         ]);

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref, onMounted, onUnmounted, watch } from 'vue';
+import { computed, reactive, ref, onMounted, onUnmounted, watch, defineAsyncComponent } from 'vue';
 import { useForm, Link, router, usePage } from '@inertiajs/vue3';
 import { useSidebar } from '@/composables/useSidebar';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
@@ -235,7 +235,7 @@ const PIXEL_TABS = [
     { id: 'custom_script', label: 'Script personalizado', image: '/images/pixels/script.png' },
 ];
 
-const TABS = [
+const BASE_TABS = [
     { id: 'geral', label: 'Geral', icon: LayoutDashboard },
     { id: 'configuracoes', label: 'Configurações', icon: Settings },
     { id: 'email', label: 'E-mail', icon: Mail },
@@ -258,7 +258,39 @@ const props = defineProps({
         type: Object,
         default: () => ({ pix: [], card: [], boleto: [], pix_auto: [], crypto: [] }),
     },
+    plugin_product_panels: { type: Array, default: () => [] },
 });
+
+const pluginTabs = computed(() => {
+    const panels = Array.isArray(props.plugin_product_panels) ? props.plugin_product_panels : [];
+    return panels
+        .filter((p) => p && typeof p === 'object' && p.id && p.label && p.component)
+        .map((p) => ({
+            id: `plugin_${String(p.id)}`,
+            label: String(p.label),
+            icon: Smartphone,
+            pluginPanel: p,
+        }));
+});
+
+const TABS = computed(() => [...BASE_TABS, ...pluginTabs.value]);
+
+const pluginPagesGlob = import.meta.glob('../../PluginPages/**/*.vue');
+const pluginComponentCache = new Map();
+function resolvePluginComponent(componentName) {
+    if (!componentName || typeof componentName !== 'string') return null;
+    if (pluginComponentCache.has(componentName)) return pluginComponentCache.get(componentName);
+    const rel = componentName.startsWith('Plugin/') ? componentName.slice(7) : componentName;
+    const path = `../../PluginPages/${rel}.vue`;
+    const loader = pluginPagesGlob[path];
+    if (!loader) {
+        pluginComponentCache.set(componentName, null);
+        return null;
+    }
+    const asyncComp = defineAsyncComponent(loader);
+    pluginComponentCache.set(componentName, asyncComp);
+    return asyncComp;
+}
 
 const page = usePage();
 const currentTab = computed(() => {
@@ -267,7 +299,7 @@ const currentTab = computed(() => {
     const search = idx !== -1 ? url.slice(idx) : '';
     const q = new URLSearchParams(search);
     const t = q.get('tab');
-    return TABS.some((tab) => tab.id === t) ? t : 'geral';
+    return TABS.value.some((tab) => tab.id === t) ? t : 'geral';
 });
 
 function setTab(tabId) {
@@ -3249,6 +3281,30 @@ function submit() {
                 <p class="mt-3 text-center font-medium text-zinc-600 dark:text-zinc-400">Afiliados</p>
                 <p class="mt-1 text-center text-sm text-zinc-500 dark:text-zinc-500">Esta funcionalidade será implementada em breve.</p>
             </div>
+        </template>
+
+        <!-- Abas de plugins (ex.: AutoZap) -->
+        <template v-for="pt in pluginTabs" :key="pt.id">
+            <template v-if="currentTab === pt.id">
+                <div class="overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-sm dark:border-zinc-700/80 dark:bg-zinc-800/95">
+                    <div class="border-b border-zinc-200/80 px-6 py-4 dark:border-zinc-700/80">
+                        <h2 class="text-base font-semibold text-zinc-900 dark:text-white">{{ pt.label }}</h2>
+                        <p class="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
+                            Configurações específicas deste produto via plugin.
+                        </p>
+                    </div>
+                    <div class="p-6">
+                        <component
+                            v-if="pt.pluginPanel?.component && resolvePluginComponent(pt.pluginPanel.component)"
+                            :is="resolvePluginComponent(pt.pluginPanel.component)"
+                            :produto="produto"
+                        />
+                        <div v-else class="rounded-lg border border-dashed border-zinc-300 p-3 text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
+                            Não foi possível carregar este painel do plugin.
+                        </div>
+                    </div>
+                </div>
+            </template>
         </template>
         </div>
     </div>

@@ -268,6 +268,62 @@ class AccessEmailService
     }
 
     /**
+     * Build access data for WhatsApp delivery (best-effort).
+     *
+     * @return array{type:string, link:string, email:string, password:string, product_type:string}|null
+     */
+    public function getAccessDataForOrder(Order $order): ?array
+    {
+        $order->loadMissing(['product', 'user']);
+        $product = $order->product;
+        if (! $product) return null;
+
+        // Same exclusions used by access e-mail logic.
+        if ($product->type === Product::TYPE_LINK_PAGAMENTO) {
+            return null;
+        }
+
+        $email = (string) ($order->email ?: $order->user?->email ?: '');
+        $link = $this->getAccessLinkForOrder($order);
+        if ($link === '' || $email === '') {
+            // For TYPE_AREA_MEMBROS_EXTERNA we do not have a usable link here.
+            return null;
+        }
+
+        $password = '';
+        if ($product->type === Product::TYPE_AREA_MEMBROS && $order->user_id && $order->product_id) {
+            $passwordCacheKey = 'access_password.' . $order->user_id . '.' . $order->product_id;
+            $decrypted = null;
+            $meta = $order->metadata ?? [];
+            if (! empty($meta['access_password_temp'])) {
+                try {
+                    $decrypted = decrypt($meta['access_password_temp']);
+                } catch (\Throwable) {
+                    // ignore
+                }
+            }
+            if (is_string($decrypted) && $decrypted !== '') {
+                $password = $decrypted;
+            } else {
+                $cached = Cache::get($passwordCacheKey);
+                if (is_string($cached) && $cached !== '') {
+                    $password = $cached;
+                }
+            }
+        }
+
+        $type = $product->type === Product::TYPE_AREA_MEMBROS ? 'member_area' : ($product->type === Product::TYPE_LINK ? 'link' : 'generic');
+
+        return [
+            'type' => $type,
+            'link' => $link,
+            'email' => $email,
+            'password' => $password,
+            'product_type' => (string) $product->type,
+        ];
+    }
+
+    /**
      * Send access email for a user who was manually granted access to a product.
      */
     public function sendForUserProduct(User $user, Product $product): bool

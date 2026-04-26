@@ -21,6 +21,36 @@ class IntegrationsController extends Controller
     public function index(): Response
     {
         $tenantId = auth()->user()->tenant_id;
+        $pluginApps = PluginRegistry::getIntegrationApps();
+
+        // Plugin app badges (ex.: AutoZap "Ativo" quando configurado).
+        // Plugins podem ser carregados sem autoload; por isso, usamos require_once quando necessário.
+        foreach ($pluginApps as $idx => $app) {
+            if (($app['id'] ?? null) !== 'autozap') {
+                continue;
+            }
+            try {
+                $pluginDir = PluginRegistry::resolvePluginDirectory('autozap');
+                if (is_string($pluginDir) && $pluginDir !== '') {
+                    $modelFile = rtrim($pluginDir, '/\\') . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Models' . DIRECTORY_SEPARATOR . 'AutoZapConnection.php';
+                    if (is_file($modelFile)) {
+                        require_once $modelFile;
+                    }
+                }
+
+                if (class_exists(\Plugins\AutoZap\Models\AutoZapConnection::class)) {
+                    $conn = \Plugins\AutoZap\Models\AutoZapConnection::forTenant($tenantId)->first();
+                    $isActive = (bool) ($conn?->is_active ?? false);
+                    $hasCredentials = (bool) ($conn?->hasCredentials() ?? false);
+                    if ($isActive && $hasCredentials) {
+                        $pluginApps[$idx]['status'] = 'active';
+                    }
+                }
+            } catch (\Throwable) {
+                // Badge é "best-effort": não deve quebrar a página de integrações.
+            }
+        }
+
         $gateways = $this->buildGatewaysList($tenantId);
         $gatewayOrderRaw = Setting::get('gateway_order', null, $tenantId);
         $gatewayOrder = is_string($gatewayOrderRaw)
@@ -112,6 +142,7 @@ class IntegrationsController extends Controller
             'spedy_integrations' => $spedyIntegrations,
             'cademi_integrations' => $cademiIntegrations,
             'products' => $products,
+            'plugin_apps' => $pluginApps,
         ]);
     }
 
