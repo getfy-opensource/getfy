@@ -46,6 +46,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'member.area.resolve' => \App\Http\Middleware\ResolveMemberAreaProduct::class,
             'member.area.resolve.by.host' => \App\Http\Middleware\ResolveMemberAreaByHost::class,
             'member.area.access' => \App\Http\Middleware\EnsureMemberAreaAccess::class,
+            'member.area.signed' => \App\Http\Middleware\SignedOrMemberAreaRedirect::class,
             'admin.tenant' => \App\Http\Middleware\EnsureAdminHasTenant::class,
         ]);
     })
