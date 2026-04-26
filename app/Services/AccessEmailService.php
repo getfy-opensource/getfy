@@ -435,6 +435,20 @@ class AccessEmailService
             $useHostAccess = false;
         }
 
+        $slugForSignedPathAccess = null;
+        if (! $useHostAccess) {
+            $basePath = parse_url($base, PHP_URL_PATH);
+            if (is_string($basePath) && $basePath !== '') {
+                $segments = explode('/', trim($basePath, '/'));
+                if (($segments[0] ?? null) === 'm' && ! empty($segments[1])) {
+                    $slugForSignedPathAccess = (string) $segments[1];
+                }
+            }
+            if ($slugForSignedPathAccess === null || $slugForSignedPathAccess === '') {
+                $slugForSignedPathAccess = (string) ($product->checkout_slug ?? '');
+            }
+        }
+
         $originalRoot = $appUrl;
         $originalScheme = $appScheme;
 
@@ -447,12 +461,14 @@ class AccessEmailService
                 \Illuminate\Support\Facades\URL::forceRootUrl(rtrim($base, '/'));
                 return \Illuminate\Support\Facades\URL::temporarySignedRoute('member-area.magic-access.host', $expiresAt, [
                     'u' => $user->id,
+                    'p' => $product->id,
                 ]);
             }
 
             return \Illuminate\Support\Facades\URL::temporarySignedRoute('member-area.magic-access', $expiresAt, [
-                'slug' => $product->checkout_slug,
+                'slug' => $slugForSignedPathAccess,
                 'u' => $user->id,
+                'p' => $product->id,
             ]);
         } finally {
             \Illuminate\Support\Facades\URL::forceRootUrl($originalRoot);
