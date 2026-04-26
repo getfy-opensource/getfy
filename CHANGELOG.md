@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.12] - 26-04-2026
+
+### Correções
+
+- Plugins novos não apareciam.
+
+
 ## [1.0.11] - 26-04-2026
 
 ### Novidades

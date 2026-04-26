@@ -217,7 +217,7 @@ class PluginRegistry
                     continue;
                 }
                 $slug = $manifest['slug'] ?? basename($dir);
-                $bySlug[$slug] = [
+                $row = [
                     'slug' => $slug,
                     'name' => $manifest['name'] ?? $slug,
                     'version' => $manifest['version'] ?? '1.0.0',
@@ -235,6 +235,23 @@ class PluginRegistry
                     'integration_app' => $manifest['integration_app'] ?? null,
                     'product_panel' => $manifest['product_panel'] ?? null,
                 ];
+
+                // Uma instalação persistente (ex.: ZIP) no mesmo slug sobrescreve a pasta bundled.
+                // Se o plugin.json da cópia for minimalista, preservar blocos de UI já lidos
+                // de uma deteção anterior (ex.: integração / painel no produto).
+                if (isset($bySlug[$slug])) {
+                    $prev = $bySlug[$slug];
+                    foreach (['integration_app', 'product_panel', 'settings_tab'] as $uiKey) {
+                        $val = $row[$uiKey] ?? null;
+                        if ($val === null || (is_array($val) && $val === [])) {
+                            $p = $prev[$uiKey] ?? null;
+                            if ($p !== null && (! is_array($p) || $p !== [])) {
+                                $row[$uiKey] = $p;
+                            }
+                        }
+                    }
+                }
+                $bySlug[$slug] = $row;
             }
         }
 
@@ -328,14 +345,17 @@ class PluginRegistry
 
             // If plugin declares a relative image path, serve from /plugins/{slug}/assets/{path}.
             if ($image !== '' && ! str_contains($image, '://') && ! str_starts_with($image, '/')) {
-                $image = URL::route('plugins.asset', ['slug' => $plugin['slug'], 'path' => $image]);
+                try {
+                    $image = URL::route('plugins.asset', ['slug' => $plugin['slug'], 'path' => $image]);
+                } catch (\Throwable) {
+                    $image = '';
+                }
             }
-
             $items[] = [
                 'id' => $id,
                 'name' => $name,
                 'description' => $description !== '' ? $description : null,
-                'image' => $image !== '' ? $image : null,
+                'image' => $image !== '' && $image !== null ? $image : null,
                 'component' => $component,
             ];
         }
