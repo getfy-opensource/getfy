@@ -21,6 +21,7 @@ use App\Models\Setting;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Plugins\PluginRegistry;
 use App\Services\GeoIp;
 use App\Services\EfiPixRecorrenteService;
 use App\Services\StorageService;
@@ -183,6 +184,8 @@ class CheckoutController extends Controller
         $payload = [
             'product' => $productArray,
             'config' => $config,
+            'checkout_templates' => PluginRegistry::getCheckoutTemplates(),
+            'checkout_template' => PluginRegistry::resolveCheckoutTemplate($config['template'] ?? 'original'),
         ];
         $payload['offer'] = $resolved['offer'] ? [
             'id' => $resolved['offer']->id,

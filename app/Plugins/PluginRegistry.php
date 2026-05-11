@@ -235,6 +235,7 @@ class PluginRegistry
                     'settings_tab' => $manifest['settings_tab'] ?? null,
                     'integration_app' => $manifest['integration_app'] ?? null,
                     'product_panel' => $manifest['product_panel'] ?? null,
+                    'checkout_templates' => $manifest['checkout_templates'] ?? [],
                 ];
 
                 // Uma instalação persistente (ex.: ZIP) no mesmo slug sobrescreve a pasta bundled.
@@ -242,7 +243,7 @@ class PluginRegistry
                 // de uma deteção anterior (ex.: integração / painel no produto).
                 if (isset($bySlug[$slug])) {
                     $prev = $bySlug[$slug];
-                    foreach (['integration_app', 'product_panel', 'settings_tab'] as $uiKey) {
+                    foreach (['integration_app', 'product_panel', 'settings_tab', 'checkout_templates'] as $uiKey) {
                         $val = $row[$uiKey] ?? null;
                         if ($val === null || (is_array($val) && $val === [])) {
                             $p = $prev[$uiKey] ?? null;
@@ -394,6 +395,126 @@ class PluginRegistry
         }
 
         return $items;
+    }
+
+    /**
+     * Templates de checkout declarados por plugins ativos.
+     *
+     * Por segurança, templates de plugins registram apenas metadados e CSS servido
+     * pela rota protegida de assets do plugin. HTML/JS arbitrário não é aceito aqui.
+     *
+     * @return array<int, array{id: string, name: string, description?: string|null, plugin: string, css_url?: string|null}>
+     */
+    public static function getCheckoutTemplates(): array
+    {
+        $items = [];
+        foreach (self::enabled() as $plugin) {
+            $templates = $plugin['checkout_templates'] ?? [];
+            if (! is_array($templates)) {
+                continue;
+            }
+
+            $slug = trim((string) ($plugin['slug'] ?? ''));
+            if ($slug === '') {
+                continue;
+            }
+
+            foreach ($templates as $template) {
+                if (! is_array($template)) {
+                    continue;
+                }
+
+                $id = self::normalizeCheckoutTemplateId((string) ($template['id'] ?? ''));
+                $name = self::normalizeCheckoutTemplateText((string) ($template['name'] ?? ''), 80);
+                if ($id === null || $name === '') {
+                    continue;
+                }
+
+                $css = self::normalizeCheckoutTemplateAssetPath((string) ($template['css'] ?? ''));
+                if ($css === null) {
+                    continue;
+                }
+
+                try {
+                    $cssUrl = URL::route('plugins.asset', ['slug' => $slug, 'path' => $css]);
+                } catch (\Throwable) {
+                    continue;
+                }
+
+                $description = self::normalizeCheckoutTemplateText((string) ($template['description'] ?? ''), 180);
+                $items[] = [
+                    'id' => $slug.'::'.$id,
+                    'name' => $name,
+                    'description' => $description !== '' ? $description : null,
+                    'plugin' => $slug,
+                    'css_url' => $cssUrl,
+                ];
+            }
+        }
+
+        return $items;
+    }
+
+    /**
+     * @return array{id: string, name: string, description?: string|null, plugin: string, css_url?: string|null}|null
+     */
+    public static function resolveCheckoutTemplate(?string $id): ?array
+    {
+        $id = trim((string) $id);
+        if ($id === '' || $id === 'original') {
+            return null;
+        }
+
+        foreach (self::getCheckoutTemplates() as $template) {
+            if (($template['id'] ?? '') === $id) {
+                return $template;
+            }
+        }
+
+        return null;
+    }
+
+    public static function checkoutTemplateExists(?string $id): bool
+    {
+        $id = trim((string) $id);
+        if ($id === '' || $id === 'original') {
+            return true;
+        }
+
+        return self::resolveCheckoutTemplate($id) !== null;
+    }
+
+    private static function normalizeCheckoutTemplateId(string $id): ?string
+    {
+        $id = strtolower(trim($id));
+        if (! preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/', $id)) {
+            return null;
+        }
+
+        return $id;
+    }
+
+    private static function normalizeCheckoutTemplateText(string $value, int $maxLength): string
+    {
+        $value = trim(strip_tags($value));
+        if ($value === '') {
+            return '';
+        }
+
+        return mb_substr($value, 0, $maxLength);
+    }
+
+    private static function normalizeCheckoutTemplateAssetPath(string $path): ?string
+    {
+        $path = trim(str_replace('\\', '/', $path));
+        if ($path === '' || str_starts_with($path, '/') || str_contains($path, '://') || str_contains($path, '..')) {
+            return null;
+        }
+        if (! str_ends_with(strtolower($path), '.css')) {
+            return null;
+        }
+
+        return ltrim($path, '/');
     }
 
     /**
