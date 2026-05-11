@@ -22,6 +22,8 @@ const PREVIEW_MESSAGE_TYPE = 'checkout-builder-preview-config';
 const props = defineProps({
     product: { type: Object, required: true },
     config: { type: Object, default: () => ({}) },
+    checkout_templates: { type: Array, default: () => [] },
+    checkout_template: { type: Object, default: null },
     checkout_session_token: { type: String, default: '' },
     available_payment_methods: { type: Array, default: () => [] },
     flash: { type: Object, default: () => ({}) },
@@ -72,6 +74,19 @@ const effectiveConfig = computed(() => {
     }
     return props.config;
 });
+
+const selectedTemplateId = computed(() => effectiveConfig.value?.template || 'original');
+const activeCheckoutTemplate = computed(() => {
+    if (selectedTemplateId.value === 'original') {
+        return null;
+    }
+    const listed = (props.checkout_templates || []).find((tpl) => tpl?.id === selectedTemplateId.value);
+    if (listed) {
+        return listed;
+    }
+    return props.checkout_template?.id === selectedTemplateId.value ? props.checkout_template : null;
+});
+const checkoutTemplateCssUrl = computed(() => activeCheckoutTemplate.value?.css_url || null);
 
 /** Listener no setup (não só no onMounted) para não perder postMessage se o parent disparar no @load do iframe antes do mount. */
 if (typeof window !== 'undefined' && props.checkout_builder_preview) {
@@ -353,10 +368,12 @@ const hasCustomBodyEnd = computed(() => String(customBodyEndHtml.value).trim() !
             fetchpriority="high"
         />
         <link rel="icon" :href="faviconHref" />
+        <link v-if="checkoutTemplateCssUrl" rel="stylesheet" :href="checkoutTemplateCssUrl" />
     </Head>
     <div
         id="getfy-checkout-root"
         data-checkout="page"
+        :data-checkout-template="selectedTemplateId"
         class="min-h-screen transition-colors duration-300"
         :style="{ backgroundColor }"
     >

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Coupon;
 use App\Models\Product;
 use App\Models\ProductOffer;
+use App\Plugins\PluginRegistry;
 use App\Services\StorageService;
 use App\Models\SubscriptionPlan;
 use Illuminate\Http\JsonResponse;
@@ -67,6 +68,7 @@ class CheckoutConfigController extends Controller
             ],
             'config' => $config,
             'checkout_scope' => $scope,
+            'checkout_templates' => PluginRegistry::getCheckoutTemplates(),
             'cupons' => $cupons,
             'layoutFullWidth' => true,
         ]);
@@ -108,6 +110,10 @@ class CheckoutConfigController extends Controller
 
         // Oferta/plano: não persistir chaves mantidas só no produto (Builder não as envia; gravar defaults
         // anularia payment_gateways no merge público — ver CheckoutController).
+        if (! PluginRegistry::checkoutTemplateExists($merged['template'] ?? 'original')) {
+            $merged['template'] = 'original';
+        }
+
         if ($offerId || $planId) {
             foreach (['payment_gateways', 'card_installments', 'stripe_link_enabled', 'deliverable_link', 'email_template'] as $inheritKey) {
                 unset($merged[$inheritKey]);
