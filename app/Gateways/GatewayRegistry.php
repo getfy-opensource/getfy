@@ -2,6 +2,7 @@
 
 namespace App\Gateways;
 
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
 
@@ -12,31 +13,53 @@ class GatewayRegistry
 
     /**
      * Register a gateway (e.g. from a plugin). Merges with core gateways from config.
+     * BLOQUEADO: Apenas CajuPay e Asaas são permitidos. Plugins não podem adicionar/modificar gateways.
      *
      * @param  array{slug: string, name: string, image: string, methods: array, scope: string, signup_url: string, driver: string, credential_keys: array}  $gateway
      */
     public static function register(array $gateway): void
     {
         $slug = $gateway['slug'] ?? null;
-        if ($slug && is_string($slug)) {
-            self::$custom[$slug] = $gateway;
+        
+        // Whitelist: apenas CajuPay e Asaas permitidos
+        $allowed = ['cajupay', 'asaas'];
+        
+        if (!$slug || !is_string($slug)) {
+            Log::warning('GatewayRegistry: tentativa de registrar gateway sem slug válido');
+            return;
         }
+        
+        // Bloquear gateways não autorizados
+        if (!in_array($slug, $allowed, true)) {
+            Log::warning('GatewayRegistry: gateway bloqueado (não autorizado)', ['slug' => $slug]);
+            return;
+        }
+        
+        // Bloquear tentativas de sobrescrever via plugin
+        $fromConfig = config('gateways.gateways', []);
+        if (isset($fromConfig[$slug])) {
+            Log::warning('GatewayRegistry: tentativa de plugin sobrescrever gateway core', ['slug' => $slug]);
+            return;
+        }
+        
+        self::$custom[$slug] = $gateway;
     }
 
     /**
      * All available gateways (config + custom from plugins).
+     * Apenas gateways configurados no config/gateways.php são carregados.
      *
      * @return array<int, array<string, mixed>>
      */
     public static function all(): array
     {
         $fromConfig = config('gateways.gateways', []);
-        $merged = array_merge($fromConfig, self::$custom);
-
+        
+        // Aqui só o config é retornado (plugins não podem adicionar)
         return array_values(array_map(function ($def, $slug) {
             $def['slug'] = $def['slug'] ?? $slug;
             return $def;
-        }, $merged, array_keys($merged)));
+        }, $fromConfig, array_keys($fromConfig)));
     }
 
     /**
