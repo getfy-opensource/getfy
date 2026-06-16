@@ -22,6 +22,7 @@ import MercadopagoBoleto from './mercadopago/Boleto.vue';
 import CajupayCard from './cajupay/Card.vue';
 import CajupayApplePay from './cajupay/ApplePay.vue';
 import CajupayGooglePay from './cajupay/GooglePay.vue';
+import CajupayPixParcelado from './cajupay/PixParcelado.vue';
 
 /** @type {Record<string, Record<string, import('vue').Component>>} */
 export const gatewayMethodComponents = {
@@ -66,6 +67,7 @@ export const gatewayMethodComponents = {
         card: CajupayCard,
         apple_pay: CajupayApplePay,
         google_pay: CajupayGooglePay,
+        pix_parcelado: CajupayPixParcelado,
     },
 };
 

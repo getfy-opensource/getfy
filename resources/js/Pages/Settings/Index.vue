@@ -445,6 +445,8 @@ async function testConnection() {
         payload.smtp_username = form.smtp_username;
         payload.smtp_password = form.smtp_password;
         payload.smtp_encryption = form.smtp_encryption;
+        payload.mail_from_address = form.mail_from_address;
+        payload.mail_from_name = form.mail_from_name;
     }
     try {
         await window.axios.post('/configuracoes/email/connection-test', payload);
@@ -482,6 +484,8 @@ async function sendTestEmail() {
         payload.smtp_username = form.smtp_username;
         payload.smtp_password = form.smtp_password;
         payload.smtp_encryption = form.smtp_encryption;
+        payload.mail_from_address = form.mail_from_address;
+        payload.mail_from_name = form.mail_from_name;
     }
     try {
         await window.axios.post('/configuracoes/email/send-test', payload);

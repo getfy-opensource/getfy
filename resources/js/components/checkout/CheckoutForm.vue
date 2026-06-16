@@ -11,6 +11,8 @@ import CheckoutCurrencyPicker from './CheckoutCurrencyPicker.vue';
 import CheckoutPaymentMethods from './CheckoutPaymentMethods.vue';
 import AsaasCard from './gateways/asaas/Card.vue';
 import CajuPaySdkMount from './CajuPaySdkMount.vue';
+import CajuPayParceladoMount from './CajuPayParceladoMount.vue';
+import { buildCajuPayConsumer } from '@/composables/useCajuPaySdk';
 import {
     CHECKOUT_PAGARME_TOKENIZE_FORM_ID,
     PAGARME_TOKENIZE_FORM_ACTION,
@@ -298,6 +300,9 @@ const props = defineProps({
     otherCurrencies: { type: Array, default: () => [] },
     priceInCurrency: { type: Function, default: (v) => v },
     pluginCheckoutExtensions: { type: Array, default: () => [] },
+    productName: { type: String, default: '' },
+    cajupayPayAccountId: { type: String, default: '' },
+    parceladoSdkOptions: { type: Object, default: () => ({}) },
 });
 
 const emit = defineEmits(['coupon-applied', 'coupon-cleared', 'update:orderBumpIds', 'payment-approved', 'set-currency', 'plugin-shipping-change']);
@@ -656,6 +661,15 @@ watch(
 );
 const phoneDigits = ref('');
 const phoneCountryOpen = ref(false);
+
+const cajuPayParceladoConsumer = computed(() => buildCajuPayConsumer({
+    name: form.name,
+    email: form.email,
+    document: (form.cpf || '').replace(/\D/g, ''),
+    phone: (phoneDigits.value || '').length >= 8
+        ? `${form.country_code}${phoneDigits.value}`
+        : undefined,
+}));
 
 const showEmailDropdown = ref(false);
 const emailDropdownCloseTimer = ref(null);
@@ -1206,6 +1220,12 @@ const isCajuPaySdkFlow = computed(() => {
         && currentMethodGatewaySlug.value === 'cajupay';
 });
 
+const isCajuPayParceladoFlow = computed(() => {
+    return form.payment_method === 'pix_parcelado'
+        && currentMethodGatewaySlug.value === 'cajupay'
+        && props.displayCurrency === 'BRL';
+});
+
 /** Apple/Google Pay no CajuPay: o pagamento costuma concluir no botão nativo do SDK (sem o submit do formulário). */
 const isCajuPayWalletSdk = computed(() => {
     return isCajuPaySdkFlow.value
@@ -1261,6 +1281,178 @@ const cajupayApprovedRedirectUrl = ref('');
 const cajupayMethodsAvailable = ref([]);
 /** True após POST /checkout/cajupay/confirm-order com sucesso (wallets materializam antes do 1º confirm do SDK). */
 const cajupayOrderMaterialized = ref(false);
+
+const parceladoPayAccountId = ref('');
+const parceladoPaymentLinkToken = ref('');
+const parceladoAmountCents = ref(0);
+const parceladoSdkOptionsLive = ref({});
+const parceladoSessionLoading = ref(false);
+const parceladoError = ref('');
+const parceladoMountRef = ref(null);
+const parceladoPollingToken = ref('');
+let parceladoSessionDebounce = null;
+
+watch(
+    () => props.parceladoSdkOptions,
+    (options) => {
+        if (!parceladoPaymentLinkToken.value && options && typeof options === 'object') {
+            parceladoSdkOptionsLive.value = options;
+        }
+    },
+    { immediate: true, deep: true },
+);
+
+function resolveParceladoDownPaymentCents(result) {
+    if (!result || typeof result !== 'object') return null;
+    const direct = result.down_payment_cents ?? result.downPaymentCents;
+    if (direct != null && Number(direct) > 0) {
+        return Number(direct);
+    }
+    const installments = Array.isArray(result.installments) ? result.installments : [];
+    const first = installments.find((item) => Number(item?.sequence) === 1) ?? installments[0];
+    const fromInstallment = first?.amount_cents;
+    if (fromInstallment != null && Number(fromInstallment) > 0) {
+        return Number(fromInstallment);
+    }
+    const configured = parceladoSdkOptionsLive.value?.parcelado_down_payment_cents
+        ?? parceladoSdkOptionsLive.value?.downPaymentCents;
+    if (configured != null && Number(configured) > 0) {
+        return Number(configured);
+    }
+    return null;
+}
+
+function buildParceladoSessionPayload() {
+    const payload = {
+        product_id: form.product_id,
+        coupon_code: (form.coupon_code || '').trim() || null,
+    };
+    if (props.productOfferId) payload.product_offer_id = props.productOfferId;
+    if (props.subscriptionPlanId) payload.subscription_plan_id = props.subscriptionPlanId;
+    if (props.checkoutSessionToken) payload.checkout_session_token = props.checkoutSessionToken;
+    if (props.displayCurrency) payload.display_currency = props.displayCurrency;
+    if (Array.isArray(props.orderBumpIds) && props.orderBumpIds.length > 0) {
+        payload.order_bump_ids = props.orderBumpIds
+            .map((id) => (typeof id === 'number' ? id : parseInt(id, 10)))
+            .filter((n) => !Number.isNaN(n));
+    }
+    appendUtms(payload);
+    appendCheckoutSecurity(payload);
+    appendPluginCheckoutData(payload);
+    return payload;
+}
+
+async function ensureParceladoSession(silent = false) {
+    if (!isCajuPayParceladoFlow.value) return null;
+    if (parceladoPaymentLinkToken.value && parceladoPayAccountId.value) {
+        return parceladoPaymentLinkToken.value;
+    }
+    if (parceladoSessionLoading.value) return null;
+    parceladoSessionLoading.value = true;
+    if (!silent) parceladoError.value = '';
+    try {
+        const res = await axios.post('/checkout/cajupay/parcelado/session', buildParceladoSessionPayload(), {
+            headers: { 'X-XSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
+        });
+        const data = res.data || {};
+        parceladoPayAccountId.value = data.pay_account_id || props.cajupayPayAccountId || '';
+        parceladoPaymentLinkToken.value = data.payment_link_token || '';
+        parceladoAmountCents.value = Number(data.amount_cents) || Math.round(Number(props.checkoutTotalBrl) * 100);
+        if (data.sdk_options && typeof data.sdk_options === 'object') {
+            parceladoSdkOptionsLive.value = data.sdk_options;
+        }
+        return parceladoPaymentLinkToken.value;
+    } catch (e) {
+        parceladoError.value = e?.response?.data?.message || e?.message || 'Não foi possível carregar PIX Parcelado.';
+        return null;
+    } finally {
+        parceladoSessionLoading.value = false;
+    }
+}
+
+function scheduleParceladoSessionRefresh() {
+    if (!isCajuPayParceladoFlow.value) return;
+    if (parceladoSessionDebounce) clearTimeout(parceladoSessionDebounce);
+    parceladoSessionDebounce = setTimeout(() => {
+        parceladoPaymentLinkToken.value = '';
+        ensureParceladoSession(true);
+    }, 400);
+}
+
+async function postParceladoConfirmOrder() {
+    const payload = {
+        ...buildParceladoSessionPayload(),
+        email: form.email,
+        name: form.name,
+        cpf: (form.cpf || '').replace(/\D/g, ''),
+        phone: showPhone.value && (phoneDigits.value || '').length >= 8
+            ? `${form.country_code}${phoneDigits.value}`
+            : (form.phone || ''),
+    };
+    const res = await axios.post('/checkout/cajupay/parcelado/confirm-order', payload, {
+        headers: { 'X-XSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
+    });
+    parceladoPollingToken.value = res.data?.polling_token || '';
+    return res.data;
+}
+
+async function submitCajuPayParceladoFlow() {
+    parceladoError.value = '';
+    if (!validateCajuPayCustomerFields()) {
+        parceladoError.value = 'Preencha nome, e-mail, CPF e telefone antes de continuar.';
+        return;
+    }
+    cardTokenizing.value = true;
+    try {
+        await ensureParceladoSession();
+        if (!parceladoPaymentLinkToken.value) {
+            throw new Error(parceladoError.value || 'Não foi possível iniciar PIX Parcelado.');
+        }
+        await nextTick();
+        const start = Date.now();
+        while (!parceladoMountRef.value?.isReady?.() && Date.now() - start < 8000) {
+            await new Promise((r) => setTimeout(r, 150));
+        }
+        if (!parceladoMountRef.value?.isReady?.()) {
+            throw new Error('Aguarde o widget PIX Parcelado carregar.');
+        }
+        try {
+            await postParceladoConfirmOrder();
+        } catch (e) {
+            const fieldErrors = e?.response?.data?.errors;
+            if (fieldErrors && typeof fieldErrors === 'object') {
+                Object.entries(fieldErrors).forEach(([k, v]) => form.setError(k, Array.isArray(v) ? v[0] : v));
+                showEditForm.value = true;
+            }
+            throw e;
+        }
+        parceladoMountRef.value?.setConsumer?.(cajuPayParceladoConsumer.value);
+        const result = await parceladoMountRef.value.confirm();
+        const copyPaste = result?.pix_copy_paste || result?.copy_paste || '';
+        if (!copyPaste) {
+            throw new Error('PIX da entrada não foi gerado. Tente novamente.');
+        }
+        const completeRes = await axios.post('/checkout/cajupay/parcelado/complete', {
+            polling_token: parceladoPollingToken.value,
+            plan_id: result?.plan_id || result?.id || '',
+            payment_id: result?.payment_id || result?.first_payment_id || null,
+            pix_copy_paste: copyPaste,
+            pix_qr_code: result?.pix_qr_code || result?.qrcode || null,
+            installment_count: result?.installment_count || parceladoMountRef.value?.controller?.getSelectedInstallmentCount?.() || null,
+            down_payment_cents: resolveParceladoDownPaymentCents(result),
+        }, {
+            headers: { 'X-XSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
+        });
+        const redirectUrl = completeRes.data?.redirect_url;
+        if (redirectUrl) {
+            window.location.href = redirectUrl;
+        }
+    } catch (e) {
+        parceladoError.value = e?.response?.data?.message || e?.message || 'Falha ao processar PIX Parcelado.';
+    } finally {
+        cardTokenizing.value = false;
+    }
+}
 
 function stopCajuPayPolling() {
     if (cajupayPollTimer) {
@@ -1324,17 +1516,18 @@ function cajupayMinimumFieldsReady() {
  */
 function validateCajuPayCustomerFields() {
     const errors = {};
+    const parcelado = form.payment_method === 'pix_parcelado';
     const email = (form.email || '').trim();
     if (email.length < 5 || !/.+@.+\..+/.test(email)) {
         errors.email = 'E-mail obrigatório.';
     }
-    if (showName.value && (form.name || '').trim().length < 2) {
+    if ((showName.value || parcelado) && (form.name || '').trim().length < 2) {
         errors.name = 'Informe seu nome completo.';
     }
-    if (showCpf.value && (form.cpf || '').replace(/\D/g, '').length !== 11) {
+    if ((showCpf.value || parcelado) && (form.cpf || '').replace(/\D/g, '').length !== 11) {
         errors.cpf = 'CPF inválido.';
     }
-    if (showPhone.value && (phoneDigits.value || '').length < 8) {
+    if ((showPhone.value || parcelado) && (phoneDigits.value || '').length < 8) {
         errors.phone = 'Telefone inválido.';
     }
     if (Object.keys(errors).length > 0) {
@@ -1458,8 +1651,7 @@ onBeforeUnmount(() => stopCajuPayPolling());
 
 watch(() => form.payment_method, () => {
     cajupayError.value = '';
-    // Mudou de método: invalida a sessão CajuPay para forçar criação de uma nova
-    // (cada sessão é específica para um método).
+    parceladoError.value = '';
     if (cajupaySessionToken.value) {
         cajupaySessionToken.value = '';
         cajupayPollingToken.value = '';
@@ -1467,14 +1659,16 @@ watch(() => form.payment_method, () => {
         cajupayOrderMaterialized.value = false;
         stopCajuPayPolling();
     }
-    // Se o novo método é um fluxo CajuPay SDK, agenda criação automática da sessão
-    // assim o widget já monta com os inputs (cartão / wallet) sem o usuário
-    // precisar clicar em "Pagar" primeiro.
     if (isCajuPaySdkFlow.value) {
-        // Cria o draft (sessão sem Order) imediatamente — sem exigir email/nome/CPF.
         scheduleEnsureCajuPaySession();
     } else {
         cajupayMissingFieldsHint.value = '';
+    }
+    if (isCajuPayParceladoFlow.value) {
+        parceladoPaymentLinkToken.value = '';
+        scheduleParceladoSessionRefresh();
+    } else {
+        parceladoPaymentLinkToken.value = '';
     }
 });
 
@@ -1482,8 +1676,12 @@ watch(() => form.payment_method, () => {
 // Isso evita cobrar valor desatualizado quando o cliente seleciona o método e depois muda
 // o cupom/bumps. A sessão antiga fica órfã na CajuPay (sem efeito — só o token novo é usado).
 watch(
-    () => [form.coupon_code, props.orderBumpIds, props.productOfferId, props.subscriptionPlanId],
+    () => [form.coupon_code, props.orderBumpIds, props.productOfferId, props.subscriptionPlanId, props.checkoutTotalBrl],
     () => {
+        if (isCajuPayParceladoFlow.value) {
+            parceladoPaymentLinkToken.value = '';
+            scheduleParceladoSessionRefresh();
+        }
         if (!isCajuPaySdkFlow.value) return;
         if (cajupaySessionToken.value) {
             cajupaySessionToken.value = '';
@@ -2207,6 +2405,9 @@ async function submitCajuPaySdkFlow(paymentMethod) {
             name: form.name,
             email: form.email,
             document: (form.cpf || '').replace(/\D/g, ''),
+            phone: showPhone.value && (phoneDigits.value || '').length >= 8
+                ? `${form.country_code}${phoneDigits.value}`
+                : undefined,
         });
 
         await cajupayMountRef.value.confirm();
@@ -2241,6 +2442,11 @@ function submit() {
 
     if (isCajuPaySdkFlow.value) {
         submitCajuPaySdkFlow(paymentMethod);
+        return;
+    }
+
+    if (isCajuPayParceladoFlow.value) {
+        submitCajuPayParceladoFlow();
         return;
     }
 
@@ -3058,6 +3264,39 @@ function submit() {
                 >
                     Pagamento não concluiu? Tentar novamente
                 </button>
+            </div>
+
+            <!-- CajuPay PIX Parcelado -->
+            <div
+                v-if="isCajuPayParceladoFlow"
+                class="space-y-4 rounded-xl border-2 border-gray-100 bg-gray-50/50 p-4"
+                data-checkout="form-cajupay-parcelado-panel"
+            >
+                <div class="flex items-center gap-2 text-gray-700">
+                    <ScanQrCode class="h-5 w-5 text-gray-500" />
+                    <span class="text-sm font-medium">PIX Parcelado</span>
+                </div>
+                <p v-if="parceladoError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700" role="alert">
+                    {{ parceladoError }}
+                </p>
+                <div class="rounded-xl border-2 border-gray-100 bg-white px-4 py-3">
+                    <CajuPayParceladoMount
+                        ref="parceladoMountRef"
+                        :pay-account-id="parceladoPayAccountId || cajupayPayAccountId"
+                        :payment-link-token="parceladoPaymentLinkToken"
+                        :amount-cents="parceladoAmountCents || Math.round((checkoutTotalBrl || 0) * 100)"
+                        :description="productName || 'Compra'"
+                        :sdk-options="parceladoSdkOptionsLive"
+                        :initial-consumer="cajuPayParceladoConsumer"
+                    />
+                    <div
+                        v-if="!parceladoPaymentLinkToken && (parceladoSessionLoading)"
+                        class="mt-2 flex items-center gap-2 text-sm text-gray-600"
+                    >
+                        <Loader2 class="h-4 w-4 animate-spin text-gray-500" />
+                        <span>Carregando opções de parcelamento…</span>
+                    </div>
+                </div>
             </div>
 
             <!-- Formulário de cartão (Stripe Elements ou campos Efí) -->

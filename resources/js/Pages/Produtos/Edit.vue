@@ -9,6 +9,7 @@ import Toggle from '@/components/ui/Toggle.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import GatewaySelect from '@/components/ui/GatewaySelect.vue';
 import GatewayRedundancySidebar from '@/components/produtos/GatewayRedundancySidebar.vue';
+import PixParceladoRulesSidebar from '@/components/produtos/PixParceladoRulesSidebar.vue';
 import ProductCoproducaoTab from '@/components/produtos/ProductCoproducaoTab.vue';
 import ProductAfiliadosTab from '@/components/produtos/ProductAfiliadosTab.vue';
 import PluginSlotHost from '@/components/plugins/PluginSlotHost.vue';
@@ -37,6 +38,7 @@ import {
     Trash2,
     Layers,
     MapPin,
+    SlidersHorizontal,
     ChevronDown,
     RotateCcw,
 } from 'lucide-vue-next';
@@ -121,8 +123,9 @@ const props = defineProps({
     product_pixel_integrations: { type: Array, default: () => [] },
     gateways_by_method: {
         type: Object,
-        default: () => ({ pix: [], card: [], boleto: [], pix_auto: [], apple_pay: [], google_pay: [], crypto: [] }),
+        default: () => ({ pix: [], card: [], boleto: [], pix_auto: [], apple_pay: [], google_pay: [], pix_parcelado: [], crypto: [] }),
     },
+    cajupay_parcelado_enrollment: { type: Object, default: null },
     plugin_product_panels: { type: Array, default: () => [] },
     plugin_form_sections: { type: Array, default: () => [] },
     tenant_currencies: { type: Array, default: () => [] },
@@ -207,6 +210,16 @@ watch(currentTab, () => {
 const pg = props.produto.checkout_config?.payment_gateways ?? {};
 const et = props.produto.checkout_config?.email_template ?? {};
 const ci = props.produto.checkout_config?.card_installments ?? { enabled: false, max: 1 };
+const ppRaw = props.produto.checkout_config?.pix_parcelado ?? {};
+const pixParceladoInitial = {
+    max_installments: ppRaw.max_installments ?? null,
+    down_payment_cents: ppRaw.down_payment_cents ?? null,
+    min_down_payment_bps: ppRaw.min_down_payment_bps ?? null,
+    max_down_payment_bps: ppRaw.max_down_payment_bps ?? null,
+    early_payment_discount_bps: ppRaw.early_payment_discount_bps ?? 0,
+    payoff_discount_bps: ppRaw.payoff_discount_bps ?? 0,
+    overdue_payoff_discount_bps: ppRaw.overdue_payoff_discount_bps ?? 0,
+};
 const creRaw = props.produto.checkout_config?.cart_recovery_email;
 const cartRecoveryInitial = {
     ...DEFAULT_CART_RECOVERY_EMAIL,
@@ -318,7 +331,10 @@ const form = useForm({
         google_pay_redundancy: Array.isArray(pg.google_pay_redundancy) ? pg.google_pay_redundancy : [],
         crypto: pg.crypto ?? '',
         crypto_redundancy: Array.isArray(pg.crypto_redundancy) ? pg.crypto_redundancy : [],
+        pix_parcelado: pg.pix_parcelado ?? '',
+        pix_parcelado_redundancy: Array.isArray(pg.pix_parcelado_redundancy) ? pg.pix_parcelado_redundancy : [],
     },
+    pix_parcelado: { ...pixParceladoInitial },
     card_installments: {
         enabled: Boolean(ci.enabled),
         max: Math.min(12, Math.max(1, parseInt(ci.max, 10) || 1)),
@@ -1113,7 +1129,15 @@ function gatewayOptions(method) {
 
 const redundancySidebarOpen = ref(false);
 const redundancySidebarMethod = ref(null);
-const METHOD_LABELS = { pix: 'PIX', card: 'Cartão', boleto: 'Boleto', pix_auto: 'PIX automático', apple_pay: 'Apple Pay', google_pay: 'Google Pay', crypto: 'Criptomoeda' };
+const METHOD_LABELS = { pix: 'PIX', card: 'Cartão', boleto: 'Boleto', pix_auto: 'PIX automático', apple_pay: 'Apple Pay', google_pay: 'Google Pay', pix_parcelado: 'PIX Parcelado', crypto: 'Criptomoeda' };
+const pixParceladoRulesSidebarOpen = ref(false);
+const cajupayParceladoEnrollmentStatus = computed(() => {
+    const s = String(props.cajupay_parcelado_enrollment?.status || '').toLowerCase();
+    return s || 'unknown';
+});
+const cajupayParceladoNotEnrolled = computed(() => {
+    return form.payment_gateways.pix_parcelado === 'cajupay' && cajupayParceladoEnrollmentStatus.value !== 'active';
+});
 function openRedundancySidebar(method) {
     redundancySidebarMethod.value = method;
     redundancySidebarOpen.value = true;
@@ -1237,6 +1261,10 @@ function submit() {
             (form.payment_gateways.google_pay_redundancy || []).forEach((s) => fd.append('payment_gateways[google_pay_redundancy][]', s));
             fd.append('payment_gateways[crypto]', form.payment_gateways.crypto || '');
             (form.payment_gateways.crypto_redundancy || []).forEach((s) => fd.append('payment_gateways[crypto_redundancy][]', s));
+            if (form.billing_type === 'one_time') {
+                fd.append('payment_gateways[pix_parcelado]', form.payment_gateways.pix_parcelado || '');
+                (form.payment_gateways.pix_parcelado_redundancy || []).forEach((s) => fd.append('payment_gateways[pix_parcelado_redundancy][]', s));
+            }
             if (form.billing_type === 'subscription') {
                 fd.append('payment_gateways[pix_auto]', form.payment_gateways.pix_auto || '');
                 (form.payment_gateways.pix_auto_redundancy || []).forEach((s) => fd.append('payment_gateways[pix_auto_redundancy][]', s));
@@ -1245,6 +1273,24 @@ function submit() {
         if (form.card_installments) {
             fd.append('card_installments[enabled]', form.card_installments.enabled ? '1' : '0');
             fd.append('card_installments[max]', String(Math.min(12, Math.max(1, form.card_installments.max || 1))));
+        }
+        if (form.payment_gateways.pix_parcelado === 'cajupay' && form.pix_parcelado) {
+            const pp = form.pix_parcelado;
+            if (pp.max_installments != null && pp.max_installments !== '') {
+                fd.append('pix_parcelado[max_installments]', String(pp.max_installments));
+            }
+            if (pp.down_payment_cents != null && pp.down_payment_cents !== '') {
+                fd.append('pix_parcelado[down_payment_cents]', String(pp.down_payment_cents));
+            }
+            if (pp.min_down_payment_bps != null && pp.min_down_payment_bps !== '') {
+                fd.append('pix_parcelado[min_down_payment_bps]', String(pp.min_down_payment_bps));
+            }
+            if (pp.max_down_payment_bps != null && pp.max_down_payment_bps !== '') {
+                fd.append('pix_parcelado[max_down_payment_bps]', String(pp.max_down_payment_bps));
+            }
+            fd.append('pix_parcelado[early_payment_discount_bps]', String(pp.early_payment_discount_bps ?? 0));
+            fd.append('pix_parcelado[payoff_discount_bps]', String(pp.payoff_discount_bps ?? 0));
+            fd.append('pix_parcelado[overdue_payoff_discount_bps]', String(pp.overdue_payoff_discount_bps ?? 0));
         }
         if (typeof form.stripe_link_enabled === 'boolean') {
             fd.append('stripe_link_enabled', form.stripe_link_enabled ? '1' : '0');
@@ -2019,6 +2065,56 @@ function submit() {
                                     </p>
                                 </div>
                             </div>
+                            <!-- PIX Parcelado (somente pagamento único) -->
+                            <div
+                                v-if="form.billing_type === 'one_time'"
+                                class="panel-card-md"
+                            >
+                                <div class="flex flex-col gap-3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white p-2 shadow-sm dark:bg-zinc-700/50">
+                                            <img src="/images/payment-methods/pix.svg" alt="PIX Parcelado" class="h-7 w-7 object-contain" />
+                                        </div>
+                                        <div>
+                                            <p class="font-semibold text-zinc-900 dark:text-white">PIX Parcelado</p>
+                                            <p class="text-xs text-zinc-500 dark:text-zinc-400">Entrada + parcelas (CajuPay)</p>
+                                            <span class="mt-1 inline-flex rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">BRL · pagamento único</span>
+                                        </div>
+                                    </div>
+                                    <GatewaySelect
+                                        v-model="form.payment_gateways.pix_parcelado"
+                                        :options="gatewayOptions('pix_parcelado')"
+                                        placeholder="Nenhum"
+                                        label="Gateway PIX Parcelado"
+                                    />
+                                    <button
+                                        v-if="form.payment_gateways.pix_parcelado === 'cajupay'"
+                                        type="button"
+                                        class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)]/10 hover:text-[var(--color-primary)] dark:border-zinc-600 dark:text-zinc-300"
+                                        @click="pixParceladoRulesSidebarOpen = true"
+                                    >
+                                        <SlidersHorizontal class="h-4 w-4" />
+                                        Definir regras
+                                    </button>
+                                    <button
+                                        v-if="canShowRedundancy(form.payment_gateways.pix_parcelado)"
+                                        type="button"
+                                        class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)]/10 hover:text-[var(--color-primary)] dark:border-zinc-600 dark:text-zinc-300"
+                                        @click="openRedundancySidebar('pix_parcelado')"
+                                    >
+                                        <Layers class="h-4 w-4" />
+                                        Redundância
+                                    </button>
+                                    <p v-if="cajupayParceladoNotEnrolled" class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                                        Aceite o contrato PIX Parcelado na
+                                        <Link href="/integracoes?tab=gateways&gateway=cajupay" class="font-medium underline">configuração CajuPay</Link>
+                                        antes de usar no checkout.
+                                    </p>
+                                    <p v-if="(gateways_by_method.pix_parcelado || []).length === 0" class="text-xs text-zinc-500 dark:text-zinc-400">
+                                        <Link href="/integracoes?tab=gateways" class="text-[var(--color-primary)] hover:underline">Conectar CajuPay</Link>
+                                    </p>
+                                </div>
+                            </div>
                             <!-- Cartão -->
                             <div class="panel-card-md">
                                 <div class="flex flex-col gap-3">
@@ -2537,6 +2633,15 @@ function submit() {
                     @update:model-value="(val) => redundancySidebarMethod && (form.payment_gateways[redundancySidebarMethod + '_redundancy'] = val)"
                     @save="(val) => { if (redundancySidebarMethod) { form.payment_gateways[redundancySidebarMethod + '_redundancy'] = val; submit(); } redundancySidebarOpen = false; }"
                     @close="redundancySidebarOpen = false"
+                />
+
+                <PixParceladoRulesSidebar
+                    :open="pixParceladoRulesSidebarOpen"
+                    :product-id="produto.id"
+                    :price-brl="priceNum"
+                    v-model="form.pix_parcelado"
+                    @close="pixParceladoRulesSidebarOpen = false"
+                    @save="() => { pixParceladoRulesSidebarOpen = false; }"
                 />
 
                 <Teleport to="body">

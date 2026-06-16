@@ -111,6 +111,8 @@ const feesMessage = ref('');
 const feesPanelOpen = ref(false);
 const advancedPanelOpen = ref(false);
 const rotatingWebhook = ref(false);
+const acceptingParcelado = ref(false);
+const parceladoMessage = ref('');
 
 const feeMethodLabels = {
     pix: 'PIX',
@@ -172,6 +174,30 @@ async function rotateWebhookSecret() {
         testMessage.value = err.response?.data?.message || 'Erro ao rotacionar token do webhook.';
     } finally {
         rotatingWebhook.value = false;
+    }
+}
+
+async function acceptPixParceladoEnrollment() {
+    const url = gateway.value?.pix_parcelado_accept_url;
+    if (!url) return;
+    acceptingParcelado.value = true;
+    parceladoMessage.value = '';
+    try {
+        const { data } = await axios.post(
+            url,
+            {},
+            { headers: { 'X-XSRF-TOKEN': getCsrfToken(), Accept: 'application/json' } },
+        );
+        testSuccess.value = data.success;
+        parceladoMessage.value = data.message || 'Contrato aceito.';
+        if (gateway.value?.slug) {
+            await reloadGateway(gateway.value.slug);
+        }
+    } catch (err) {
+        testSuccess.value = false;
+        parceladoMessage.value = err.response?.data?.message || 'Erro ao aceitar contrato PIX Parcelado.';
+    } finally {
+        acceptingParcelado.value = false;
     }
 }
 
@@ -532,6 +558,39 @@ const canTestConnection = computed(() => {
                         <p v-else class="mb-2 text-xs text-zinc-600 dark:text-zinc-400">
                             Configure esta URL no painel do {{ gateway.name }} (notificações de pagamento).
                         </p>
+
+                        <div
+                            v-if="gateway.slug === 'cajupay' && gateway.is_connected"
+                            class="mb-6 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-600 dark:bg-zinc-800/50"
+                        >
+                            <h3 class="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                                PIX Parcelado
+                            </h3>
+                            <p class="mb-3 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                                Adesão necessária para oferecer PIX Parcelado no checkout. Status:
+                                <strong>{{ gateway.pix_parcelado_enrollment?.status || 'desconhecido' }}</strong>
+                            </p>
+                            <div
+                                v-if="gateway.pix_parcelado_enrolled"
+                                class="mb-3 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-800 dark:bg-emerald-950/40"
+                            >
+                                <Check class="h-4 w-4 shrink-0 text-emerald-600" />
+                                <span class="text-xs font-medium text-emerald-800 dark:text-emerald-200">Adesão ativa</span>
+                            </div>
+                            <button
+                                v-else-if="gateway.pix_parcelado_accept_url"
+                                type="button"
+                                class="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+                                :disabled="acceptingParcelado"
+                                @click="acceptPixParceladoEnrollment"
+                            >
+                                {{ acceptingParcelado ? 'Aceitando…' : 'Aceitar contrato PIX Parcelado' }}
+                            </button>
+                            <p v-if="parceladoMessage" class="mt-2 text-xs" :class="testSuccess ? 'text-emerald-700' : 'text-red-600'">
+                                {{ parceladoMessage }}
+                            </p>
+                        </div>
+
                         <p class="mb-1 text-[11px] font-medium text-zinc-600 dark:text-zinc-400">URL principal</p>
                         <div class="mb-3 flex gap-2">
                             <input

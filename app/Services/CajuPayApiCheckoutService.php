@@ -246,19 +246,25 @@ class CajuPayApiCheckoutService
 
     /**
      * @param  array<string, mixed>  $customer
-     * @return array{name: string, email: string, document: string}
+     * @return array{name: string, email: string, document: string, phone?: string}
      */
     private function buildConsumer(array $customer): array
     {
         $email = trim((string) ($customer['email'] ?? ''));
         $name = trim((string) ($customer['name'] ?? ''));
         $document = preg_replace('/\D/', '', (string) ($customer['cpf'] ?? ''));
+        $phone = trim((string) ($customer['phone'] ?? ''));
 
-        return [
+        $consumer = [
             'name' => $name !== '' ? $name : $email,
             'email' => $email,
             'document' => $document,
         ];
+        if ($phone !== '') {
+            $consumer['phone'] = $phone;
+        }
+
+        return $consumer;
     }
 
     private function sessionDescription(ApiCheckoutSession $session, ?ApiApplication $app): string

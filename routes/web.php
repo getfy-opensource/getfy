@@ -184,6 +184,16 @@ Route::post('/checkout/cajupay/session', [\App\Http\Controllers\CheckoutControll
 Route::post('/checkout/cajupay/confirm-order', [\App\Http\Controllers\CheckoutController::class, 'cajupayConfirmOrder'])
     ->name('checkout.cajupay.confirm-order')
     ->middleware(['throttle:checkout-process', 'throttle:checkout-card', 'throttle:checkout-email', 'throttle:checkout-product-ip', 'checkout.abuse']);
+Route::post('/checkout/cajupay/parcelado/session', [\App\Http\Controllers\CheckoutController::class, 'cajupayParceladoSession'])
+    ->name('checkout.cajupay.parcelado.session')
+    ->middleware(['throttle:checkout-process', 'checkout.abuse']);
+Route::post('/checkout/cajupay/parcelado/confirm-order', [\App\Http\Controllers\CheckoutController::class, 'cajupayParceladoConfirmOrder'])
+    ->name('checkout.cajupay.parcelado.confirm-order')
+    ->middleware(['throttle:checkout-process', 'throttle:checkout-email', 'throttle:checkout-product-ip', 'checkout.abuse']);
+Route::post('/checkout/cajupay/parcelado/complete', [\App\Http\Controllers\CheckoutController::class, 'cajupayParceladoComplete'])
+    ->name('checkout.cajupay.parcelado.complete')
+    ->middleware(['throttle:checkout-process', 'checkout.abuse']);
+Route::get('/checkout/pix-parcelado', [\App\Http\Controllers\CheckoutController::class, 'pixParceladoPage'])->name('checkout.pix-parcelado');
 // Mesmo handler que webhooks.cajupay — URL alternativa usada em docs/curl da CajuPay
 Route::post('/checkout/cajupay/webhook', [\App\Http\Controllers\Webhooks\CajuPayWebhookController::class, 'handle'])
     ->name('webhooks.cajupay.checkout-alias')
@@ -432,6 +442,7 @@ Route::middleware(['auth', 'admin.tenant', 'role:admin|infoprodutor|team', 'audi
         Route::put('/produtos/{produto}/downsell-page/config', [\App\Http\Controllers\UpsellDownsellPageController::class, 'updateDownsellPage'])->name('downsell-page.update');
         Route::post('/produtos/{produto}/downsell-page/config', [\App\Http\Controllers\UpsellDownsellPageController::class, 'updateDownsellPage'])->name('downsell-page.update.post');
         Route::put('/produtos/{produto}', [\App\Http\Controllers\ProdutosController::class, 'update'])->name('produtos.update');
+        Route::get('/produtos/{produto}/pix-parcelado/platform-rules', [\App\Http\Controllers\ProdutosController::class, 'pixParceladoPlatformRules'])->name('produtos.pix-parcelado.platform-rules');
         Route::post('/produtos/{produto}/email-template-logo', [\App\Http\Controllers\ProdutosController::class, 'uploadEmailTemplateLogo'])->name('produtos.email-template-logo');
         Route::delete('/produtos/{produto}', [\App\Http\Controllers\ProdutosController::class, 'destroy'])->name('produtos.destroy');
         Route::post('/produtos/{produto}/duplicate', [\App\Http\Controllers\ProdutosController::class, 'duplicate'])->name('produtos.duplicate');
@@ -550,6 +561,8 @@ Route::middleware(['auth', 'admin.tenant', 'role:admin|infoprodutor|team', 'audi
         Route::post('/configuracoes/gateways/{slug}/test', [\App\Http\Controllers\GatewaysController::class, 'test'])->name('gateways.test');
         Route::post('/configuracoes/gateways/cajupay/rotate-webhook-secret', [\App\Http\Controllers\GatewaysController::class, 'rotateCajuPayWebhookSecret'])
             ->name('gateways.cajupay.rotate-webhook');
+        Route::post('/configuracoes/gateways/cajupay/pix-parcelado/accept', [\App\Http\Controllers\GatewaysController::class, 'acceptCajuPayPixParceladoEnrollment'])
+            ->name('gateways.cajupay.parcelado.accept');
     });
     // Upload de arquivo (PHP/Laravel lida melhor via POST)
     Route::post('/configuracoes/gateways/{slug}/certificate', [\App\Http\Controllers\GatewaysController::class, 'updateCertificate'])

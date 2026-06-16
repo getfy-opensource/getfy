@@ -694,21 +694,23 @@ class PluginRegistry
 
     private static function checkPhpSyntax(string $file): ?string
     {
-        $phpBin = (defined('PHP_BINARY') && is_string(PHP_BINARY) && PHP_BINARY !== '')
-            ? PHP_BINARY
-            : 'php';
-        $output = [];
-        $code = 0;
-        @exec($phpBin.' -l '.escapeshellarg($file).' 2>&1', $output, $code);
-        if ($code === 0) {
-            return null;
-        }
-        $msg = trim(implode(' ', $output));
-        if ($msg !== '' && (str_contains(strtolower($msg), 'não é reconhecido') || str_contains(strtolower($msg), 'not recognized'))) {
-            return null;
+        if (! is_readable($file)) {
+            return 'arquivo não legível.';
         }
 
-        return $msg ?: 'erro de sintaxe PHP';
+        $code = @file_get_contents($file);
+        if ($code === false) {
+            return 'não foi possível ler o arquivo.';
+        }
+
+        // Evita exec(PHP_BINARY): em php-fpm, PHP_BINARY aponta para php-fpm e "-l" imprime o help.
+        try {
+            token_get_all($code, TOKEN_PARSE);
+        } catch (\ParseError $e) {
+            return $e->getMessage();
+        }
+
+        return null;
     }
 
     /**

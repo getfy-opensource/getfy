@@ -48,6 +48,8 @@ class EmailTestController extends Controller
             'sendgrid_api_key' => ['nullable', 'string'],
             'sendgrid_mail_from_address' => ['nullable', 'email', 'max:255'],
             'sendgrid_mail_from_name' => ['nullable', 'string', 'max:255'],
+            'mail_from_address' => ['nullable', 'email', 'max:255'],
+            'mail_from_name' => ['nullable', 'string', 'max:255'],
         ]);
 
         $tenantId = auth()->user()->tenant_id;
@@ -83,6 +85,8 @@ class EmailTestController extends Controller
             'sendgrid_api_key' => ['nullable', 'string'],
             'sendgrid_mail_from_address' => ['nullable', 'email', 'max:255'],
             'sendgrid_mail_from_name' => ['nullable', 'string', 'max:255'],
+            'mail_from_address' => ['nullable', 'email', 'max:255'],
+            'mail_from_name' => ['nullable', 'string', 'max:255'],
         ]);
 
         $provider = $validated['email_provider'] ?? Setting::get('email_provider', 'smtp', $tenantId);
@@ -126,7 +130,7 @@ class EmailTestController extends Controller
             }
             // host/port/encryption are fixed, no overrides
         } else {
-            foreach (['smtp_host', 'smtp_port', 'smtp_username', 'smtp_password', 'smtp_encryption'] as $k) {
+            foreach (['smtp_host', 'smtp_port', 'smtp_username', 'smtp_password', 'smtp_encryption', 'mail_from_address', 'mail_from_name'] as $k) {
                 if (isset($validated[$k]) && $validated[$k] !== null && $validated[$k] !== '') {
                     $overrides[$k] = $validated[$k];
                 }

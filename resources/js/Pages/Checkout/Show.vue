@@ -77,6 +77,10 @@ const props = defineProps({
     /** Definido no servidor quando a URL traz `?preview=1` (preview no iframe do Builder). */
     checkout_builder_preview: { type: Boolean, default: false },
     plugin_checkout_extensions: { type: Array, default: () => [] },
+    cajupay_pay_account_id: { type: String, default: '' },
+    cajupay_public_key: { type: String, default: '' },
+    parcelado_sdk_options: { type: Object, default: () => ({}) },
+    pix_parcelado_rules: { type: Object, default: null },
 });
 
 const previewConfig = ref(null);
@@ -863,6 +867,9 @@ const hasCustomBodyEnd = computed(() => String(customBodyEndHtml.value).trim() !
                             :featured-currencies="featuredCurrencies"
                             :other-currencies="otherCurrencies"
                             :plugin-checkout-extensions="plugin_checkout_extensions"
+                            :product-name="product.name || ''"
+                            :cajupay-pay-account-id="cajupay_pay_account_id || ''"
+                            :parcelado-sdk-options="parcelado_sdk_options || {}"
                             :price-in-currency="priceInCurrency"
                             @coupon-applied="onCouponApplied"
                             @coupon-cleared="onCouponCleared"

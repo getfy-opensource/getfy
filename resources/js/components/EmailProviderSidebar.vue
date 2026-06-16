@@ -173,15 +173,27 @@ const fixedValueClass =
           </div>
         </section>
 
-        <!-- Sender Info (remetente = usuário SMTP; nome opcional) — oculto para SendGrid (já no bloco acima) -->
-        <section v-if="!isSendGrid" class="space-y-4">
+        <!-- Remetente: Hostinger usa o e-mail do usuário SMTP; SMTP genérico permite e-mail separado -->
+        <section v-if="!isSendGrid && hasFixedDefaults" class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Remetente (nome)</h3>
           <p class="text-sm text-zinc-500 dark:text-zinc-400">O e-mail do remetente é o mesmo do usuário SMTP acima. Defina apenas o nome exibido:</p>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Nome do remetente</label>
+            <input v-model="form.hostinger_mail_from_name" type="text" :class="inputClass" placeholder="Ex: Minha Loja" />
+          </div>
+        </section>
+
+        <section v-if="!isSendGrid && !hasFixedDefaults" class="space-y-4">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Remetente</h3>
           <div class="space-y-4">
             <div>
+              <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">E-mail do remetente</label>
+              <input v-model="form.mail_from_address" type="email" :class="inputClass" placeholder="noreply@seudominio.com" />
+              <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Pode ser diferente do usuário SMTP, se o servidor permitir.</p>
+            </div>
+            <div>
               <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Nome do remetente</label>
-              <input v-if="hasFixedDefaults" v-model="form.hostinger_mail_from_name" type="text" :class="inputClass" placeholder="Ex: Minha Loja" />
-              <input v-else v-model="form.mail_from_name" type="text" :class="inputClass" placeholder="Ex: Minha Loja" />
+              <input v-model="form.mail_from_name" type="text" :class="inputClass" placeholder="Ex: Minha Loja" />
             </div>
           </div>
         </section>

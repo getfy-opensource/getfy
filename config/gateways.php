@@ -12,7 +12,7 @@ return [
             'slug' => 'cajupay',
             'name' => 'CajuPay',
             'image' => 'images/gateways/cajupay.png',
-            'methods' => ['pix', 'card', 'apple_pay', 'google_pay'],
+            'methods' => ['pix', 'card', 'apple_pay', 'google_pay', 'pix_parcelado'],
             'scope' => 'international',
             'country' => 'br',
             'country_name' => 'Brasil / Global',
@@ -208,6 +208,7 @@ return [
         'pix_auto' => ['efi', 'pushinpay'],
         'apple_pay' => ['cajupay'],
         'google_pay' => ['cajupay'],
+        'pix_parcelado' => ['cajupay'],
         'crypto' => [],
     ],
 ];

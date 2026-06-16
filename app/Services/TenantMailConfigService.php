@@ -146,7 +146,11 @@ class TenantMailConfigService
             $fromName = Setting::get('hostinger_mail_from_name', config('mail.from.name'), $tenantId);
             $replyTo = Setting::get('hostinger_reply_to', null, $tenantId);
         } else {
-            $fromName = Setting::get('mail_from_name', config('mail.from.name'), $tenantId);
+            $smtpFrom = $overrides['mail_from_address'] ?? Setting::get('mail_from_address', '', $tenantId);
+            if ($smtpFrom !== null && $smtpFrom !== '') {
+                $fromAddress = $smtpFrom;
+            }
+            $fromName = $overrides['mail_from_name'] ?? Setting::get('mail_from_name', config('mail.from.name'), $tenantId);
             $replyTo = Setting::get('reply_to', null, $tenantId);
         }
 

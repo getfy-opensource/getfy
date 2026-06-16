@@ -353,4 +353,126 @@ class CajuPayPixWebhookTest extends TestCase
             return ! array_key_exists('partner_checkout_url', $body);
         });
     }
+
+    public function test_pix_create_includes_consumer_phone_when_provided(): void
+    {
+        Http::fake([
+            '*/api/payments/pix' => Http::response([
+                'payment_id' => self::PAYMENT_UUID,
+                'pix_qr_code' => 'data:image/png;base64,abc',
+                'pix_copy_paste' => '00020126580014br.gov.bcb.pix',
+            ], 201),
+        ]);
+
+        Setting::set('gateway_order', ['pix' => ['cajupay']], 1);
+
+        $cred = GatewayCredential::create([
+            'tenant_id' => 1,
+            'gateway_slug' => 'cajupay',
+            'credentials' => '',
+            'is_connected' => true,
+        ]);
+        $cred->setEncryptedCredentials([
+            'public_key' => 'gpk_test',
+            'secret_key' => 'gsk_test',
+        ]);
+        $cred->save();
+
+        $user = User::factory()->create();
+        $product = $this->createTestProduct([
+            'price' => 49.90,
+            'checkout_config' => array_merge(Product::defaultCheckoutConfig(), [
+                'payment_gateways' => ['pix' => 'cajupay'],
+            ]),
+        ]);
+
+        $order = Order::create([
+            'tenant_id' => 1,
+            'user_id' => $user->id,
+            'product_id' => $product->id,
+            'status' => 'pending',
+            'amount' => 49.90,
+            'currency' => 'BRL',
+            'email' => $user->email,
+            'metadata' => ['checkout_payment_method' => 'pix'],
+        ]);
+
+        app(PaymentService::class)->createPixPayment($order, $product, [
+            'name' => 'Cliente Teste',
+            'document' => '52998224725',
+            'email' => $user->email,
+            'phone' => '5511987654321',
+        ]);
+
+        Http::assertSent(function ($request) {
+            if (! str_contains($request->url(), '/api/payments/pix')) {
+                return false;
+            }
+            $body = $request->data();
+            $consumer = $body['consumer'] ?? [];
+
+            return ($consumer['phone'] ?? null) === '+5511987654321';
+        });
+    }
+
+    public function test_pix_create_omits_consumer_phone_when_empty(): void
+    {
+        Http::fake([
+            '*/api/payments/pix' => Http::response([
+                'payment_id' => self::PAYMENT_UUID,
+                'pix_qr_code' => 'data:image/png;base64,abc',
+                'pix_copy_paste' => '00020126580014br.gov.bcb.pix',
+            ], 201),
+        ]);
+
+        Setting::set('gateway_order', ['pix' => ['cajupay']], 1);
+
+        $cred = GatewayCredential::create([
+            'tenant_id' => 1,
+            'gateway_slug' => 'cajupay',
+            'credentials' => '',
+            'is_connected' => true,
+        ]);
+        $cred->setEncryptedCredentials([
+            'public_key' => 'gpk_test',
+            'secret_key' => 'gsk_test',
+        ]);
+        $cred->save();
+
+        $user = User::factory()->create();
+        $product = $this->createTestProduct([
+            'price' => 49.90,
+            'checkout_config' => array_merge(Product::defaultCheckoutConfig(), [
+                'payment_gateways' => ['pix' => 'cajupay'],
+            ]),
+        ]);
+
+        $order = Order::create([
+            'tenant_id' => 1,
+            'user_id' => $user->id,
+            'product_id' => $product->id,
+            'status' => 'pending',
+            'amount' => 49.90,
+            'currency' => 'BRL',
+            'email' => $user->email,
+            'metadata' => ['checkout_payment_method' => 'pix'],
+        ]);
+
+        app(PaymentService::class)->createPixPayment($order, $product, [
+            'name' => 'Cliente Teste',
+            'document' => '52998224725',
+            'email' => $user->email,
+            'phone' => '',
+        ]);
+
+        Http::assertSent(function ($request) {
+            if (! str_contains($request->url(), '/api/payments/pix')) {
+                return false;
+            }
+            $body = $request->data();
+            $consumer = $body['consumer'] ?? [];
+
+            return ! array_key_exists('phone', $consumer);
+        });
+    }
 }

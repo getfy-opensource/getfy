@@ -7,6 +7,7 @@ use App\Gateways\CajuPay\CajuPayDriver;
 use App\Models\GatewayCredential;
 use App\Models\GatewayFeeSetting;
 use App\Models\Setting;
+use App\Services\CajuPayPixParceladoService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -142,6 +143,21 @@ class GatewaysController extends Controller
             'oauth_connected' => $oauthConnected,
         ];
 
+        if ($slug === 'cajupay' && ($credential?->is_connected ?? false)) {
+            $parceladoService = app(\App\Services\CajuPayPixParceladoService::class);
+            $creds = $decrypted;
+            try {
+                $payload['pix_parcelado_enrollment'] = $parceladoService->enrollmentStatus($creds);
+                $payload['pix_parcelado_enrolled'] = $parceladoService->isEnrolled($creds);
+            } catch (\Throwable $e) {
+                $payload['pix_parcelado_enrollment'] = ['status' => 'unknown', 'message' => $e->getMessage()];
+                $payload['pix_parcelado_enrolled'] = false;
+            }
+            $payload['pix_parcelado_accept_url'] = Route::has('gateways.cajupay.parcelado.accept')
+                ? route('gateways.cajupay.parcelado.accept')
+                : null;
+        }
+
         return response()->json($payload)->header('Cache-Control', 'no-store, no-cache, must-revalidate');
     }
 
@@ -253,6 +269,7 @@ class GatewaysController extends Controller
         $webhookWarning = null;
         if ($slug === 'cajupay' && $isConnected && $driver instanceof CajuPayDriver) {
             $credentials = $this->ensureCajuPayWebhookRegistered($driver, $credentials, $webhookWarning);
+            $credentials = $this->syncCajuPayParceladoMetadata($credentials, $tenantId);
         }
 
         $credential->is_connected = $isConnected;

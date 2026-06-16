@@ -142,6 +142,17 @@ class Product extends Model
                 'google_pay_redundancy' => [],
                 'crypto' => null,
                 'crypto_redundancy' => [],
+                'pix_parcelado' => null,
+                'pix_parcelado_redundancy' => [],
+            ],
+            'pix_parcelado' => [
+                'max_installments' => null,
+                'down_payment_cents' => null,
+                'min_down_payment_bps' => null,
+                'max_down_payment_bps' => null,
+                'early_payment_discount_bps' => 0,
+                'payoff_discount_bps' => 0,
+                'overdue_payoff_discount_bps' => 0,
             ],
             'card_installments' => [
                 'enabled' => false,

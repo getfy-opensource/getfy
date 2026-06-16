@@ -1,5 +1,5 @@
 # CajuPay — Documentação completa para LLMs
-> Gerado em 2026-06-09T15:46:11.964Z. Não edite à mão — rode `npm run build:llm-docs` no frontend.
+> Gerado em 2026-06-15T02:04:29.263Z. Não edite à mão — rode `npm run build:llm-docs` no frontend.
 > Pacote modular: https://cajupay.com.br/docs/llm/
 ---
 
@@ -21,6 +21,7 @@
 7. **Wallets:** filtrar Apple Pay (iOS) vs Google Pay (Android/desktop); passar `defaultMethod` igual ao botão clicado; ocultar botão "Pagar" do host quando wallet estiver selecionada.
 8. Ao gerar código, inclua tratamento de `methods_available`, webhooks HMAC e materialização de pedido **antes** do webhook de pagamento aprovado.
 9. **PIX:** webhook outbound + job de reconciliação em background (`GET /api/payments` no servidor, ~1–2 min) — módulo **21**.
+10. **Telefone em PIX:** inclua `consumer.phone` (E.164) por padrão em `POST /api/payments/pix` — necessário para SMS de Recovery/Acesso; alias `payer_phone` na raiz.
 
 ## URLs oficiais
 
@@ -1252,6 +1253,7 @@ Integradores podem **estender** a regra para detectar Safari no Mac com Apple Pa
 1. PIX **não** usa SDK `embeddedOnly` no checkout padrão — use `POST /api/payments/pix` no **servidor**.
 2. Envie `Idempotency-Key` em toda criação.
 3. Confirmação: status do pagamento + webhooks PIX (módulo 12) ou consulta via API/painel.
+4. **Inclua telefone do comprador por padrão** em `consumer.phone` (E.164). Sem telefone a cobrança é criada, mas SMS de Recovery/Acesso não disparam.
 
 ## Quando usar este módulo
 
@@ -1286,7 +1288,8 @@ Idempotency-Key: pedido-123-pix
   "consumer": {
     "name": "Cliente",
     "email": "cliente@x.com",
-    "document": "12345678901"
+    "document": "12345678901",
+    "phone": "+5511999999999"
   }
 }
 ```
@@ -1315,6 +1318,21 @@ Resposta (200):
 4. order.gateway_id = payment_id (UUID CajuPay)
 5. Webhook `pix.payment.paid` (módulo 12) **+** reconciliação em background (módulo 21)
 6. Ao paid → liberar produto (idempotente)
+```
+
+## Telefone do comprador (padrão recomendado)
+
+Inclua o celular do pagador na criação da cobrança:
+
+| Campo | Onde | Formato |
+|-------|------|---------|
+| `consumer.phone` | Dentro de `consumer` | **Preferido** — E.164 (`+5511999999999`) ou só dígitos (`5511999999999`) |
+| `payer_phone` | Raiz do body | Mesmo formato; alias equivalente |
+| `phone` | Raiz do body | Alias legado |
+
+O valor é gravado em `payments.payer_phone` e retornado em `GET /api/payments` / `GET /api/payments/{payment_id}` quando informado.
+
+**Por quê:** contas com **Caju Recovery** (lembrete SMS de PIX pendente) e **Caju Acesso** usam esse número. Sem telefone a API **não bloqueia** a cobrança; apenas pula o envio SMS.
 
 ## Reconciliação em background (obrigatório como fallback)
 
@@ -1338,6 +1356,7 @@ const pix = await cajupayFetch("/api/payments/pix", {
       name: customer.name,
       email: customer.email,
       document: customer.cpf.replace(/\D/g, ""),
+      phone: customer.phone, // E.164, ex. +5511999999999
     },
   },
 });
@@ -1373,6 +1392,7 @@ Recebimento PIX **não** exige KYC aprovado. Saques sim (módulo 14).
 - [ ] PIX criado no servidor com API Keys
 - [ ] `Idempotency-Key` por pedido
 - [ ] `payment_id` salvo no pedido interno
+- [ ] `consumer.phone` (ou `payer_phone`) na criação — Recovery / Caju Acesso SMS
 - [ ] `partner_checkout_url` na criação (recomendado — compliance)
 - [ ] Webhook `pix.payment.paid` (módulo 12) + fallback reconciliação (módulo 21)
 - [ ] Se houver reembolso/MED: módulos 18, 19 e eventos webhook PIX
@@ -1777,7 +1797,7 @@ Criar:
 {
   "amount_cents": 10000,
   "split_id": "550e8400-e29b-41d4-a716-446655440000",
-  "consumer": { "name": "...", "email": "...", "document": "..." }
+  "consumer": { "name": "...", "email": "...", "document": "...", "phone": "+5511999999999" }
 }
 ```
 
@@ -2026,6 +2046,7 @@ Revise o código gerado contra esta lista antes de considerar a integração com
 | 16 | Re-serializar JSON para validar HMAC webhook | Raw body bytes |
 | 17 | Reconciliar PIX só na tela do QR / só webhook | Job servidor: `GET /api/payments` a cada 1–2 min (módulo 21) |
 | 18 | Omitir `partner_checkout_url` em produção | Enviar URL HTTPS do checkout no site do parceiro (compliance) |
+| 19 | Omitir `consumer.phone` em PIX | Incluir telefone E.164 na criação (`consumer.phone` ou `payer_phone`) — Recovery/Acesso SMS |
 
 ## Checklist de produção — SDK embed
 
@@ -2057,6 +2078,7 @@ Revise o código gerado contra esta lista antes de considerar a integração com
 - [ ] `POST /api/payments/pix` no servidor
 - [ ] `Idempotency-Key`
 - [ ] `payment_id` no pedido
+- [ ] `consumer.phone` (ou `payer_phone`) na criação
 - [ ] `partner_checkout_url` na criação (recomendado — compliance)
 - [ ] Webhook `pix.payment.paid` cadastrado e validado (HMAC)
 - [ ] Handler idempotente para `pix.payment.paid` (marcar pedido pago)
@@ -3031,3 +3053,471 @@ Correlacionar pelo `cajupay_payout_id` retornado em `POST /api/payouts`.
 - [ ] Validar HMAC no raw body
 - [ ] Chave API com `payouts.write` + `webhooks.write` ao cadastrar `payout.*`
 - [ ] Job de polling `GET /api/payouts` por 24–48h após criar saque (fallback)
+
+---
+
+<!-- module: 24-pix-parcelado -->
+
+
+# Pix Parcelado
+
+## INSTRUÇÕES PARA O MODELO
+
+1. Produto: **`product_ref=pix_parcelado`**, rotas **`/api/pix-parcelado/*`**.
+2. Cada parcela é **1 cobrança PIX normal** (`payments` com `origin_type=parcelado_installment`).
+3. Liquidação **imediata** por parcela paga (lojista recebe na hora, bruto − taxas).
+4. Comprador: **CPF, e-mail e telefone E.164** obrigatórios na criação do plano.
+5. Lojista precisa **aderir** (`POST /api/pix-parcelado/enroll/accept`) antes de criar planos.
+6. Envie **`Idempotency-Key`** em `POST /plans` e regeneração de PIX.
+
+## Fluxo de integração recomendado (API-first)
+
+1. Verificar adesão: `GET /enrollment` → se `pending`, `POST /enroll/accept`.
+2. Carregar regras: `GET /platform-rules` (parcelas máx. por valor, `max_down_payment_bps`).
+3. (Opcional) Consultar taxas efetivas: `GET /fees`.
+4. Montar checkout: SDK embed **ou** formulário próprio + `POST /plans`.
+5. Exibir Pix da entrada com `pix_copy_paste` retornado — o SDK embed **não** renderiza QR.
+6. Confirmar pagamento da entrada: webhook `pix_parcelado.installment.paid` (`sequence=1`) ou polling `GET /plans/{id}`.
+7. Parcelas futuras: webhooks `due_soon` / `overdue`; comprador paga via portal ou integrador regenera Pix com `POST .../installments/{id}/pix`.
+
+Salve sempre o `id` do plano na criação — planos com entrada pendente **não aparecem** em `GET /plans` (ver abaixo).
+
+## Escopos por rota
+
+| Rota | Escopo |
+|------|--------|
+| `GET /enrollment`, `/platform-rules`, `/summary`, `/fees`, `GET /plans`, `GET /plans/{id}` | `wallet.read` |
+| `POST /enroll/accept`, `POST /plans`, `PATCH /plans/{id}`, `POST .../installments/{id}/pix`, `POST .../installments/{id}/pay-off` | `payments.write` |
+
+Autenticação: API Keys (`X-API-Key` + `X-API-Secret`) ou sessão merchant (`Authorization: Bearer`).
+
+## Adesão do lojista
+
+```http
+GET /api/pix-parcelado/enrollment
+X-API-Key: <public_key>
+X-API-Secret: <secret_key>
+```
+
+Resposta: `{ "status": "pending|active|suspended", "enrolled_at": "...", "merchant_contract": "<html>" }`.
+
+```http
+POST /api/pix-parcelado/enroll/accept
+X-API-Key: <public_key>
+X-API-Secret: <secret_key>
+```
+
+Também aceita `Authorization: Bearer <session_token>` (painel). Escopo: `payments.write`.
+
+Erro comum sem adesão: `403 parcelado_not_enrolled`.
+
+## Regras da plataforma (read-only)
+
+- `GET /api/pix-parcelado/platform-rules` — faixas de valor × parcelas + **`max_down_payment_bps`** (teto de entrada, default 6000 = 60%). Escopo: `wallet.read`.
+- `GET /api/pix-parcelado/public/config/{payAccountID}` — mesmas faixas + contrato comprador (público, lojista ativo).
+
+Resposta inclui `max_down_payment_bps`: teto global de entrada (6000 = 60%). Plano ou link podem definir **menor** via `max_down_payment_bps`; nunca acima do teto da plataforma.
+
+Faixas padrão:
+
+| Valor do plano | Máx. parcelas |
+|----------------|---------------|
+| R$ 100 – R$ 299 | 3x |
+| R$ 300 – R$ 998 | 6x |
+| R$ 999 – R$ 1.500 | 15x |
+| R$ 1.501 – R$ 10.000 | 24x |
+| R$ 10.000+ | 24x |
+
+Admin: `GET/PUT /api/admin/pix-parcelado/bands`.
+
+## Taxas efetivas do lojista
+
+```http
+GET /api/pix-parcelado/fees
+X-API-Key: <public_key>
+X-API-Secret: <secret_key>
+```
+
+Escopo: `wallet.read`. Resposta:
+
+```json
+{
+  "adhesion_fee_bps": 500,
+  "installment_fee_bps": 300
+}
+```
+
+| Taxa | Quando cobrada | Base de cálculo |
+|------|----------------|-----------------|
+| Adesão (`adhesion_fee_bps`) | 1ª parcela paga | Valor **total** do plano |
+| Parcela (`installment_fee_bps`) | 2ª parcela em diante | Valor **da parcela** |
+
+Na 1ª liquidação cobra-se **somente** a taxa de adesão (não soma com a taxa por parcela).
+
+Defaults configuráveis no admin; override por lojista em `/api/admin/pix-parcelado/merchants/{id}`.
+
+## Criar plano (integrador)
+
+Escopo: **`payments.write`**. Regras de parcelamento e descontos vão **no payload do plano** (congelados na criação).
+
+```http
+POST /api/pix-parcelado/plans
+Content-Type: application/json
+X-API-Key: <public_key>
+X-API-Secret: <secret_key>
+Idempotency-Key: plano-pedido-789
+
+{
+  "total_cents": 50000,
+  "installment_count": 6,
+  "down_payment_cents": 15000,
+  "min_down_payment_bps": 2000,
+  "max_down_payment_bps": 3000,
+  "early_payment_discount_bps": 500,
+  "payoff_discount_bps": 1000,
+  "overdue_payoff_discount_bps": 0,
+  "description": "Curso XYZ",
+  "external_ref": "produto-curso-xyz",
+  "contract_acceptance": true,
+  "consumer": {
+    "name": "Maria Silva",
+    "email": "maria@email.com",
+    "document": "52998224725",
+    "phone": "+5511999999999"
+  }
+}
+```
+
+Validação: `installment_count` ≤ faixa resolvida pelo `total_cents`. **Entrada** via `down_payment_cents` (valor fixo) e/ou piso via `min_down_payment_bps` **no payload do plano**. Teto via `max_down_payment_bps` (≤ `platform-rules.max_down_payment_bps`, default 60%). Erro se entrada > teto: `above_maximum_down_payment`.
+
+### Resposta `201 Created`
+
+Campos-chave para o integrador: **`pix_copy_paste`**, **`first_payment_id`**, **`installments[0].id`**.
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "pay_account_id": "pay-acct-uuid",
+  "customer_id": "cust-uuid",
+  "total_cents": 50000,
+  "installment_count": 6,
+  "down_payment_cents": 15000,
+  "status": "active",
+  "description": "Curso XYZ",
+  "external_ref": "produto-curso-xyz",
+  "pix_copy_paste": "00020126580014br.gov.bcb.pix...",
+  "first_payment_id": "pay-uuid-entrada",
+  "installments": [
+    {
+      "id": "inst-uuid-1",
+      "sequence": 1,
+      "amount_cents": 15000,
+      "due_date": "2026-06-09",
+      "status": "pending",
+      "payment_id": "pay-uuid-entrada"
+    },
+    {
+      "id": "inst-uuid-2",
+      "sequence": 2,
+      "amount_cents": 7000,
+      "due_date": "2026-07-09",
+      "status": "pending"
+    }
+  ],
+  "created_at": "2026-06-09T12:00:00Z"
+}
+```
+
+## Status
+
+**Plano:** `active` (em andamento), `completed` (todas pagas), `defaulted` (≥2 parcelas em atraso).
+
+**Parcela:** `pending`, `paid`, `overdue`.
+
+## Editar descontos por contrato
+
+```http
+PATCH /api/pix-parcelado/plans/{id}
+X-API-Key: <public_key>
+X-API-Secret: <secret_key>
+
+{
+  "early_payment_discount_bps": 500,
+  "payoff_discount_bps": 1000,
+  "overdue_payoff_discount_bps": 0,
+  "merchant_notes": "Cliente VIP"
+}
+```
+
+Escopo: `payments.write`. Também aceita sessão merchant.
+
+`PUT /api/pix-parcelado/config` foi **removido** — não use config global do lojista para parcelas/descontos.
+
+## Outras rotas merchant
+
+| Método | Rota | Escopo | Descrição |
+|--------|------|--------|-----------|
+| GET | `/api/pix-parcelado/plans` | `wallet.read` | Lista planos (`?status=`, `?customer_id=` opcionais) |
+| GET | `/api/pix-parcelado/plans/{id}` | `wallet.read` | Detalhe + parcelas |
+| PATCH | `/api/pix-parcelado/plans/{id}` | `payments.write` | Edita descontos do contrato |
+| POST | `/api/pix-parcelado/installments/{id}/pix` | `payments.write` | Regenera QR (vencido) |
+| POST | `/api/pix-parcelado/installments/{id}/pay-off` | `payments.write` | Quitação antecipada com desconto |
+| GET | `/api/pix-parcelado/summary` | `wallet.read` | Recebível pendente, inadimplência |
+
+### Listagem vs detalhe
+
+`GET /plans` retorna **somente planos cuja 1ª parcela (entrada) já foi paga**. Planos recém-criados com entrada pendente **não aparecem** na listagem — use `GET /plans/{id}` (salve o `id` na criação) ou o webhook `pix_parcelado.plan.created`.
+
+### Regenerar Pix / quitação
+
+```http
+POST /api/pix-parcelado/installments/{id}/pix
+X-API-Key: <public_key>
+X-API-Secret: <secret_key>
+Idempotency-Key: regen-inst-uuid-1
+```
+
+Resposta `200`:
+
+```json
+{
+  "payment_id": "pay-uuid-novo",
+  "pix_copy_paste": "00020126580014br.gov.bcb.pix..."
+}
+```
+
+```http
+POST /api/pix-parcelado/installments/{id}/pay-off
+X-API-Key: <public_key>
+X-API-Secret: <secret_key>
+Idempotency-Key: payoff-inst-uuid-2
+```
+
+Quitação antecipada com desconto configurado no plano. Mesma forma de resposta (`payment_id`, `pix_copy_paste`).
+
+## Links de pagamento
+
+No `POST /api/payment-links`, inclua (consulte `platform-rules` em runtime para parcelas máximas por valor):
+
+```json
+{
+  "allow_pix_parcelado": true,
+  "parcelado_max_installments": 6,
+  "parcelado_down_payment_cents": 15000,
+  "parcelado_max_down_payment_bps": 3000
+}
+```
+
+`parcelado_max_down_payment_bps` é opcional (teto de entrada ≤ plataforma). Entrada acima do teto é rejeitada na criação do link.
+
+Checkout hospedado: `POST /api/payment-links/public/{token}/pay` com:
+
+```json
+{
+  "method": "pix_parcelado",
+  "installment_count": 4,
+  "payer_name": "...",
+  "payer_email": "...",
+  "payer_document": "...",
+  "payer_phone": "+5511999999999"
+}
+```
+
+## SDK Caju Elements (embed)
+
+Carregue o SDK via CDN (ver também módulo `05-sdk-embedded-core`):
+
+```html
+<script src="https://cdn.cajupay.com.br/sdk/v1/cajupay-sdk.min.js" async></script>
+```
+
+Widget enxuto estilo Stripe Elements: termos, cards informativos, seletor de parcelas e rodapé "Processado por cajuPay". **Sem campos de comprador por padrão** — o parceiro passa `consumer` no mount ou via `setConsumer()` antes de `confirm()`. Campos ausentes são renderizados no widget.
+
+O botão **Pagar** fica no checkout do parceiro; o SDK expõe `controller.confirm()`.
+
+```javascript
+const controller = CajuPaySDK.mountPixParcelado('#cajupay-parcelado', {
+  payAccountId: '<pay_account_id>',
+  amountCents: 99700,
+  description: 'Curso completo',
+  baseUrl: 'https://api.cajupay.com.br',
+  embedded: true,              // default — fundo transparente
+  showBranding: true,          // default — rodapé "Processado por cajuPay"
+  showSubmitButton: false,     // default — botão interno só para debug
+  consumer: {
+    name: 'Maria Silva',
+    email: 'maria@exemplo.com',
+    document: '52998224725',
+    phone: '+5511999999999',
+  },
+  // Um dos dois:
+  paymentLinkToken: '<token>',
+  auth: { apiKey: '...', apiSecret: '...' },
+  onStatus: (e) => console.log(e.phase),
+  onPlanCreated: (r) => console.log(r.pix_copy_paste),
+  onError: (e) => console.error(e.error),
+});
+
+// Atualizar dados do checkout parceiro antes de pagar
+controller.setConsumer({ phone: '+5511988887777' });
+
+// Botão "Pagar" do parceiro — exibir QR/copia-e-cola no SEU checkout
+document.getElementById('pay-btn').onclick = async () => {
+  const result = await controller.confirm();
+  if (result?.pix_copy_paste) {
+    // integrador renderiza QR, modal, redirect, etc.
+  }
+};
+```
+
+O SDK **não exibe** código Pix nem QR na UI embeddable. `confirm()` e `onPlanCreated` devolvem `pix_copy_paste`, `plan_id`, `payment_id` para o integrador montar a tela de pagamento.
+
+`CajuPayParceladoController`: `destroy()`, `confirm()`, `setConsumer(partial)`, `getSelectedInstallmentCount()`, `isTermsAccepted()`.
+
+Callbacks `onStatus`: `loading` | `ready` | `submitting` | `pix_generated` | `completed` | `error` (`pix_generated` = plano criado com Pix da entrada; UI do Pix fica com o parceiro).
+
+Rotas públicas (CORS reflect, sem API key no browser):
+
+- `GET /api/pix-parcelado/public/config/{payAccountID}`
+- Checkout via token de link de pagamento (`method: pix_parcelado` no pay do link).
+
+## Portal comprador
+
+Magic link (público):
+
+- `POST /api/public/buyer/auth/magic-link` — `{ "email": "..." }`
+- `POST /api/public/buyer/auth/verify` — `{ "token": "..." }` → Bearer session
+- `POST /api/public/buyer/auth/login` — `{ "email", "password" }`
+- `POST /api/public/buyer/auth/set-password` — Bearer buyer token
+- `GET /api/public/buyer/me` — perfil (`has_password`, nome, e-mail)
+- `GET /api/public/buyer/transactions` — histórico de compras
+- `GET /api/admin/customers` / `GET /api/admin/customers/{id}` — admin global
+
+Com Bearer comprador:
+
+- `GET /api/public/buyer/me`
+- `GET /api/public/buyer/parcelado/plans`
+- `GET /api/public/buyer/parcelado/plans/{id}`
+- `POST /api/public/buyer/parcelado/installments/{id}/pix`
+
+Resposta de plano (list/get buyer) inclui dados públicos do lojista para contato no portal:
+
+| Campo | Descrição |
+|-------|-----------|
+| `merchant_name` | `COALESCE(company_name, full_name)` do perfil da conta |
+| `merchant_phone` | Telefone E.164 do perfil (se preenchido) |
+| `merchant_email` | E-mail do perfil ou do owner da conta (se preenchido) |
+
+Campos omitidos quando vazios (`omitempty`). Não expõe documento, endereço ou dados sensíveis do lojista.
+
+## Webhooks outbound (integrador)
+
+Requisitos: `RABBITMQ_ENABLED=true`, **`integrator-webhook-worker`** (consome `pix.parcelado.#`) e **`parcelado-worker`** (marca atraso/inadimplência e publica lembretes). Registre endpoint com `event_types` incluindo **`pix_parcelado.*`** ou eventos abaixo.
+
+| Evento | Quando dispara |
+|--------|----------------|
+| `pix_parcelado.plan.created` | Plano criado + Pix da 1ª parcela (entrada) gerado |
+| `pix_parcelado.installment.paid` | Cada parcela liquidada (inclui entrada) |
+| `pix_parcelado.installment.due_soon` | D-3, D-1 e no vencimento (`parcelado-worker`) |
+| `pix_parcelado.installment.overdue` | Parcela passa do vencimento sem pagamento |
+| `pix_parcelado.plan.completed` | Todas as parcelas pagas |
+| `pix_parcelado.plan.defaulted` | Plano com ≥2 parcelas em atraso (inadimplência) |
+
+Wildcard no cadastro do endpoint: **`pix_parcelado.*`**. Routing keys internas RabbitMQ: `pix.parcelado.*`.
+
+Cada parcela também gera `pix.payment.paid` (`product_ref: pix_parcelado`) — útil se o integrador já escuta PIX genérico.
+
+### Exemplos de payload (`data.object`)
+
+`pix_parcelado.plan.created`:
+
+```json
+{
+  "gateway": "cajupay",
+  "plan_id": "a1b2c3d4-...",
+  "pay_account_id": "pay-acct-uuid",
+  "customer_id": "cust-uuid",
+  "total_cents": 50000,
+  "installment_count": 6,
+  "external_ref": "produto-curso-xyz",
+  "first_payment_id": "pay-uuid-entrada",
+  "product_ref": "pix_parcelado"
+}
+```
+
+`pix_parcelado.installment.paid`:
+
+```json
+{
+  "gateway": "cajupay",
+  "plan_id": "a1b2c3d4-...",
+  "installment_id": "inst-uuid-1",
+  "cajupay_payment_id": "pay-uuid",
+  "pay_account_id": "pay-acct-uuid",
+  "customer_id": "cust-uuid",
+  "sequence": 1,
+  "amount_cents": 15000,
+  "product_ref": "pix_parcelado"
+}
+```
+
+`pix_parcelado.installment.due_soon`:
+
+```json
+{
+  "gateway": "cajupay",
+  "plan_id": "a1b2c3d4-...",
+  "installment_id": "inst-uuid-2",
+  "pay_account_id": "pay-acct-uuid",
+  "customer_id": "cust-uuid",
+  "amount_cents": 7000,
+  "sequence": 2,
+  "due_date": "2026-07-09",
+  "days_before": 3,
+  "product_ref": "pix_parcelado"
+}
+```
+
+`pix_parcelado.installment.overdue`:
+
+```json
+{
+  "gateway": "cajupay",
+  "plan_id": "a1b2c3d4-...",
+  "installment_id": "inst-uuid-2",
+  "pay_account_id": "pay-acct-uuid",
+  "customer_id": "cust-uuid",
+  "amount_cents": 7000,
+  "sequence": 2,
+  "due_date": "2026-07-09",
+  "product_ref": "pix_parcelado"
+}
+```
+
+`pix_parcelado.plan.completed` / `pix_parcelado.plan.defaulted`:
+
+```json
+{
+  "gateway": "cajupay",
+  "plan_id": "a1b2c3d4-...",
+  "pay_account_id": "pay-acct-uuid",
+  "customer_id": "cust-uuid",
+  "product_ref": "pix_parcelado"
+}
+```
+
+## Erros comuns
+
+- `parcelado_not_enrolled` — lojista sem contrato
+- `consumer_required` — dados do comprador incompletos
+- `below_minimum_amount` — valor abaixo do mínimo (ex.: R$ 200)
+- `too_many_installments` — acima do permitido
+- `above_maximum_down_payment` — entrada acima do teto
+- `invalid_phone` — telefone fora do E.164
+
+## Anti-patterns
+
+- Não tratar saldo pendente como retenção na plataforma — é **recebível futuro** informativo.
+- Não prometer débito automático — cobranças são PIX manuais mensais.
+- Sempre exibir marca **cajuPay** no checkout (credibilidade nas cobranças futuras).
+- Não depender só de `GET /plans` para planos recém-criados — a entrada pode ainda estar pendente.

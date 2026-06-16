@@ -23,6 +23,7 @@ const methodLabels = {
     card: 'Cartão',
     boleto: 'Boleto',
     pix_auto: 'Pix Auto',
+    pix_parcelado: 'PIX Parcelado',
 };
 
 const methods = computed(() =>

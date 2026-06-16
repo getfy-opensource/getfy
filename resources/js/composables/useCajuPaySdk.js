@@ -8,51 +8,107 @@
 
 const SDK_URL = 'https://cdn.cajupay.com.br/sdk/v1/cajupay-sdk.min.js';
 const SDK_BASE_URL = 'https://api.cajupay.com.br';
+/** Bump ao exigir APIs novas do CDN (ex.: mountPixParcelado). */
+const SDK_SCRIPT_VERSION = '20260615-parcelado';
 
 let sdkPromise = null;
+
+function cajuPaySdkHasParceladoMount(sdk) {
+    if (!sdk) {
+        return false;
+    }
+    if (typeof sdk.mountPixParcelado === 'function') {
+        return true;
+    }
+    if (typeof sdk.init !== 'function') {
+        return false;
+    }
+    try {
+        const instance = sdk.init({ baseUrl: SDK_BASE_URL });
+
+        return typeof instance?.mountPixParcelado === 'function';
+    } catch (_) {
+        return false;
+    }
+}
+
+function resetCajuPaySdkLoader() {
+    sdkPromise = null;
+    if (typeof window !== 'undefined') {
+        delete window.CajuPaySDK;
+    }
+    if (typeof document !== 'undefined') {
+        document.querySelectorAll(`script[src^="${SDK_URL}"]`).forEach((node) => node.remove());
+    }
+}
 
 /**
  * Carrega o script do SDK CajuPay (idempotente).
  *
+ * @param {{ requireParcelado?: boolean }} [options]
  * @returns {Promise<typeof window.CajuPaySDK>}
  */
-export function loadCajuPaySdk() {
+export function loadCajuPaySdk(options = {}) {
+    const requireParcelado = options.requireParcelado === true;
+
     if (typeof window === 'undefined') {
         return Promise.reject(new Error('CajuPay SDK só pode ser carregado no navegador.'));
     }
     if (window.CajuPaySDK) {
-        return Promise.resolve(window.CajuPaySDK);
+        if (!requireParcelado || cajuPaySdkHasParceladoMount(window.CajuPaySDK)) {
+            return Promise.resolve(window.CajuPaySDK);
+        }
+        resetCajuPaySdkLoader();
     }
+
+    const scriptSrc = `${SDK_URL}?v=${encodeURIComponent(SDK_SCRIPT_VERSION)}`;
+    const expectedScriptSrc = scriptSrc;
+
     if (sdkPromise) {
         return sdkPromise;
     }
 
     sdkPromise = new Promise((resolve, reject) => {
-        const existing = document.querySelector(`script[src="${SDK_URL}"]`);
-        const handle = (script) => {
-            script.addEventListener('load', () => {
-                if (window.CajuPaySDK) {
-                    resolve(window.CajuPaySDK);
-                } else {
-                    sdkPromise = null;
-                    reject(new Error('CajuPay SDK carregado, mas window.CajuPaySDK não existe.'));
-                }
-            });
-            script.addEventListener('error', () => {
-                sdkPromise = null;
-                reject(new Error('Falha ao carregar o SDK da CajuPay.'));
-            });
+        const resolveIfReady = () => {
+            if (window.CajuPaySDK && (!requireParcelado || cajuPaySdkHasParceladoMount(window.CajuPaySDK))) {
+                resolve(window.CajuPaySDK);
+                return true;
+            }
+            return false;
+        };
+        const rejectNotReady = () => {
+            sdkPromise = null;
+            reject(new Error(requireParcelado
+                ? 'CajuPay SDK carregado, mas mountPixParcelado() não está disponível. Limpe o cache do navegador.'
+                : 'CajuPay SDK carregado, mas window.CajuPaySDK não existe.'));
         };
 
+        const existing = document.querySelector(`script[src^="${SDK_URL}"]`);
         if (existing) {
-            handle(existing);
-            return;
+            const sameVersion = existing.src === expectedScriptSrc || existing.getAttribute('src') === expectedScriptSrc;
+            if (sameVersion && existing.readyState === 'complete') {
+                if (resolveIfReady()) {
+                    return;
+                }
+                rejectNotReady();
+                return;
+            }
+            existing.remove();
         }
 
         const script = document.createElement('script');
-        script.src = SDK_URL;
+        script.src = scriptSrc;
         script.async = true;
-        handle(script);
+        script.addEventListener('load', () => {
+            if (resolveIfReady()) {
+                return;
+            }
+            rejectNotReady();
+        });
+        script.addEventListener('error', () => {
+            sdkPromise = null;
+            reject(new Error('Falha ao carregar o SDK da CajuPay.'));
+        });
         document.head.appendChild(script);
     });
 
@@ -115,18 +171,60 @@ export async function confirmCajuPayController(controller) {
 }
 
 /**
- * Atualiza o payer (name/email/document) no controller atual do SDK SEM remontar.
+ * Normaliza telefone para E.164 (+5511999999999). Retorna undefined se inválido.
+ *
+ * @param {string|undefined|null} phone
+ * @returns {string|undefined}
+ */
+export function formatCajuPayPhone(phone) {
+    if (phone === null || phone === undefined) {
+        return undefined;
+    }
+    const digits = String(phone).replace(/\D/g, '');
+    if (digits.length < 8) {
+        return undefined;
+    }
+
+    return `+${digits}`;
+}
+
+/**
+ * Monta objeto consumer/payer para o SDK — omite campos vazios para não renderizar inputs extras.
+ *
+ * @param {{ name?: string, email?: string, document?: string, phone?: string }} source
+ * @returns {{ name?: string, email?: string, document?: string, phone?: string }}
+ */
+export function buildCajuPayConsumer(source) {
+    const cleaned = {};
+    if (!source || typeof source !== 'object') {
+        return cleaned;
+    }
+    if (typeof source.name === 'string' && source.name.trim() !== '') {
+        cleaned.name = source.name.trim();
+    }
+    if (typeof source.email === 'string' && source.email.trim() !== '') {
+        cleaned.email = source.email.trim();
+    }
+    if (typeof source.document === 'string' && source.document.trim() !== '') {
+        cleaned.document = source.document.replace(/\D/g, '');
+    }
+    const phone = formatCajuPayPhone(source.phone);
+    if (phone) {
+        cleaned.phone = phone;
+    }
+
+    return cleaned;
+}
+
+/**
+ * Atualiza o pagador (name/email/document/phone) no controller atual do SDK SEM remontar.
  * Indicação oficial CajuPay para fluxo embeddedOnly: chame setPayer() antes do
  * controller.confirm() — assim o SDK envia payer_name / payer_email / payer_document
- * no POST /api/sdk/public/checkout/sessions/{token}/confirm com os dados que o
- * cliente preencheu no SEU formulário. Funciona pra TODOS os métodos (card inclusive)
- * e evita destruir os inputs do cartão que o cliente já digitou.
+ * (e phone quando informado) no POST /api/sdk/public/checkout/sessions/{token}/confirm
+ * com os dados que o cliente preencheu no SEU formulário.
  *
- * O SDK ignora silenciosamente campos não suportados (ex.: phone), então mandamos
- * só os 3 que o /confirm valida (name + email + document).
- *
- * @param {{ setPayer: (payer: { name?: string, email?: string, document?: string }) => any }} controller
- * @param {{ name?: string, email?: string, document?: string }} payer
+ * @param {{ setPayer: (payer: object) => any }} controller
+ * @param {{ name?: string, email?: string, document?: string, phone?: string }} payer
  */
 export function setCajuPayPayer(controller, payer) {
     if (!controller || typeof controller.setPayer !== 'function') {
@@ -135,14 +233,7 @@ export function setCajuPayPayer(controller, payer) {
         // sem cache-busting.
         return false;
     }
-    const cleaned = {};
-    if (payer && typeof payer === 'object') {
-        if (typeof payer.name === 'string' && payer.name.trim() !== '') cleaned.name = payer.name.trim();
-        if (typeof payer.email === 'string' && payer.email.trim() !== '') cleaned.email = payer.email.trim();
-        if (typeof payer.document === 'string' && payer.document.trim() !== '') {
-            cleaned.document = payer.document.replace(/\D/g, '');
-        }
-    }
+    const cleaned = buildCajuPayConsumer(payer);
     try {
         controller.setPayer(cleaned);
         return true;
@@ -172,7 +263,141 @@ export function cajupayDefaultMethodFor(method) {
             return 'google_pay';
         case 'pix':
             return 'pix';
+        case 'pix_parcelado':
+            return 'pix_parcelado';
         default:
             return 'card';
+    }
+}
+
+/**
+ * Monta o widget PIX Parcelado (Caju Elements).
+ *
+ * @param {string} containerSelector
+ * @param {{
+ *   payAccountId: string,
+ *   amountCents: number,
+ *   description?: string,
+ *   paymentLinkToken?: string,
+ *   sdkOptions?: object,
+ *   consumer?: object,
+ *   baseUrl?: string,
+ *   onStatus?: (event: any) => void,
+ *   onPlanCreated?: (result: any) => void,
+ *   onError?: (event: any) => void,
+ * }} opts
+ */
+export async function mountCajuPayPixParcelado(containerSelector, opts) {
+    if (!opts?.payAccountId) {
+        throw new Error('CajuPay PIX Parcelado: payAccountId é obrigatório.');
+    }
+    if (!opts?.amountCents || opts.amountCents < 1) {
+        throw new Error('CajuPay PIX Parcelado: amountCents inválido.');
+    }
+    const sdk = await loadCajuPaySdk({ requireParcelado: true });
+    const mountOptions = buildParceladoMountOptions(opts);
+    const baseUrl = opts.baseUrl || SDK_BASE_URL;
+
+    if (typeof sdk.init === 'function') {
+        const instance = sdk.init({ baseUrl });
+        if (typeof instance?.mountPixParcelado === 'function') {
+            return await instance.mountPixParcelado(containerSelector, mountOptions);
+        }
+    }
+    if (typeof sdk.mountPixParcelado === 'function') {
+        return await sdk.mountPixParcelado(containerSelector, mountOptions);
+    }
+
+    throw new Error('CajuPay SDK não expõe mountPixParcelado().');
+}
+
+/**
+ * Converte opções do backend (parcelado_*) para o formato do SDK embed.
+ *
+ * @param {Record<string, unknown>} sdkOpts
+ * @returns {Record<string, unknown>}
+ */
+export function normalizeParceladoMountOptions(sdkOpts) {
+    if (!sdkOpts || typeof sdkOpts !== 'object') {
+        return {};
+    }
+
+    const out = { ...sdkOpts };
+    const down = out.downPaymentCents ?? out.down_payment_cents ?? out.parcelado_down_payment_cents;
+    if (down != null && down !== '' && Number(down) > 0) {
+        out.downPaymentCents = Number(down);
+    }
+    const minBps = out.minDownPaymentBps ?? out.min_down_payment_bps ?? out.parcelado_min_down_payment_bps;
+    if (minBps != null && minBps !== '' && Number(minBps) > 0) {
+        out.minDownPaymentBps = Number(minBps);
+    }
+    const maxBps = out.maxDownPaymentBps ?? out.max_down_payment_bps ?? out.parcelado_max_down_payment_bps;
+    if (maxBps != null && maxBps !== '' && Number(maxBps) > 0) {
+        out.maxDownPaymentBps = Number(maxBps);
+    }
+
+    delete out.parcelado_down_payment_cents;
+    delete out.parcelado_min_down_payment_bps;
+    delete out.parcelado_max_down_payment_bps;
+    delete out.parcelado_max_installments;
+
+    return out;
+}
+
+function buildParceladoMountOptions(opts) {
+    const sdkOpts = normalizeParceladoMountOptions(
+        opts.sdkOptions && typeof opts.sdkOptions === 'object' ? opts.sdkOptions : {},
+    );
+    const mountOpts = {
+        payAccountId: opts.payAccountId,
+        amountCents: opts.amountCents,
+        description: opts.description || 'Compra',
+        baseUrl: opts.baseUrl || SDK_BASE_URL,
+        embedded: true,
+        showBranding: true,
+        showSubmitButton: false,
+        consumer: buildCajuPayConsumer(opts.consumer || undefined),
+        onStatus: typeof opts.onStatus === 'function' ? opts.onStatus : undefined,
+        onPlanCreated: typeof opts.onPlanCreated === 'function' ? opts.onPlanCreated : undefined,
+        onError: typeof opts.onError === 'function' ? opts.onError : undefined,
+        ...sdkOpts,
+    };
+    if (opts.paymentLinkToken) {
+        mountOpts.paymentLinkToken = opts.paymentLinkToken;
+    }
+    return mountOpts;
+}
+
+/**
+ * @param {{ setConsumer?: (p: object) => any, setPayer?: (p: object) => any }} controller
+ */
+export function setCajuPayConsumer(controller, consumer) {
+    if (!controller) {
+        return false;
+    }
+    const fn = controller.setConsumer ?? controller.setPayer;
+    if (typeof fn !== 'function') {
+        return setCajuPayPayer(controller, consumer);
+    }
+    const cleaned = buildCajuPayConsumer(consumer);
+    try {
+        fn.call(controller, cleaned);
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+export async function confirmCajuPayParceladoController(controller) {
+    if (!controller || typeof controller.confirm !== 'function') {
+        throw new Error('CajuPay PIX Parcelado: widget não está pronto.');
+    }
+    try {
+        return await controller.confirm();
+    } catch (err) {
+        const msg = err?.message || err?.error || err?.toString?.() || 'Falha ao confirmar PIX Parcelado.';
+        const e = new Error(msg);
+        e.cause = err;
+        throw e;
     }
 }

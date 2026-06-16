@@ -17,7 +17,7 @@ defineProps({
             v-if="method.id === 'pix'"
             src="/images/gateways/pix.svg"
             alt="PIX"
-            class="h-7 w-7 shrink-0 object-contain self-center brightness-0"
+            class="h-7 w-7 shrink-0 object-contain self-center"
         />
         <img
             v-else-if="method.id === 'pix_auto'"

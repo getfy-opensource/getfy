@@ -27,6 +27,7 @@ class CheckoutPaymentMethodsBuilder
             'pix_auto' => [],
             'apple_pay' => [],
             'google_pay' => [],
+            'pix_parcelado' => [],
         ]);
         $order = is_array($orderRaw) ? $orderRaw : $defaultOrder;
         $order = [
@@ -36,6 +37,7 @@ class CheckoutPaymentMethodsBuilder
             'pix_auto' => $order['pix_auto'] ?? $defaultOrder['pix_auto'] ?? [],
             'apple_pay' => $order['apple_pay'] ?? $defaultOrder['apple_pay'] ?? [],
             'google_pay' => $order['google_pay'] ?? $defaultOrder['google_pay'] ?? [],
+            'pix_parcelado' => $order['pix_parcelado'] ?? $defaultOrder['pix_parcelado'] ?? [],
         ];
 
         $credentialBySlug = GatewayCredential::forTenant($tenantId)
@@ -51,10 +53,14 @@ class CheckoutPaymentMethodsBuilder
             'pix_auto' => ['id' => 'pix_auto', 'label' => 'PIX automático'],
             'apple_pay' => ['id' => 'apple_pay', 'label' => 'Apple Pay'],
             'google_pay' => ['id' => 'google_pay', 'label' => 'Google Pay'],
+            'pix_parcelado' => ['id' => 'pix_parcelado', 'label' => 'PIX Parcelado'],
         ];
 
         foreach ($methodConfig as $methodKey => $meta) {
             if ($methodKey === 'pix_auto' && $plan === null) {
+                continue;
+            }
+            if ($methodKey === 'pix_parcelado' && $plan !== null) {
                 continue;
             }
             $productSlug = isset($pg[$methodKey]) ? trim((string) $pg[$methodKey]) : null;
@@ -140,11 +146,29 @@ class CheckoutPaymentMethodsBuilder
         if ($slug === 'mercadopago' && in_array($methodKey, ['card', 'pix', 'boleto'], true)) {
             return trim((string) ($creds['public_key'] ?? '')) !== '';
         }
-        if ($slug === 'cajupay' && in_array($methodKey, ['card', 'apple_pay', 'google_pay', 'pix', 'boleto'], true)) {
-            return trim((string) ($creds['public_key'] ?? '')) !== ''
-                && trim((string) ($creds['secret_key'] ?? '')) !== '';
+        if ($slug === 'cajupay' && in_array($methodKey, ['card', 'apple_pay', 'google_pay', 'pix', 'boleto', 'pix_parcelado'], true)) {
+            if (trim((string) ($creds['public_key'] ?? '')) === ''
+                || trim((string) ($creds['secret_key'] ?? '')) === '') {
+                return false;
+            }
+            if ($methodKey === 'pix_parcelado') {
+                return ! self::cajupayPixParceladoBlocked($creds);
+            }
+
+            return true;
         }
 
         return true;
+    }
+
+    /**
+     * PIX Parcelado aparece no checkout quando CajuPay está conectada.
+     * Adesão ao contrato (enrollment) é validada na sessão/confirmação do pagamento.
+     *
+     * @param  array<string, mixed>  $credentials
+     */
+    private static function cajupayPixParceladoBlocked(array $credentials): bool
+    {
+        return strtolower(trim((string) ($credentials['pix_parcelado_enrollment_status'] ?? ''))) === 'suspended';
     }
 }

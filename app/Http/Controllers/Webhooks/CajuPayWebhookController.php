@@ -141,9 +141,35 @@ class CajuPayWebhookController extends Controller
         $webhookMeta = array_merge($payload, ['webhook_source' => 'cajupay_hmac_verified']);
 
         switch ($eventType) {
+            case 'pix_parcelado.installment.paid':
+                $sequence = (int) ($object['sequence'] ?? ($object['installment_sequence'] ?? 0));
+                $shouldComplete = $sequence <= 1;
+                if ($shouldComplete && $dispatchId !== '') {
+                    ProcessPaymentWebhook::dispatchSync(self::SLUG, $dispatchId, 'order.paid', 'paid', array_merge(
+                        $webhookMeta,
+                        ['pix_parcelado_sequence' => $sequence]
+                    ));
+                } elseif ($order !== null) {
+                    $meta = is_array($order->metadata) ? $order->metadata : [];
+                    $meta['pix_parcelado_last_paid_sequence'] = $sequence;
+                    $order->update(['metadata' => $meta]);
+                }
+                break;
+            case 'pix_parcelado.plan.defaulted':
+                if ($order !== null) {
+                    $meta = is_array($order->metadata) ? $order->metadata : [];
+                    $meta['pix_parcelado_defaulted'] = true;
+                    $order->update(['metadata' => $meta]);
+                }
+                break;
             case 'checkout.payment.paid':
             case 'pix.payment.paid':
             case 'card.payment.succeeded':
+                $productRef = is_array($object) ? (string) ($object['product_ref'] ?? '') : '';
+                if ($productRef === 'pix_parcelado' && $order !== null && $order->status !== 'completed') {
+                    ProcessPaymentWebhook::dispatchSync(self::SLUG, $dispatchId !== '' ? $dispatchId : (string) $order->gateway_id, 'order.paid', 'paid', $webhookMeta);
+                    break;
+                }
                 if ($dispatchId !== '') {
                     ProcessPaymentWebhook::dispatchSync(self::SLUG, $dispatchId, 'order.paid', 'paid', $webhookMeta);
                 }
@@ -191,6 +217,7 @@ class CajuPayWebhookController extends Controller
             'checkout.payment.paid',
             'pix.payment.paid',
             'card.payment.succeeded',
+            'pix_parcelado.installment.paid',
         ], true);
     }
 
@@ -338,6 +365,25 @@ class CajuPayWebhookController extends Controller
                 ->first();
             if ($order) {
                 return $order;
+            }
+
+            $order = Order::where('gateway', self::SLUG)
+                ->where('metadata->cajupay_parcelado_first_payment_id', $paymentId)
+                ->first();
+            if ($order) {
+                return $order;
+            }
+        }
+
+        if (is_array($object)) {
+            $planId = $object['plan_id'] ?? ($object['id'] ?? null);
+            if (is_string($planId) && $planId !== '') {
+                $order = Order::where('gateway', self::SLUG)
+                    ->where('metadata->cajupay_parcelado_plan_id', $planId)
+                    ->first();
+                if ($order) {
+                    return $order;
+                }
             }
         }
 

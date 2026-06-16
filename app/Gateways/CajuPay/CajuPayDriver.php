@@ -103,8 +103,18 @@ class CajuPayDriver implements GatewayDriver
         $document = $this->normalizeDocument((string) ($consumer['document'] ?? ''));
         $name = $this->sanitizeName((string) ($consumer['name'] ?? ''));
         $email = $this->sanitizeEmail((string) ($consumer['email'] ?? ''));
+        $phone = $this->normalizePhoneForCajuPay((string) ($consumer['phone'] ?? ''));
 
         $idempotencyKey = 'getfy-' . $externalId . '-' . Str::lower(Str::random(8));
+
+        $consumerPayload = [
+            'name' => $name,
+            'email' => $email !== '' ? $email : 'cliente@checkout.local',
+            'document' => $document,
+        ];
+        if ($phone !== null) {
+            $consumerPayload['phone'] = $phone;
+        }
 
         $body = [
             'amount_cents' => $amountCents,
@@ -112,11 +122,7 @@ class CajuPayDriver implements GatewayDriver
             'description' => 'Pedido #'.$externalId,
             'product_ref' => 'order-'.$externalId,
             'customer_ref' => 'getfy-order-'.$externalId,
-            'consumer' => [
-                'name' => $name,
-                'email' => $email !== '' ? $email : 'cliente@checkout.local',
-                'document' => $document,
-            ],
+            'consumer' => $consumerPayload,
         ];
         if ($splitId) {
             $body['split_id'] = $splitId;
@@ -472,11 +478,13 @@ class CajuPayDriver implements GatewayDriver
         $rawName = trim((string) ($consumer['name'] ?? ''));
         $email = $this->sanitizeEmail((string) ($consumer['email'] ?? ''));
         $document = $this->normalizeDocument((string) ($consumer['document'] ?? ''));
+        $phone = $this->normalizePhoneForCajuPay((string) ($consumer['phone'] ?? ''));
 
         $payer = array_filter([
             'name' => $rawName !== '' ? $this->sanitizeName($rawName) : null,
             'email' => $email !== '' ? $email : null,
             'document' => $document !== '' && $document !== '00000000000' ? $document : null,
+            'phone' => $phone,
         ], static fn ($v) => $v !== null && $v !== '');
 
         if (! empty($payer)) {
@@ -591,7 +599,7 @@ class CajuPayDriver implements GatewayDriver
                 ->post('/api/webhooks/endpoints/register', [
                     'url' => $url,
                     'description' => $desc,
-                    'event_types' => ['checkout.payment.*', 'pix.payment.*', 'payout.*'],
+                    'event_types' => ['checkout.payment.*', 'pix.payment.*', 'payout.*', 'pix_parcelado.*'],
                     'rotate_if_exists' => $rotateIfExists,
                 ]);
         } catch (\Throwable $e) {
@@ -969,6 +977,24 @@ class CajuPayDriver implements GatewayDriver
         return '00000000000';
     }
 
+    /**
+     * Normaliza telefone para E.164 (+5511999999999). Retorna null se vazio ou inválido.
+     */
+    private function normalizePhoneForCajuPay(string $phone): ?string
+    {
+        $phone = trim($phone);
+        if ($phone === '') {
+            return null;
+        }
+
+        $digits = preg_replace('/\D/', '', $phone);
+        if (! is_string($digits) || strlen($digits) < 8) {
+            return null;
+        }
+
+        return '+'.$digits;
+    }
+
     private function sanitizeName(string $name): string
     {
         $name = trim($name);
@@ -1201,6 +1227,250 @@ class CajuPayDriver implements GatewayDriver
         foreach ($candidates as $candidate) {
             if (is_string($candidate) && $candidate !== '') {
                 return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array<string, mixed>
+     */
+    public function getPixParceladoEnrollment(array $credentials): array
+    {
+        if (! $this->hasApiKeys($credentials)) {
+            throw new \RuntimeException('CajuPay: configure as chaves de API.');
+        }
+
+        $response = $this->httpForCredentials($credentials)->get('/api/pix-parcelado/enrollment');
+        if (! $response->successful()) {
+            throw new \RuntimeException('CajuPay PIX Parcelado: '.$this->formatApiErrorMessage(
+                (string) $response->body(),
+                'Erro ao consultar adesão PIX Parcelado.'
+            ));
+        }
+
+        $data = $response->json();
+
+        return is_array($data) ? $data : [];
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array<string, mixed>
+     */
+    public function acceptPixParceladoEnrollment(array $credentials): array
+    {
+        if (! $this->hasApiKeys($credentials)) {
+            throw new \RuntimeException('CajuPay: configure as chaves de API.');
+        }
+
+        $response = $this->httpForCredentials($credentials)->post('/api/pix-parcelado/enroll/accept');
+        if (! $response->successful()) {
+            throw new \RuntimeException('CajuPay PIX Parcelado: '.$this->formatApiErrorMessage(
+                (string) $response->body(),
+                'Erro ao aceitar contrato PIX Parcelado.'
+            ));
+        }
+
+        $data = $response->json();
+
+        return is_array($data) ? $data : [];
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array<string, mixed>
+     */
+    public function getPixParceladoPlatformRules(array $credentials): array
+    {
+        if (! $this->hasApiKeys($credentials)) {
+            throw new \RuntimeException('CajuPay: configure as chaves de API.');
+        }
+
+        $response = $this->httpForCredentials($credentials)->get('/api/pix-parcelado/platform-rules');
+        if (! $response->successful()) {
+            throw new \RuntimeException('CajuPay PIX Parcelado: '.$this->formatApiErrorMessage(
+                (string) $response->body(),
+                'Erro ao consultar regras da plataforma.'
+            ));
+        }
+
+        $data = $response->json();
+
+        return is_array($data) ? $data : [];
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     */
+    public function getPixParceladoPublicConfig(string $payAccountId, array $credentials = []): array
+    {
+        $payAccountId = trim($payAccountId);
+        if ($payAccountId === '') {
+            throw new \RuntimeException('CajuPay: pay_account_id ausente.');
+        }
+
+        $response = Http::acceptJson()
+            ->timeout(15)
+            ->withOptions(['connect_timeout' => 10])
+            ->baseUrl($this->baseUrl($credentials))
+            ->get('/api/pix-parcelado/public/config/'.urlencode($payAccountId));
+
+        if (! $response->successful()) {
+            throw new \RuntimeException('CajuPay PIX Parcelado: config pública indisponível.');
+        }
+
+        $data = $response->json();
+
+        return is_array($data) ? $data : [];
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     */
+    public function resolvePayAccountId(array $credentials): ?string
+    {
+        $cached = trim((string) ($credentials['pay_account_id'] ?? ''));
+        if ($cached !== '' && $this->looksLikeUuid($cached)) {
+            return $cached;
+        }
+
+        if (! $this->hasApiKeys($credentials)) {
+            return null;
+        }
+
+        try {
+            $response = $this->httpForCredentials($credentials)->get('/api/payment-links', ['limit' => 1]);
+            if (! $response->successful()) {
+                return null;
+            }
+
+            $data = $response->json();
+            if (! is_array($data)) {
+                return null;
+            }
+
+            $first = $data[0] ?? null;
+            if (is_array($first)) {
+                $id = $this->extractPayAccountId($first);
+                if ($id !== null) {
+                    return $id;
+                }
+            }
+
+            return $this->extractPayAccountId($data);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @param  array<string, mixed>  $body
+     * @return array<string, mixed>
+     */
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @param  array<string, mixed>  $body
+     * @return array<string, mixed>
+     */
+    public function createPaymentLink(array $credentials, array $body): array
+    {
+        if (! $this->hasApiKeys($credentials)) {
+            throw new \RuntimeException('CajuPay: configure as chaves de API.');
+        }
+
+        $response = $this->httpForCredentials($credentials)->post('/api/payment-links', $body);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException('CajuPay link de pagamento: '.$this->formatApiErrorMessage(
+                (string) $response->body(),
+                'Erro ao criar link de pagamento.'
+            ));
+        }
+
+        $data = $response->json();
+        if (! is_array($data)) {
+            throw new \RuntimeException('CajuPay link de pagamento: resposta inválida.');
+        }
+
+        return $data;
+    }
+
+    public function createPixParceladoPlan(array $credentials, array $body, string $idempotencyKey): array
+    {
+        if (! $this->hasApiKeys($credentials)) {
+            throw new \RuntimeException('CajuPay: configure as chaves de API.');
+        }
+
+        $response = $this->httpForCredentials($credentials)
+            ->withHeaders(['Idempotency-Key' => Str::limit($idempotencyKey, 200, '')])
+            ->post('/api/pix-parcelado/plans', $body);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException('CajuPay PIX Parcelado: '.$this->formatApiErrorMessage(
+                (string) $response->body(),
+                'Erro ao criar plano PIX Parcelado.'
+            ));
+        }
+
+        $data = $response->json();
+        if (! is_array($data)) {
+            throw new \RuntimeException('CajuPay PIX Parcelado: resposta inválida.');
+        }
+
+        return $data;
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array<string, mixed>
+     */
+    public function getPixParceladoPlan(string $planId, array $credentials): array
+    {
+        if (! $this->hasApiKeys($credentials)) {
+            throw new \RuntimeException('CajuPay: configure as chaves de API.');
+        }
+
+        $response = $this->httpForCredentials($credentials)
+            ->get('/api/pix-parcelado/plans/'.urlencode($planId));
+
+        if (! $response->successful()) {
+            throw new \RuntimeException('CajuPay PIX Parcelado: '.$this->formatApiErrorMessage(
+                (string) $response->body(),
+                'Erro ao consultar plano.'
+            ));
+        }
+
+        $data = $response->json();
+
+        return is_array($data) ? $data : [];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function extractPayAccountId(array $data): ?string
+    {
+        foreach (['pay_account_id', 'payAccountId', 'account_id'] as $key) {
+            $value = $data[$key] ?? null;
+            if (is_string($value) && $value !== '' && $this->looksLikeUuid($value)) {
+                return $value;
+            }
+        }
+
+        foreach (['account', 'wallet', 'enrollment'] as $nest) {
+            $obj = $data[$nest] ?? null;
+            if (! is_array($obj)) {
+                continue;
+            }
+            foreach (['pay_account_id', 'id'] as $key) {
+                $value = $obj[$key] ?? null;
+                if (is_string($value) && $value !== '' && $this->looksLikeUuid($value)) {
+                    return $value;
+                }
             }
         }
 

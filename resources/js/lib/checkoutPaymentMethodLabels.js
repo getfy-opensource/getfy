@@ -6,6 +6,7 @@ const METHOD_TRANSLATION_KEYS = {
     pix_auto: 'checkout.method_pix_auto',
     apple_pay: 'checkout.method_apple_pay',
     google_pay: 'checkout.method_google_pay',
+    pix_parcelado: 'checkout.method_pix_parcelado',
 };
 
 const DEFAULT_LABELS_PT = {
@@ -15,6 +16,7 @@ const DEFAULT_LABELS_PT = {
     pix_auto: 'PIX automático',
     apple_pay: 'Apple Pay',
     google_pay: 'Google Pay',
+    pix_parcelado: 'PIX Parcelado',
 };
 
 /**

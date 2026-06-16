@@ -266,6 +266,7 @@ export function useApiCajuPayCheckout(options) {
                 name: customerName.value || customerEmail.value,
                 email: customerEmail.value,
                 document: (customerCpf.value || '').replace(/\D/g, ''),
+                phone: customerPhone.value || undefined,
             });
             await cajupayMountRef.value.confirm();
             if (!cajupayPolling.value && cajupayPollingToken.value) {

@@ -29,6 +29,7 @@ use App\Models\User;
 use App\Services\GeoIp;
 use App\Services\EfiPixRecorrenteService;
 use App\Services\StorageService;
+use App\Services\CajuPayPixParceladoService;
 use App\Services\CheckoutAbuseGuard;
 use App\Services\PaymentService;
 use App\Services\PushinPayPixRecorrenteService;
@@ -43,6 +44,7 @@ use App\Support\CheckoutPaymentMethodsBuilder;
 use App\Support\CheckoutPaymentMethodOrder;
 use App\Support\CheckoutTranslations;
 use App\Support\FakeConsumerData;
+use App\Support\MoneyMinorUnits;
 use App\Support\MetaPurchaseTracking;
 use App\Support\PendingPixCheckoutResolver;
 use App\Support\PixCheckoutDisplay;
@@ -188,6 +190,19 @@ class CheckoutController extends Controller
             $defaults['pagarme_billing'] ?? [],
             is_array($productPagarmeBilling) ? $productPagarmeBilling : []
         );
+        // Gateways, parcelas no cartão e regras PIX Parcelado vêm só do produto (oferta/plano não persistem essas chaves).
+        $config['payment_gateways'] = array_replace_recursive(
+            $defaults['payment_gateways'] ?? [],
+            is_array($productConfig['payment_gateways'] ?? null) ? $productConfig['payment_gateways'] : []
+        );
+        $config['card_installments'] = array_replace_recursive(
+            $defaults['card_installments'] ?? [],
+            is_array($productConfig['card_installments'] ?? null) ? $productConfig['card_installments'] : []
+        );
+        $config['pix_parcelado'] = array_replace_recursive(
+            $defaults['pix_parcelado'] ?? [],
+            is_array($productConfig['pix_parcelado'] ?? null) ? $productConfig['pix_parcelado'] : []
+        );
         $productArray = $this->productToCheckoutArray($product, $resolved['offer'], $resolved['plan'], $resolved['amount'], $resolved['currency'], $resolved['checkout_slug']);
         $payload = [
             'product' => $productArray,
@@ -263,8 +278,11 @@ class CheckoutController extends Controller
         if ($forcedCur !== '' && $forcedCur !== 'BRL') {
             $paymentOrderCountry = 'US';
         }
+        $paymentMethodsPlan = ($product->billing_type ?? Product::BILLING_ONE_TIME) === Product::BILLING_SUBSCRIPTION
+            ? ($resolved['plan'] ?? null)
+            : null;
         $payload['available_payment_methods'] = CheckoutPaymentMethodOrder::applyForCountry(
-            CheckoutPaymentMethodsBuilder::build($product->tenant_id, $config['payment_gateways'] ?? [], $resolved['plan'] ?? null),
+            CheckoutPaymentMethodsBuilder::build($product->tenant_id, $config['payment_gateways'] ?? [], $paymentMethodsPlan),
             $paymentOrderCountry
         );
         $payload['product']['custom_display_prices_by_currency'] = $this->customDisplayPricesMap($product);
@@ -358,6 +376,37 @@ class CheckoutController extends Controller
         $cardInstallmentsConfig = $config['card_installments'] ?? ['enabled' => false, 'max' => 1];
         $payload['card_installments_enabled'] = ! empty($cardInstallmentsConfig['enabled']);
         $payload['card_max_installments'] = min(12, max(1, (int) ($cardInstallmentsConfig['max'] ?? 1)));
+
+        $payload['cajupay_pay_account_id'] = null;
+        $payload['cajupay_public_key'] = '';
+        $payload['pix_parcelado_rules'] = null;
+        $payload['parcelado_sdk_options'] = [];
+        $hasPixParcelado = false;
+        foreach ($payload['available_payment_methods'] as $m) {
+            if (($m['id'] ?? '') === 'pix_parcelado') {
+                $hasPixParcelado = true;
+                break;
+            }
+        }
+        if ($hasPixParcelado && ($product->billing_type ?? Product::BILLING_ONE_TIME) === Product::BILLING_ONE_TIME) {
+            $parceladoService = app(CajuPayPixParceladoService::class);
+            $creds = $parceladoService->credentialsForTenant($product->tenant_id);
+            if ($creds) {
+                $payload['cajupay_public_key'] = (string) ($creds['public_key'] ?? '');
+                $payAccountId = $parceladoService->resolvePayAccountIdForTenant($product->tenant_id);
+                $payload['cajupay_pay_account_id'] = $payAccountId;
+                $productRules = $parceladoService->productRulesFromConfig($config);
+                $priceBrl = (float) $product->price;
+                if ($resolved['offer'] ?? null) {
+                    $priceBrl = (float) $resolved['offer']->price;
+                }
+                $platformRules = $parceladoService->platformRules($creds);
+                $totalCents = MoneyMinorUnits::toMinorUnits($priceBrl, 'BRL');
+                $merged = $parceladoService->mergeProductRulesWithPlatform($totalCents, $productRules, $platformRules);
+                $payload['pix_parcelado_rules'] = $merged;
+                $payload['parcelado_sdk_options'] = $parceladoService->sdkOptionsFromRules($merged);
+            }
+        }
 
         $orderBumps = $product->orderBumps()->with(['targetProduct', 'targetProductOffer', 'targetSubscriptionPlan'])->get();
         $payload['order_bumps'] = $orderBumps->map(function (ProductOrderBump $b) use ($product) {
@@ -3013,5 +3062,367 @@ class CheckoutController extends Controller
         $validated['address_state'] = $state;
 
         return $validated;
+    }
+
+    public function cajupayParceladoSession(Request $request): JsonResponse
+    {
+        $product = Product::where('id', $request->input('product_id'))->where('is_active', true)->first();
+        if (! $product) {
+            return response()->json(['message' => 'Produto não encontrado.'], 404);
+        }
+
+        if ($product->billing_type !== Product::BILLING_ONE_TIME) {
+            return response()->json(['message' => 'PIX Parcelado disponível apenas para pagamento único.'], 422);
+        }
+
+        $allowedDisplayCurrencies = CheckoutCustomPriceByCurrency::currencyCodesFromTenantSettings(
+            $this->tenantCurrenciesListFor($product->tenant_id)
+        );
+
+        $rules = [
+            'product_id' => ['required', 'exists:products,id'],
+            'product_offer_id' => ['nullable', 'exists:product_offers,id'],
+            'subscription_plan_id' => ['nullable', 'exists:subscription_plans,id'],
+            'order_bump_ids' => ['nullable', 'array'],
+            'order_bump_ids.*' => ['integer', 'exists:product_order_bumps,id'],
+            'display_currency' => ['nullable', 'string', 'max:8', Rule::in($allowedDisplayCurrencies)],
+            'coupon_code' => ['nullable', 'string', 'max:64'],
+        ];
+        $validated = $request->validate($rules);
+
+        $displayCurrency = strtoupper((string) ($validated['display_currency'] ?? 'BRL'));
+        if ($displayCurrency !== 'BRL') {
+            return response()->json(['message' => 'PIX Parcelado disponível apenas em BRL.'], 422);
+        }
+
+        try {
+            $context = $this->calculateOrderContext($request, $product, $validated, false);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage() ?: 'Não foi possível calcular o pedido.'], 422);
+        }
+
+        $totalAmount = (float) $context['total_amount'];
+        $amountCents = MoneyMinorUnits::toMinorUnits($totalAmount, 'BRL');
+        if ($amountCents < CajuPayPixParceladoService::MIN_AMOUNT_CENTS) {
+            return response()->json(['message' => 'Valor mínimo para PIX Parcelado é R$ 50,00.'], 422);
+        }
+
+        $parceladoService = app(CajuPayPixParceladoService::class);
+        $creds = $parceladoService->credentialsForTenant($product->tenant_id);
+        if (! $creds || ! $parceladoService->isEnrolled($creds)) {
+            return response()->json(['message' => 'PIX Parcelado não está ativo na CajuPay.'], 422);
+        }
+
+        $payAccountId = $parceladoService->resolvePayAccountIdForTenant($product->tenant_id);
+        if ($payAccountId === null || $payAccountId === '') {
+            return response()->json(['message' => 'Conta de pagamento CajuPay indisponível.'], 422);
+        }
+
+        $productRules = $parceladoService->productRulesFromConfig($product->checkout_config ?? []);
+        $platformRules = $parceladoService->platformRules($creds);
+        $merged = $parceladoService->mergeProductRulesWithPlatform($amountCents, $productRules, $platformRules);
+        $sdkOptions = $parceladoService->sdkOptionsFromRules($merged);
+
+        $linkBody = array_merge([
+            'amount_cents' => $amountCents,
+            'currency' => 'BRL',
+            'description' => Str::limit($product->name, 200),
+            'allow_pix_parcelado' => true,
+        ], $sdkOptions);
+
+        try {
+            $driver = GatewayRegistry::driver('cajupay');
+            if (! $driver instanceof \App\Gateways\CajuPay\CajuPayDriver) {
+                throw new \RuntimeException('Driver CajuPay indisponível.');
+            }
+            $link = $driver->createPaymentLink($creds, $linkBody);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage() ?: 'Não foi possível preparar PIX Parcelado.'], 422);
+        }
+
+        $linkPayAccountId = trim((string) ($link['pay_account_id'] ?? ''));
+        if ($linkPayAccountId !== '') {
+            $payAccountId = $linkPayAccountId;
+            $parceladoService->rememberPayAccountId($product->tenant_id, $payAccountId);
+        }
+
+        $paymentLinkToken = is_string($link['token'] ?? null) ? $link['token']
+            : (is_string($link['public_token'] ?? null) ? $link['public_token']
+            : (is_string($link['payment_link_token'] ?? null) ? $link['payment_link_token'] : null));
+
+        if ($paymentLinkToken === null || $paymentLinkToken === '') {
+            return response()->json(['message' => 'Link de pagamento CajuPay inválido.'], 422);
+        }
+
+        return response()->json([
+            'pay_account_id' => $payAccountId,
+            'payment_link_token' => $paymentLinkToken,
+            'amount_cents' => $amountCents,
+            'description' => $product->name,
+            'sdk_options' => $sdkOptions,
+            'merged_rules' => $merged,
+        ]);
+    }
+
+    public function cajupayParceladoConfirmOrder(Request $request): JsonResponse
+    {
+        $product = Product::where('id', $request->input('product_id'))->where('is_active', true)->first();
+        if (! $product) {
+            return response()->json(['message' => 'Produto não encontrado.'], 404);
+        }
+
+        if ($product->billing_type !== Product::BILLING_ONE_TIME) {
+            return response()->json(['message' => 'PIX Parcelado disponível apenas para pagamento único.'], 422);
+        }
+
+        $allowedDisplayCurrencies = CheckoutCustomPriceByCurrency::currencyCodesFromTenantSettings(
+            $this->tenantCurrenciesListFor($product->tenant_id)
+        );
+
+        $rules = array_merge([
+            'product_id' => ['required', 'exists:products,id'],
+            'product_offer_id' => ['nullable', 'exists:product_offers,id'],
+            'subscription_plan_id' => ['nullable', 'exists:subscription_plans,id'],
+            'order_bump_ids' => ['nullable', 'array'],
+            'order_bump_ids.*' => ['integer', 'exists:product_order_bumps,id'],
+            'display_currency' => ['nullable', 'string', 'max:8', Rule::in($allowedDisplayCurrencies)],
+            'coupon_code' => ['nullable', 'string', 'max:64'],
+            'email' => ['required', 'email'],
+            'name' => ['required', 'string', 'max:255'],
+            'cpf' => ['required', 'string', 'max:11'],
+            'phone' => ['required', 'string', 'max:24'],
+            'checkout_session_token' => ['nullable', 'string', 'max:64'],
+            'utm_source' => ['nullable', 'string', 'max:255'],
+            'utm_medium' => ['nullable', 'string', 'max:255'],
+            'utm_campaign' => ['nullable', 'string', 'max:255'],
+        ], $this->checkoutAttributionValidationRules());
+
+        $validated = $request->validate($rules);
+
+        $displayCurrency = strtoupper((string) ($validated['display_currency'] ?? 'BRL'));
+        if ($displayCurrency !== 'BRL') {
+            return response()->json(['message' => 'PIX Parcelado disponível apenas em BRL.'], 422);
+        }
+
+        $cpfDigits = preg_replace('/\D/', '', (string) ($validated['cpf'] ?? ''));
+        if (strlen($cpfDigits) !== 11) {
+            return response()->json(['message' => 'CPF obrigatório.', 'errors' => ['cpf' => 'CPF inválido.']], 422);
+        }
+        if (trim((string) ($validated['phone'] ?? '')) === '') {
+            return response()->json(['message' => 'Telefone obrigatório.', 'errors' => ['phone' => 'Telefone obrigatório.']], 422);
+        }
+
+        app(CheckoutAbuseGuard::class)->assertCanCreateCheckout($request, $product);
+
+        try {
+            $context = $this->calculateOrderContext($request, $product, $validated, false);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage() ?: 'Não foi possível calcular o pedido.'], 422);
+        }
+
+        $totalAmount = (float) $context['total_amount'];
+        if (MoneyMinorUnits::toMinorUnits($totalAmount, 'BRL') < CajuPayPixParceladoService::MIN_AMOUNT_CENTS) {
+            return response()->json(['message' => 'Valor mínimo para PIX Parcelado é R$ 50,00.'], 422);
+        }
+
+        $draft = [
+            'product_id' => $product->id,
+            'product_offer_id' => $context['offer']?->id,
+            'subscription_plan_id' => null,
+            'display_currency' => 'BRL',
+            'charge_currency' => 'BRL',
+            'charge_amount' => $totalAmount,
+            'total_amount' => $totalAmount,
+            'base_amount' => $context['base_amount'],
+            'order_bump_ids' => $context['order_bump_ids'],
+            'coupon_code' => $context['coupon_code'],
+            'checkout_slug' => $context['checkout_slug'],
+            'payment_method' => 'pix_parcelado',
+            'cajupay_token' => null,
+            'checkout_session_id' => null,
+        ];
+
+        try {
+            $orderContext = $this->createUserAndOrderFromDraft($request, $product, $draft, $validated);
+        } catch (\Throwable $e) {
+            Log::warning('CajuPayParceladoConfirmOrder: falha ao criar Order', [
+                'product_id' => $product->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json(['message' => $e->getMessage() ?: 'Falha ao registrar o pedido.'], 422);
+        }
+
+        /** @var Order $order */
+        $order = $orderContext['order'];
+        $pollingToken = Str::random(32);
+
+        $this->updateCheckoutSessionForOrder($order, array_merge($validated, [
+            'checkout_session_token' => $validated['checkout_session_token'] ?? null,
+        ]));
+
+        event(new OrderPending($order->fresh()));
+
+        Cache::put('parcelado_order.'.$pollingToken, [
+            'order_id' => $order->id,
+        ], now()->addHours(2));
+
+        return response()->json([
+            'success' => true,
+            'order_id' => $order->id,
+            'polling_token' => $pollingToken,
+            'amount_cents' => MoneyMinorUnits::toMinorUnits($totalAmount, 'BRL'),
+            'polling_url' => route('checkout.order-status', ['token' => $pollingToken]),
+        ]);
+    }
+
+    public function cajupayParceladoComplete(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'polling_token' => ['required', 'string', 'size:32'],
+            'plan_id' => ['required', 'string', 'max:64'],
+            'payment_id' => ['nullable', 'string', 'max:64'],
+            'pix_copy_paste' => ['required', 'string', 'max:65535'],
+            'pix_qr_code' => ['nullable', 'string', 'max:65535'],
+            'installment_count' => ['nullable', 'integer', 'min:1', 'max:24'],
+            'down_payment_cents' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $cached = Cache::get('parcelado_order.'.$validated['polling_token']);
+        if (! is_array($cached) || empty($cached['order_id'])) {
+            return response()->json(['message' => 'Sessão expirada. Recarregue a página.'], 404);
+        }
+
+        $order = Order::with('product')->find((int) $cached['order_id']);
+        if (! $order || $order->status !== 'pending') {
+            return response()->json(['message' => 'Pedido inválido ou já processado.'], 422);
+        }
+
+        $parceladoService = app(CajuPayPixParceladoService::class);
+        $productRules = $parceladoService->productRulesFromConfig($order->product?->checkout_config ?? []);
+        $configuredDownCents = isset($productRules['down_payment_cents']) && $productRules['down_payment_cents'] !== null && $productRules['down_payment_cents'] !== ''
+            ? (int) $productRules['down_payment_cents']
+            : null;
+        $downPaymentCents = $parceladoService->resolveDownPaymentCentsFromPlanResult(
+            ['down_payment_cents' => $validated['down_payment_cents'] ?? null],
+            $configuredDownCents,
+        );
+
+        $meta = is_array($order->metadata) ? $order->metadata : [];
+        $meta['cajupay_parcelado_plan_id'] = $validated['plan_id'];
+        $meta['cajupay_parcelado_first_payment_id'] = $validated['payment_id'] ?? null;
+        if (! empty($validated['installment_count'])) {
+            $meta['cajupay_parcelado_installment_count'] = (int) $validated['installment_count'];
+        }
+        if ($downPaymentCents !== null && $downPaymentCents > 0) {
+            $meta['cajupay_parcelado_down_payment_cents'] = $downPaymentCents;
+        }
+
+        $order->update([
+            'gateway' => 'cajupay',
+            'gateway_id' => $validated['payment_id'] ?? $validated['plan_id'],
+            'metadata' => $meta,
+        ]);
+
+        $product = $order->product;
+        $redirectUrl = $product?->checkout_config['redirect_after_purchase'] ?? null;
+        $redirectUrl = ! empty($redirectUrl) && is_string($redirectUrl) ? $redirectUrl : null;
+
+        $pixResult = [
+            'qrcode' => $validated['pix_qr_code'] ?? null,
+            'copy_paste' => $validated['pix_copy_paste'],
+        ];
+
+        $displayAmount = $downPaymentCents !== null && $downPaymentCents > 0
+            ? MoneyMinorUnits::fromMinorUnits($downPaymentCents, 'BRL')
+            : (float) $order->amount;
+
+        $displayToken = PixCheckoutDisplay::persistAndStoreSession($order->fresh(), $pixResult, [
+            'amount' => $displayAmount,
+            'order_total_amount' => (float) $order->amount,
+            'down_payment_cents' => $downPaymentCents,
+            'product_name' => $product?->name,
+            'checkout_slug' => $order->getCheckoutSlug(),
+            'redirect_after_purchase' => $redirectUrl,
+            'customer_name' => $order->user?->name ?? null,
+            'customer_email' => $order->email,
+            'customer_phone' => $order->phone,
+        ]);
+
+        Cache::forget('parcelado_order.'.$validated['polling_token']);
+
+        return response()->json([
+            'success' => true,
+            'redirect_url' => route('checkout.pix-parcelado', ['token' => $displayToken]),
+            'order_id' => $order->id,
+        ]);
+    }
+
+    /**
+     * Página PIX da entrada do PIX Parcelado.
+     *
+     * @return \Illuminate\Http\RedirectResponse|Response
+     */
+    public function pixParceladoPage(Request $request)
+    {
+        $token = $request->query('token');
+        if (! $token || ! is_string($token)) {
+            return redirect()->route('login')->with('error', 'Link inválido ou expirado.');
+        }
+
+        $stored = session('pix_display.'.$token);
+        if (! is_array($stored)) {
+            return redirect()->route('login')->with('error', 'Código PIX expirado ou inválido. Gere um novo PIX.');
+        }
+
+        $orderId = (int) ($stored['order_id'] ?? 0);
+        $order = Order::with('product', 'productOffer', 'subscriptionPlan', 'orderItems')->find($orderId);
+        if (! $order || $order->status !== 'pending') {
+            session()->forget('pix_display.'.$token);
+            $slug = $order ? $order->getCheckoutSlug() : null;
+            $redirect = $slug ? redirect()->route('checkout.show', ['slug' => $slug]) : redirect()->route('login');
+
+            return $redirect->with('error', 'Código PIX expirado ou inválido. Gere um novo PIX.');
+        }
+
+        $createdAt = (int) ($stored['created_at'] ?? 0);
+        if ($createdAt + self::PIX_EXPIRY_SECONDS < time()) {
+            session()->forget('pix_display.'.$token);
+
+            return redirect()->route('checkout.show', ['slug' => $order->getCheckoutSlug()])
+                ->with('error', 'Código PIX expirado. Gere um novo PIX.');
+        }
+
+        $amount = (float) ($stored['amount'] ?? 0);
+        $amountFormatted = 'R$ '.number_format($amount, 2, ',', '.');
+
+        $product = $order->product;
+        $conversionPixels = $product
+            ? \App\Support\AffiliateAttribution::conversionPixelsForCheckout(
+                $product,
+                \App\Support\AffiliateAttribution::affiliateCodeFromOrderMetadata(is_array($order->metadata) ? $order->metadata : null)
+            )
+            : Product::defaultConversionPixels();
+
+        return Inertia::render('Checkout/PixParcelado', [
+            'token' => $token,
+            'order_id' => $orderId,
+            'qrcode' => $stored['qrcode'] ?? null,
+            'copy_paste' => $stored['copy_paste'] ?? null,
+            'amount' => $amount,
+            'amount_formatted' => $amountFormatted,
+            'order_total_amount' => (float) ($stored['order_total_amount'] ?? $order->amount),
+            'product_name' => $stored['product_name'] ?? $order->product->name,
+            'checkout_slug' => $stored['checkout_slug'] ?? $order->getCheckoutSlug(),
+            'redirect_after_purchase' => $stored['redirect_after_purchase'] ?? null,
+            'customer_name' => $stored['customer_name'] ?? null,
+            'customer_email' => $stored['customer_email'] ?? null,
+            'customer_phone' => $stored['customer_phone'] ?? null,
+            'created_at' => $createdAt,
+            'expiry_seconds' => self::PIX_EXPIRY_SECONDS,
+            'conversion_pixels' => $conversionPixels,
+            'meta_purchase_event_id' => MetaPurchaseTracking::purchaseEventId($order->id),
+            'purchase_contents' => MetaPurchaseTracking::purchaseContentsFromOrder($order, false),
+        ]);
     }
 }

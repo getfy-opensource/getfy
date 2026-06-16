@@ -225,7 +225,7 @@ async function confirm() {
  * Retorna true se aplicou (SDK suporta setPayer), false se silenciosamente
  * ignorou (SDK antigo sem setPayer ainda no cache do navegador).
  *
- * @param {{ name?: string, email?: string, document?: string }} payer
+ * @param {{ name?: string, email?: string, document?: string, phone?: string }} payer
  * @returns {boolean}
  */
 function setPayer(payer) {
