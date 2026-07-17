@@ -1223,7 +1223,7 @@ const selectClass =
                                                     v-if="getRateMode(index) === 'brl_to'"
                                                     v-model.number="curr.rate_to_brl"
                                                     type="number"
-                                                    step="0.0001"
+                                                    step="any"
                                                     min="0"
                                                     :class="inputClass"
                                                     :placeholder="curr.code === 'BRL' ? '1' : '0,18'"
@@ -1231,7 +1231,7 @@ const selectClass =
                                                 <input
                                                     v-else
                                                     type="number"
-                                                    step="0.01"
+                                                    step="any"
                                                     min="0"
                                                     :class="inputClass"
                                                     :placeholder="curr.code === 'BRL' ? '1' : '5,55'"
