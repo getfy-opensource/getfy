@@ -410,6 +410,7 @@ class ProdutosController extends Controller
 
         return Inertia::render('Produtos/Edit', [
             'produto' => $produtoArray,
+            'default_cart_recovery_email' => Product::defaultCheckoutConfig()['cart_recovery_email'],
             'productTypes' => $productTypes,
             'billingTypes' => $billingTypes,
             'exchange_rates' => $this->legacyExchangeRatesMap($tenantCurrencies),

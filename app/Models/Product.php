@@ -87,7 +87,7 @@ class Product extends Model
      */
     public static function defaultCheckoutConfig(): array
     {
-        return [
+        $config = [
             'summary' => [
                 'previous_price' => null,
                 'discount_text' => '',
@@ -299,6 +299,39 @@ class Product extends Model
                         'body_html' => '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width:600px;margin:0 auto;font-family:\'Segoe UI\',Tahoma,sans-serif;background:#f8fafc;padding:32px 24px;\"><tr><td style=\"background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"padding:28px 32px;\"><h1 style=\"margin:0 0 12px;font-size:20px;font-weight:700;color:#0f172a;\">Último lembrete</h1><p style=\"margin:0 0 16px;font-size:15px;line-height:1.6;color:#334155;\">Deixando aqui seu link para concluir a compra de <strong>{nome_produto}</strong> quando for melhor:</p><p style=\"margin:0 0 22px;text-align:center;\"><a href=\"{link_checkout}\" style=\"display:inline-block;padding:14px 28px;background:#0ea5e9;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;border-radius:10px;\">Concluir compra</a></p><p style=\"margin:0;font-size:13px;line-height:1.6;color:#64748b;\">Se você já concluiu, pode ignorar este e-mail.</p></td></tr></table></td></tr></table>',
                     ],
                 ],
+            ],
+        ];
+
+        foreach (static::defaultCartRecoveryEmailLayouts() as $stage => $layout) {
+            $config['cart_recovery_email']['stages'][$stage] = $layout;
+        }
+
+        return $config;
+    }
+
+    /**
+     * @return array<string, array{subject: string, body_text: string, body_html: string}>
+     */
+    private static function defaultCartRecoveryEmailLayouts(): array
+    {
+        $shellStart = '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;margin:0 auto;font-family:\'Segoe UI\',Tahoma,sans-serif;background:#f1f5f9;padding:36px 24px;"><tr><td style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(15,23,42,0.08);">';
+        $shellEnd = '</td></tr></table>';
+
+        return [
+            '10m' => [
+                'subject' => 'Você ainda quer garantir {nome_produto}?',
+                'body_text' => "Olá, {nome_cliente}!\n\nVocê estava a poucos passos de concluir sua compra de {nome_produto}. Deixamos tudo pronto para você continuar de onde parou.\n\nProduto: {nome_produto}\nValor: {valor}\n\nRetome sua compra com segurança:\n{link_checkout}\n\nSe tiver alguma dúvida, responda este e-mail. Estamos à disposição para ajudar.",
+                'body_html' => $shellStart.'<div style="height:6px;background:#0ea5e9;"></div><div style="padding:32px;"><p style="margin:0 0 10px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#0284c7;">Sua compra está esperando por você</p><h1 style="margin:0 0 14px;font-size:24px;line-height:1.3;color:#0f172a;">Olá, {nome_cliente}!</h1><p style="margin:0 0 22px;font-size:15px;line-height:1.7;color:#475569;">Você estava a poucos passos de concluir sua compra. Deixamos tudo pronto para continuar de onde parou.</p><div style="margin:0 0 24px;padding:18px 20px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;"><p style="margin:0 0 6px;font-size:13px;color:#64748b;">Produto</p><p style="margin:0 0 12px;font-size:16px;font-weight:700;color:#0f172a;">{nome_produto}</p><p style="margin:0;font-size:13px;color:#64748b;">Valor: <strong style="color:#0f172a;">{valor}</strong></p></div><p style="margin:0 0 24px;text-align:center;"><a href="{link_checkout}" style="display:inline-block;padding:15px 30px;background:#0ea5e9;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;border-radius:10px;">Continuar minha compra</a></p><p style="margin:0 0 18px;font-size:12px;line-height:1.6;color:#64748b;">Se o botão não abrir, copie e cole este endereço no navegador:<br><a href="{link_checkout}" style="color:#0284c7;word-break:break-all;">{link_checkout}</a></p><p style="margin:0;padding-top:18px;border-top:1px solid #e2e8f0;font-size:13px;line-height:1.6;color:#64748b;">Ficou com alguma dúvida? Responda este e-mail. Estamos à disposição para ajudar.</p></div>'.$shellEnd,
+            ],
+            '5h' => [
+                'subject' => 'Podemos ajudar com sua compra de {nome_produto}?',
+                'body_text' => "Olá, {nome_cliente}!\n\nNotamos que sua compra de {nome_produto} ainda não foi concluída. Se ocorreu algum problema no pagamento, você pode tentar novamente com segurança.\n\nProduto: {nome_produto}\nValor: {valor}\n\nContinuar compra:\n{link_checkout}\n\nPrecisa de ajuda? Responda este e-mail e conte o que aconteceu.",
+                'body_html' => $shellStart.'<div style="padding:32px;"><div style="display:inline-block;margin:0 0 18px;padding:7px 12px;background:#eff6ff;border-radius:999px;font-size:12px;font-weight:700;color:#2563eb;">Podemos ajudar?</div><h1 style="margin:0 0 14px;font-size:24px;line-height:1.3;color:#0f172a;">Sua compra ainda pode ser concluída</h1><p style="margin:0 0 22px;font-size:15px;line-height:1.7;color:#475569;">Olá, {nome_cliente}. Se ocorreu algum problema no pagamento, você pode tentar novamente com segurança.</p><div style="margin:0 0 24px;padding:18px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;"><p style="margin:0 0 5px;font-size:16px;font-weight:700;color:#0f172a;">{nome_produto}</p><p style="margin:0;font-size:14px;color:#64748b;">Valor: <strong style="color:#0f172a;">{valor}</strong></p></div><p style="margin:0 0 24px;text-align:center;"><a href="{link_checkout}" style="display:inline-block;padding:15px 30px;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;border-radius:10px;">Tentar novamente</a></p><div style="padding:18px;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;"><p style="margin:0;font-size:13px;line-height:1.6;color:#92400e;"><strong>Encontrou alguma dificuldade?</strong><br>Responda este e-mail e conte o que aconteceu. Teremos prazer em ajudar.</p></div><p style="margin:18px 0 0;font-size:12px;line-height:1.6;color:#64748b;word-break:break-all;">Link alternativo: <a href="{link_checkout}" style="color:#2563eb;">{link_checkout}</a></p></div>'.$shellEnd,
+            ],
+            '24h' => [
+                'subject' => 'Seu link para {nome_produto} (caso ainda queira)',
+                'body_text' => "Olá, {nome_cliente}!\n\nEste é nosso último lembrete sobre sua compra de {nome_produto}. Caso ainda tenha interesse, seu link continua disponível abaixo.\n\nProduto: {nome_produto}\nValor: {valor}\n\nConcluir compra:\n{link_checkout}\n\nSe você já finalizou ou mudou de ideia, pode ignorar esta mensagem tranquilamente.",
+                'body_html' => $shellStart.'<div style="height:6px;background:#f59e0b;"></div><div style="padding:32px;"><p style="margin:0 0 10px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#b45309;">Último lembrete</p><h1 style="margin:0 0 14px;font-size:24px;line-height:1.3;color:#0f172a;">Seu link continua disponível</h1><p style="margin:0 0 22px;font-size:15px;line-height:1.7;color:#475569;">Olá, {nome_cliente}. Caso ainda tenha interesse em <strong>{nome_produto}</strong>, você pode concluir sua compra pelo link abaixo.</p><div style="margin:0 0 24px;padding:18px 20px;background:#fffbeb;border:1px solid #fde68a;border-radius:12px;"><p style="margin:0 0 6px;font-size:13px;color:#92400e;">Resumo da compra</p><p style="margin:0 0 8px;font-size:16px;font-weight:700;color:#78350f;">{nome_produto}</p><p style="margin:0;font-size:14px;color:#92400e;">{valor}</p></div><p style="margin:0 0 24px;text-align:center;"><a href="{link_checkout}" style="display:inline-block;padding:15px 30px;background:#f59e0b;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;border-radius:10px;">Concluir minha compra</a></p><p style="margin:0 0 18px;font-size:12px;line-height:1.6;color:#64748b;word-break:break-all;">Link alternativo: <a href="{link_checkout}" style="color:#b45309;">{link_checkout}</a></p><p style="margin:0;padding-top:18px;border-top:1px solid #e2e8f0;font-size:13px;line-height:1.6;color:#64748b;">Se você já finalizou a compra ou mudou de ideia, pode ignorar esta mensagem tranquilamente.</p></div>'.$shellEnd,
             ],
         ];
     }

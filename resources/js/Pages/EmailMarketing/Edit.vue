@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { Link, router, useForm } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import Button from '@/components/ui/Button.vue';
+import VisualEmailEditor from '@/components/email/VisualEmailEditor.vue';
 import axios from 'axios';
 
 defineOptions({ layout: LayoutInfoprodutor });
@@ -27,6 +28,10 @@ const form = useForm({
 const recipientCount = ref(null);
 const recipientSample = ref([]);
 const loadingRecipients = ref(false);
+const campaignPlaceholders = [
+    { value: '{nome}', label: 'Nome do cliente' },
+    { value: '{email}', label: 'E-mail do cliente' },
+];
 
 function useDefaultTemplate() {
     form.body_html = props.default_body_html || '';
@@ -103,15 +108,15 @@ function confirmSend() {
             </div>
             <div>
                 <div class="flex items-center justify-between">
-                    <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Corpo do e-mail (HTML)</label>
+                    <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Corpo do e-mail</label>
                     <Button type="button" variant="secondary" size="sm" @click="useDefaultTemplate">Usar template padrão</Button>
                 </div>
                 <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">Use {nome} e {email} para personalizar.</p>
-                <textarea
+                <VisualEmailEditor
                     v-model="form.body_html"
-                    rows="14"
+                    class="mt-2"
+                    :placeholders="campaignPlaceholders"
                     required
-                    class="mt-1 block w-full rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 font-mono text-sm"
                 />
                 <p v-if="form.errors.body_html" class="mt-1 text-sm text-red-600">{{ form.errors.body_html }}</p>
             </div>

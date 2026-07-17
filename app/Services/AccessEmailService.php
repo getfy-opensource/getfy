@@ -66,10 +66,10 @@ class AccessEmailService
             $bodyText = '';
         }
 
-        // Preferir texto simples (UI). Se vazio, cai no HTML legado.
-        if (trim($bodyText) !== '') {
+        // O editor visual salva HTML. Templates antigos em texto continuam compatíveis.
+        if (trim($bodyHtml) === '' && trim($bodyText) !== '') {
             $bodyHtml = $this->wrapAccessTextInPrettyHtml($bodyText, '{link_acesso}');
-        } elseif ($bodyHtml === '') {
+        } elseif (trim($bodyHtml) === '') {
             $bodyHtml = (string) (Product::defaultEmailTemplate()['body_html'] ?? '');
         }
 
@@ -350,9 +350,9 @@ class AccessEmailService
         $bodyText = (string) ($template['body_text'] ?? '');
         $bodyHtml = (string) ($template['body_html'] ?? '');
 
-        if (trim($bodyText) !== '') {
+        if (trim($bodyHtml) === '' && trim($bodyText) !== '') {
             $bodyHtml = $this->wrapAccessTextInPrettyHtml($bodyText, '{link_acesso}');
-        } elseif ($bodyHtml === '') {
+        } elseif (trim($bodyHtml) === '') {
             return false;
         }
 
