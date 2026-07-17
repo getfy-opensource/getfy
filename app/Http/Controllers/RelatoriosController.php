@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\MetaCustomAudienceCsvService;
+use App\Services\OrderBumpReportService;
 use App\Support\ReportingPeriod;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -15,10 +16,11 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class RelatoriosController extends Controller
 {
-    private const PERIODS = ['hoje', 'ontem', '7dias', 'mes', 'ano', 'total'];
+    private const PERIODS = ['hoje', 'ontem', '7dias', 'mes', 'ano', 'total', 'personalizado'];
 
     public function __construct(
-        private MetaCustomAudienceCsvService $metaCustomAudienceCsv
+        private MetaCustomAudienceCsvService $metaCustomAudienceCsv,
+        private OrderBumpReportService $orderBumpReport,
     ) {}
 
     public function index(Request $request): Response
@@ -28,8 +30,22 @@ class RelatoriosController extends Controller
             $period = 'hoje';
         }
 
+        $dateFrom = null;
+        $dateTo = null;
+        if ($period === 'personalizado') {
+            $dateFrom = (string) $request->query('date_from', ReportingPeriod::now()->startOfMonth()->toDateString());
+            $dateTo = (string) $request->query('date_to', ReportingPeriod::now()->toDateString());
+            $request->merge(['date_from' => $dateFrom, 'date_to' => $dateTo]);
+            $request->validate([
+                'date_from' => ['required', 'date_format:Y-m-d'],
+                'date_to' => ['required', 'date_format:Y-m-d', 'after_or_equal:date_from'],
+            ]);
+            [$start, $end] = ReportingPeriod::boundsForVendas('custom', $dateFrom, $dateTo);
+        } else {
+            [$start, $end] = ReportingPeriod::boundsForDashboard($period);
+        }
+
         $tenantId = auth()->user()->tenant_id;
-        [$start, $end] = ReportingPeriod::boundsForDashboard($period);
 
         $ordersQuery = Order::forTenant($tenantId);
         ReportingPeriod::applyCreatedAtBounds($ordersQuery, $start, $end);
@@ -136,8 +152,18 @@ class RelatoriosController extends Controller
             ->values()
             ->all();
 
+        $orderBumpReport = $this->orderBumpReport->build(
+            $tenantId,
+            $request->query('order_bump_product_id'),
+            $start,
+            $end,
+        );
+
         return Inertia::render('Relatorios/Index', [
             'period' => $period,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'order_bump_report' => $orderBumpReport,
             'meta_export_products' => $this->metaCustomAudienceCsv->productsForExportDropdown($request->user()),
             'receita_total' => round($receitaTotal, 2),
             'quantidade_vendas' => $quantidadeVendas,

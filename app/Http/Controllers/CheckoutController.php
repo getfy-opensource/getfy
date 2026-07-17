@@ -904,6 +904,7 @@ class CheckoutController extends Controller
                     'product_id' => $bump->target_product_id,
                     'product_offer_id' => $bump->target_product_offer_id,
                     'subscription_plan_id' => $bump->target_subscription_plan_id,
+                    'product_order_bump_id' => $bump->id,
                     'amount' => $bump->getEffectiveAmountBrl(),
                     'position' => $pos++,
                 ]);
@@ -2191,6 +2192,7 @@ class CheckoutController extends Controller
                     'product_id' => $bump->target_product_id,
                     'product_offer_id' => $bump->target_product_offer_id,
                     'subscription_plan_id' => $bump->target_subscription_plan_id,
+                    'product_order_bump_id' => $bump->id,
                     'amount' => CheckoutCustomPriceByCurrency::bumpBrlToChargeCurrency(
                         $bump->getEffectiveAmountBrl(),
                         $chargeCurrency,
@@ -2373,6 +2375,7 @@ class CheckoutController extends Controller
                 'product_id' => $bump->target_product_id,
                 'product_offer_id' => $bump->target_product_offer_id,
                 'subscription_plan_id' => $bump->target_subscription_plan_id,
+                'product_order_bump_id' => $bump->id,
                 'amount' => $bump->getEffectiveAmountBrl(),
                 'position' => $pos++,
             ]);

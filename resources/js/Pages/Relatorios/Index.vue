@@ -15,6 +15,7 @@ import {
     EyeOff,
     XCircle,
     Download,
+    BarChart3,
 } from 'lucide-vue-next';
 
 defineOptions({ layout: LayoutInfoprodutor });
@@ -28,6 +29,8 @@ onMounted(() => {
 
 const props = defineProps({
     period: { type: String, default: 'hoje' },
+    date_from: { type: String, default: '' },
+    date_to: { type: String, default: '' },
     receita_total: { type: Number, default: 0 },
     quantidade_vendas: { type: Number, default: 0 },
     ticket_medio: { type: Number, default: 0 },
@@ -44,6 +47,10 @@ const props = defineProps({
     reembolsos_count: { type: Number, default: 0 },
     reembolsos_total: { type: Number, default: 0 },
     meta_export_products: { type: Array, default: () => [] },
+    order_bump_report: {
+        type: Object,
+        default: () => ({ products: [], selected_product_id: null, eligible_orders: 0, accepted_items: 0, bumps: [] }),
+    },
 });
 
 const META_HEADER =
@@ -53,6 +60,9 @@ const showModalCompradores = ref(false);
 const showModalAbandonos = ref(false);
 const productCompradores = ref('');
 const productAbandonos = ref('');
+const customDateFrom = ref(props.date_from || new Date().toISOString().slice(0, 10));
+const customDateTo = ref(props.date_to || new Date().toISOString().slice(0, 10));
+const orderBumpProductId = ref(props.order_bump_report.selected_product_id || '');
 
 function openModalCompradores() {
     productCompradores.value = props.meta_export_products[0]?.id ?? '';
@@ -81,10 +91,34 @@ const periodOptions = [
     { value: 'mes', label: 'Mês' },
     { value: 'ano', label: 'Ano' },
     { value: 'total', label: 'Total' },
+    { value: 'personalizado', label: 'Personalizado' },
 ];
 
 function setPeriod(value) {
-    router.get('/relatorios', { period: value }, { preserveState: false });
+    const params = { period: value };
+    if (orderBumpProductId.value) params.order_bump_product_id = orderBumpProductId.value;
+    if (value === 'personalizado') {
+        params.date_from = customDateFrom.value;
+        params.date_to = customDateTo.value;
+    }
+    router.get('/relatorios', params, { preserveState: false });
+}
+
+function applyCustomPeriod() {
+    if (!customDateFrom.value || !customDateTo.value) return;
+    setPeriod('personalizado');
+}
+
+function setOrderBumpProduct() {
+    const params = {
+        period: props.period,
+        order_bump_product_id: orderBumpProductId.value,
+    };
+    if (props.period === 'personalizado') {
+        params.date_from = customDateFrom.value;
+        params.date_to = customDateTo.value;
+    }
+    router.get('/relatorios', params, { preserveState: false });
 }
 
 function formatBRL(value) {
@@ -219,6 +253,39 @@ const chartOptionsFormas = computed(() => ({
                 </button>
             </div>
         </div>
+
+        <form
+            v-if="period === 'personalizado'"
+            class="flex flex-wrap items-end gap-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-800/60"
+            @submit.prevent="applyCustomPeriod"
+        >
+            <label class="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                Data inicial
+                <input
+                    v-model="customDateFrom"
+                    type="date"
+                    required
+                    :max="customDateTo || undefined"
+                    class="mt-1 block rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                />
+            </label>
+            <label class="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                Data final
+                <input
+                    v-model="customDateTo"
+                    type="date"
+                    required
+                    :min="customDateFrom || undefined"
+                    class="mt-1 block rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                />
+            </label>
+            <button
+                type="submit"
+                class="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white"
+            >
+                Aplicar período
+            </button>
+        </form>
 
         <p
             v-if="!meta_export_products.length"
@@ -413,6 +480,81 @@ const chartOptionsFormas = computed(() => ({
                 </div>
             </div>
         </div>
+
+        <section class="panel-card-md">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <h2 class="flex items-center gap-2 text-base font-semibold text-zinc-900 dark:text-white">
+                        <BarChart3 class="h-5 w-5 text-zinc-500" />
+                        Desempenho dos Order Bumps
+                    </h2>
+                    <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                        Vendas concluídas no período selecionado, incluindo ofertas sem nenhuma aceitação.
+                    </p>
+                </div>
+                <label v-if="order_bump_report.products.length" class="min-w-64 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    Produto principal
+                    <select
+                        v-model="orderBumpProductId"
+                        class="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                        @change="setOrderBumpProduct"
+                    >
+                        <option v-for="product in order_bump_report.products" :key="product.id" :value="product.id">
+                            {{ product.name }}
+                        </option>
+                    </select>
+                </label>
+            </div>
+
+            <div v-if="order_bump_report.products.length" class="mt-5 grid gap-3 sm:grid-cols-2">
+                <div class="rounded-xl bg-zinc-50 p-4 dark:bg-zinc-800">
+                    <p class="text-xs font-medium uppercase tracking-wide text-zinc-500">Pedidos concluídos</p>
+                    <p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">
+                        {{ displayNumber(order_bump_report.eligible_orders) }}
+                    </p>
+                </div>
+                <div class="rounded-xl bg-zinc-50 p-4 dark:bg-zinc-800">
+                    <p class="text-xs font-medium uppercase tracking-wide text-zinc-500">Order Bumps vendidos</p>
+                    <p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">
+                        {{ displayNumber(order_bump_report.accepted_items) }}
+                    </p>
+                </div>
+            </div>
+
+            <div v-if="order_bump_report.products.length" class="mt-5 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
+                <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-700">
+                    <thead class="bg-zinc-100/80 dark:bg-zinc-800/80">
+                        <tr>
+                            <th class="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-500">Order Bump</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-500">Produto ofertado</th>
+                            <th class="px-4 py-2 text-right text-xs font-medium uppercase text-zinc-500">Vendas</th>
+                            <th class="px-4 py-2 text-right text-xs font-medium uppercase text-zinc-500">Aceitação</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-zinc-200 dark:divide-zinc-700">
+                        <tr v-for="bump in order_bump_report.bumps" :key="bump.id" class="bg-white dark:bg-zinc-800/60">
+                            <td class="px-4 py-3 text-sm font-medium text-zinc-900 dark:text-white">{{ bump.title }}</td>
+                            <td class="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-300">{{ bump.target_name }}</td>
+                            <td class="px-4 py-3 text-right text-sm font-semibold text-zinc-900 dark:text-white">
+                                {{ displayNumber(bump.sales_count) }}
+                            </td>
+                            <td class="px-4 py-3 text-right text-sm text-zinc-600 dark:text-zinc-300">
+                                {{ valuesVisible ? `${bump.acceptance_rate}%` : '—' }}
+                            </td>
+                        </tr>
+                        <tr v-if="!order_bump_report.bumps.length" class="bg-white dark:bg-zinc-800/60">
+                            <td colspan="4" class="px-4 py-8 text-center text-sm text-zinc-500">
+                                Este produto não possui Order Bumps configurados.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <p v-else class="mt-5 rounded-lg border border-dashed border-zinc-300 px-4 py-8 text-center text-sm text-zinc-500 dark:border-zinc-700">
+                Nenhum produto possui Order Bumps configurados.
+            </p>
+        </section>
 
         <div class="grid gap-4 lg:grid-cols-3">
             <div class="panel-card-md lg:col-span-2">

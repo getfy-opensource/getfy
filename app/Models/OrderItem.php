@@ -12,6 +12,7 @@ class OrderItem extends Model
         'product_id',
         'product_offer_id',
         'subscription_plan_id',
+        'product_order_bump_id',
         'amount',
         'position',
     ];
@@ -41,5 +42,10 @@ class OrderItem extends Model
     public function subscriptionPlan(): BelongsTo
     {
         return $this->belongsTo(SubscriptionPlan::class);
+    }
+
+    public function productOrderBump(): BelongsTo
+    {
+        return $this->belongsTo(ProductOrderBump::class);
     }
 }
