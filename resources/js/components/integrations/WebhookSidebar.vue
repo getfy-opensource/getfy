@@ -125,6 +125,9 @@ const loadingLogDetail = ref(false);
 const logCopyFeedback = ref('');
 const logRequestPreRef = ref(null);
 const logResponsePreRef = ref(null);
+const resendingLog = ref(false);
+const resendMessage = ref('');
+const resendSuccess = ref(null);
 
 const eventEntries = ref([]);
 
@@ -412,6 +415,8 @@ function formatLogDate(iso) {
 async function openLogDetail(webhookId, logId) {
     loadingLogDetail.value = true;
     selectedLogDetail.value = null;
+    resendMessage.value = '';
+    resendSuccess.value = null;
     logDetailModal.value = true;
     try {
         const { data } = await axios.get(
@@ -429,6 +434,39 @@ function closeLogDetail() {
     logDetailModal.value = false;
     selectedLogDetail.value = null;
     logCopyFeedback.value = '';
+    resendMessage.value = '';
+    resendSuccess.value = null;
+}
+
+function formatLogSource(source) {
+    if (source === 'test') return 'Teste manual';
+    if (source === 'resend') return 'Reenvio manual';
+    return 'Automático';
+}
+
+async function resendSelectedLog() {
+    const webhookId = logsWebhook.value?.id;
+    const logId = selectedLogDetail.value?.id;
+    if (!webhookId || !logId || resendingLog.value) return;
+
+    resendingLog.value = true;
+    resendMessage.value = '';
+    resendSuccess.value = null;
+
+    try {
+        const { data } = await axios.post(
+            `/integracoes/webhooks/${webhookId}/logs/${logId}/resend`,
+        );
+        resendSuccess.value = true;
+        resendMessage.value = data.message || 'Webhook reenviado com sucesso.';
+    } catch (err) {
+        resendSuccess.value = false;
+        resendMessage.value =
+            err.response?.data?.message || 'Não foi possível reenviar o webhook.';
+    } finally {
+        await Promise.all([fetchLogs(webhookId), fetchDashboard()]);
+        resendingLog.value = false;
+    }
 }
 
 function formatPayload(obj) {
@@ -917,7 +955,7 @@ function truncateUrl(url, max = 40) {
                                                 </span>
                                             </td>
                                             <td class="px-3 py-2.5 text-zinc-500">
-                                                {{ log.source === 'test' ? 'Teste' : 'Automático' }}
+                                                {{ formatLogSource(log.source) }}
                                             </td>
                                         </tr>
                                     </tbody>
@@ -1161,8 +1199,8 @@ function truncateUrl(url, max = 40) {
                                             (HTTP {{ selectedLogDetail.response_status }})
                                         </span>
                                     </span>
-                                    <span v-if="selectedLogDetail.source === 'test'" class="rounded bg-zinc-200 px-2 py-0.5 text-xs dark:bg-zinc-600">
-                                        Teste manual
+                                    <span class="rounded bg-zinc-200 px-2 py-0.5 text-xs dark:bg-zinc-600">
+                                        {{ formatLogSource(selectedLogDetail.source) }}
                                     </span>
                                     <span class="text-xs text-zinc-500 dark:text-zinc-400">
                                         {{ formatLogDate(selectedLogDetail.created_at) }}
@@ -1173,6 +1211,17 @@ function truncateUrl(url, max = 40) {
                                     class="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300"
                                 >
                                     {{ selectedLogDetail.error_message }}
+                                </p>
+                                <p
+                                    v-if="resendMessage"
+                                    class="mb-4 rounded-lg px-3 py-2 text-sm"
+                                    :class="
+                                        resendSuccess
+                                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300'
+                                            : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300'
+                                    "
+                                >
+                                    {{ resendMessage }}
                                 </p>
                                 <div class="space-y-4">
                                     <div>
@@ -1227,9 +1276,14 @@ function truncateUrl(url, max = 40) {
                                 </div>
                             </template>
                         </div>
-                        <div class="bg-zinc-50/80 px-5 py-3 dark:bg-zinc-800/80">
-                            <Button variant="outline" size="sm" class="w-full sm:w-auto" @click="closeLogDetail">
+                        <div class="flex flex-col-reverse gap-2 bg-zinc-50/80 px-5 py-3 sm:flex-row sm:justify-end dark:bg-zinc-800/80">
+                            <Button variant="outline" size="sm" class="w-full sm:w-auto" :disabled="resendingLog" @click="closeLogDetail">
                                 Fechar
+                            </Button>
+                            <Button size="sm" class="w-full sm:w-auto" :disabled="resendingLog || !selectedLogDetail" @click="resendSelectedLog">
+                                <Loader2 v-if="resendingLog" class="mr-2 h-4 w-4 animate-spin" />
+                                <Send v-else class="mr-2 h-4 w-4" />
+                                {{ resendingLog ? 'Reenviando…' : 'Reenviar webhook' }}
                             </Button>
                         </div>
                     </div>

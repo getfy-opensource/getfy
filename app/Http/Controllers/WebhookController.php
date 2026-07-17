@@ -319,6 +319,78 @@ class WebhookController extends Controller
         ]);
     }
 
+    public function resendLog(Webhook $webhook, int $log): JsonResponse
+    {
+        $this->authorizeWebhook($webhook);
+
+        $originalLog = $webhook->logs()->findOrFail($log);
+        $body = $originalLog->request_payload;
+
+        if (! is_array($body) || $body === []) {
+            return response()->json([
+                'success' => false,
+                'message' => 'O payload original deste envio não está disponível.',
+            ], 422);
+        }
+
+        try {
+            $request = Http::timeout(15)
+                ->withHeaders(['Content-Type' => 'application/json'])
+                ->withBody(json_encode($body, JSON_THROW_ON_ERROR), 'application/json');
+
+            $token = $webhook->bearer_token;
+            if (is_string($token) && $token !== '') {
+                $request = $request->withToken($token);
+            }
+
+            $response = $request->post($webhook->url);
+            $responseStatus = $response->status();
+            $responseBody = $response->body();
+            $success = $response->successful();
+
+            WebhookLog::create([
+                'webhook_id' => $webhook->id,
+                'event' => $originalLog->event,
+                'event_label' => $originalLog->event_label,
+                'request_payload' => $body,
+                'response_status' => $responseStatus,
+                'response_body' => strlen($responseBody) > 2000 ? substr($responseBody, 0, 2000).'…' : $responseBody,
+                'success' => $success,
+                'error_message' => $success ? null : 'HTTP '.$responseStatus,
+                'source' => 'resend',
+            ]);
+
+            if (! $success) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Webhook reenviado, mas o destino retornou HTTP '.$responseStatus.'.',
+                ], 422);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Webhook reenviado com sucesso.',
+            ]);
+        } catch (\Throwable $e) {
+            WebhookLog::create([
+                'webhook_id' => $webhook->id,
+                'event' => $originalLog->event,
+                'event_label' => $originalLog->event_label,
+                'request_payload' => $body,
+                'response_status' => null,
+                'response_body' => null,
+                'success' => false,
+                'error_message' => $e->getMessage(),
+                'source' => 'resend',
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Não foi possível reenviar o webhook.',
+            ], 500);
+        }
+    }
+
     private function authorizeWebhook(Webhook $webhook): void
     {
         $tenantId = auth()->user()->tenant_id;

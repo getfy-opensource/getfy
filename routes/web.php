@@ -646,6 +646,9 @@ Route::middleware(['auth', 'admin.tenant', 'role:admin|infoprodutor|team', 'audi
         Route::delete('/integracoes/webhooks/{webhook}', [\App\Http\Controllers\WebhookController::class, 'destroy'])->name('integrations.webhooks.destroy');
         Route::post('/integracoes/webhooks/{webhook}/test', [\App\Http\Controllers\WebhookController::class, 'test'])->name('integrations.webhooks.test');
         Route::get('/integracoes/webhooks/{webhook}/logs', [\App\Http\Controllers\WebhookController::class, 'logs'])->name('integrations.webhooks.logs');
+        Route::post('/integracoes/webhooks/{webhook}/logs/{log}/resend', [\App\Http\Controllers\WebhookController::class, 'resendLog'])
+            ->middleware('throttle:10,1')
+            ->name('integrations.webhooks.logs.resend');
         Route::get('/integracoes/webhooks/{webhook}/logs/{log}', [\App\Http\Controllers\WebhookController::class, 'showLog'])->name('integrations.webhooks.logs.show');
 
         Route::get('/integracoes/pixel-x', [\App\Http\Controllers\PixelXIntegrationController::class, 'index'])->name('integrations.pixel-x.index');
