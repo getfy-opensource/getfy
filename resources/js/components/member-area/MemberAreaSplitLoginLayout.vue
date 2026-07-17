@@ -13,6 +13,7 @@ const props = defineProps({
     appName: { type: String, default: 'Área de Membros' },
     formHeading: { type: String, default: '' },
     formSubheading: { type: String, default: '' },
+    heroOverlayOpacity: { type: Number, default: 50 },
     preview: { type: Boolean, default: false },
 });
 
@@ -21,6 +22,10 @@ const resolvedHeroImage = computed(
 );
 const resolvedLogoDark = computed(() => props.logoDark || props.logoLight);
 const formFirst = computed(() => props.formSide === 'left');
+const heroOverlayOpacity = computed(() => {
+    const raw = props.heroOverlayOpacity ?? 50;
+    return (raw <= 1 ? raw * 100 : raw) / 100;
+});
 </script>
 
 <template>
@@ -46,6 +51,10 @@ const formFirst = computed(() => props.formSide === 'left');
                 alt=""
                 class="h-full w-full object-cover"
                 @error="retryImageOnError"
+            />
+            <div
+                class="absolute inset-0 bg-zinc-900"
+                :style="{ opacity: heroOverlayOpacity }"
             />
             <div class="absolute inset-0 bg-gradient-to-t from-zinc-900/50 via-zinc-900/10 to-transparent" />
             <div class="absolute bottom-10 left-10 right-10 max-w-md">

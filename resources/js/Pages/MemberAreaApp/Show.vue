@@ -67,6 +67,10 @@ const hero = props.config?.hero ?? {};
 const heroDesktopBg = hero.image_url_desktop || hero.image_url || null;
 const heroMobileBg = hero.image_url_mobile || hero.image_url_desktop || hero.image_url || null;
 const heroGradient = 'linear-gradient(135deg, var(--ma-primary) 0%, #27272a 100%)';
+const heroOverlayOpacity = (() => {
+    const raw = hero.overlay_opacity ?? 50;
+    return (raw <= 1 ? raw * 100 : raw) / 100;
+})();
 
 function isPaidProductSection(mod) {
     return (mod.access_type ?? 'paid') === 'paid';
@@ -102,7 +106,10 @@ function productSectionUnlocked(mod) {
                 class="absolute inset-0 bg-cover bg-center md:hidden"
                 :style="{ backgroundImage: `url(${heroMobileBg})` }"
             />
-            <div v-if="hero.overlay" class="absolute inset-0 bg-black/50" />
+            <div
+                class="absolute inset-0 bg-black"
+                :style="{ opacity: heroOverlayOpacity }"
+            />
             <!-- Overlay gradiente embaixo: esfumaça na cor do fundo -->
             <div
                 class="pointer-events-none absolute inset-x-0 bottom-0 h-1/2"

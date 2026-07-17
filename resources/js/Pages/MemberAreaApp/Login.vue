@@ -51,6 +51,7 @@ const formSubheading = computed(
         :app-name="product.name || formHeading"
         :form-heading="formHeading"
         :form-subheading="formSubheading"
+        :hero-overlay-opacity="product.background_overlay_opacity ?? 50"
     >
         <MemberAreaLoginForm :slug="slug" :product="product" variant="v2" />
     </MemberAreaSplitLoginLayout>
@@ -58,13 +59,18 @@ const formSubheading = computed(
 
     <div
         v-else
-        class="flex min-h-screen flex-col items-center justify-center bg-cover bg-center px-4 py-12 transition-colors"
+        class="relative flex min-h-screen flex-col items-center justify-center bg-cover bg-center px-4 py-12 transition-colors"
         :style="{
             '--ma-primary': product.primary_color || '#0ea5e9',
             ...backgroundStyle(),
         }"
     >
-        <div v-if="product.background_image" class="absolute inset-0 bg-black/50" aria-hidden="true" />
+        <div
+            v-if="product.background_image"
+            class="absolute inset-0 bg-black"
+            :style="{ opacity: ((product.background_overlay_opacity ?? 50) <= 1 ? (product.background_overlay_opacity ?? 50) * 100 : (product.background_overlay_opacity ?? 50)) / 100 }"
+            aria-hidden="true"
+        />
         <div
             class="relative z-10 w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900/90 p-8 shadow-2xl backdrop-blur-sm"
         >

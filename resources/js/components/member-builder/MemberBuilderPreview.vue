@@ -27,6 +27,10 @@ const hero = computed(() => props.config?.hero ?? {});
 const heroDesktopBg = computed(() => hero.value?.image_url_desktop || hero.value?.image_url || null);
 const heroMobileBg = computed(() => hero.value?.image_url_mobile || hero.value?.image_url_desktop || hero.value?.image_url || null);
 const heroGradient = 'linear-gradient(135deg, var(--ma-primary) 0%, #27272a 100%)';
+const heroOverlayOpacity = computed(() => {
+    const raw = hero.value?.overlay_opacity ?? 50;
+    return (raw <= 1 ? raw * 100 : raw) / 100;
+});
 const headerLogo = computed(() => props.config?.header?.logo_url ?? null);
 const sidebar = computed(() => props.config?.sidebar ?? {});
 const login = computed(() => props.config?.login ?? {});
@@ -38,6 +42,7 @@ const loginPreviewProduct = computed(() => ({
     subtitle: login.value.subtitle || 'Entre com seu e-mail e senha',
     primary_color: login.value.primary_color || '#0ea5e9',
     background_image: login.value.background_image || '',
+    background_overlay_opacity: login.value.background_overlay_opacity ?? 50,
     login_without_password: login.value.login_without_password ?? false,
     template: login.value.template || 'v1',
     name: props.productName || login.value.title || 'Área de Membros',
@@ -99,7 +104,10 @@ const certOverlayOpacity = computed(() => {
                             class="absolute inset-0 bg-cover bg-center md:hidden"
                             :style="{ backgroundImage: `url(${heroMobileBg})` }"
                         />
-                        <div v-if="hero.overlay" class="pointer-events-none absolute inset-0 bg-black/50" />
+                        <div
+                            class="pointer-events-none absolute inset-0 bg-black"
+                            :style="{ opacity: heroOverlayOpacity }"
+                        />
                         <div
                             class="pointer-events-none absolute inset-x-0 bottom-0 h-1/2"
                             :style="{ background: `linear-gradient(to top, var(--ma-bg) 0%, transparent 100%)` }"
@@ -356,6 +364,7 @@ const certOverlayOpacity = computed(() => {
                 :app-name="loginPreviewProduct.name"
                 :form-heading="loginPreviewProduct.title"
                 :form-subheading="loginPreviewProduct.subtitle"
+                :hero-overlay-opacity="loginPreviewProduct.background_overlay_opacity"
             >
                 <MemberAreaLoginForm slug="preview" :product="loginPreviewProduct" variant="v2" preview />
             </MemberAreaSplitLoginLayout>
@@ -368,7 +377,12 @@ const certOverlayOpacity = computed(() => {
                     backgroundImage: login.background_image ? `url(${login.background_image})` : 'none',
                 }"
             >
-                <div v-if="login.background_image" class="pointer-events-none absolute inset-0 bg-black/50" aria-hidden="true" />
+                <div
+                    v-if="login.background_image"
+                    class="pointer-events-none absolute inset-0 bg-black"
+                    :style="{ opacity: ((login.background_overlay_opacity ?? 50) <= 1 ? (login.background_overlay_opacity ?? 50) * 100 : (login.background_overlay_opacity ?? 50)) / 100 }"
+                    aria-hidden="true"
+                />
                 <div class="relative z-10 w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900/90 p-8 shadow-2xl backdrop-blur-sm">
                     <div class="flex flex-col items-center text-center">
                         <img

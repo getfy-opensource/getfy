@@ -26,6 +26,9 @@ class MemberAreaLoginPageProps
             'background_image' => $loginConfig['background_image'] ?? '',
             'background_color' => $loginConfig['background_color'] ?? '#18181b',
             'primary_color' => $loginConfig['primary_color'] ?? '#0ea5e9',
+            'background_overlay_opacity' => isset($loginConfig['background_overlay_opacity'])
+                ? (float) $loginConfig['background_overlay_opacity']
+                : 50,
             'template' => in_array($template, ['v1', 'v2'], true) ? $template : 'v1',
             'login_without_password' => (bool) ($loginConfig['login_without_password'] ?? false),
             'login_without_password_url' => ! empty($loginConfig['login_without_password']) && $slug

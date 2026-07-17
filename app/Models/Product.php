@@ -629,6 +629,7 @@ class Product extends Model
                 'title' => '',
                 'subtitle' => '',
                 'overlay' => true,
+                'overlay_opacity' => 50,
             ],
             'header' => [
                 'logo_url' => null,

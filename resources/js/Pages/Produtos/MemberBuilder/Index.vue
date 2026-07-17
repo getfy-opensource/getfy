@@ -45,7 +45,7 @@ const activeTab = ref('aparencia');
 const configForm = useForm({
     member_area_config: {
         theme: { ...props.produto.member_area_config?.theme },
-        hero: { ...props.produto.member_area_config?.hero },
+        hero: { overlay: true, overlay_opacity: 50, ...props.produto.member_area_config?.hero },
         logos: { favicon: '', ...props.produto.member_area_config?.logos },
         sidebar: { ...props.produto.member_area_config?.sidebar },
         login: {
@@ -55,6 +55,7 @@ const configForm = useForm({
             background_color: '#18181b',
             logo: '',
             background_image: '',
+            background_overlay_opacity: 50,
             password_mode: props.produto.member_area_config?.login?.password_mode ?? 'auto',
             default_password: props.produto.member_area_config?.login?.default_password ?? '',
             login_without_password: props.produto.member_area_config?.login?.login_without_password ?? false,
@@ -312,6 +313,11 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                             <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Subtítulo</label>
                             <input v-model="configForm.member_area_config.hero.subtitle" type="text" :class="inputClass" placeholder="Subtítulo" />
                         </div>
+                        <div class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+                            <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Intensidade do overlay (0-100%)</label>
+                            <input v-model.number="configForm.member_area_config.hero.overlay_opacity" type="range" min="0" max="100" class="w-full" />
+                            <span class="text-xs text-zinc-500">{{ Math.round((configForm.member_area_config.hero.overlay_opacity ?? 50)) }}%</span>
+                        </div>
                     </div>
                     <Button type="button" class="mt-4" @click="saveConfig" :disabled="configForm.processing">Salvar</Button>
                 </template>
@@ -337,6 +343,11 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                         <div>
                             <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Imagem de fundo (URL)</label>
                             <input v-model="configForm.member_area_config.login.background_image" type="url" :class="inputClass" placeholder="https://..." />
+                        </div>
+                        <div v-if="configForm.member_area_config.login.background_image" class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+                            <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Intensidade do overlay (0-100%)</label>
+                            <input v-model.number="configForm.member_area_config.login.background_overlay_opacity" type="range" min="0" max="100" class="w-full" />
+                            <span class="text-xs text-zinc-500">{{ Math.round((configForm.member_area_config.login.background_overlay_opacity ?? 50)) }}%</span>
                         </div>
                         <div>
                             <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Cor de fundo (sem imagem)</label>

@@ -51,6 +51,7 @@ const formHeading = computed(() => props.product.title || props.product.name || 
         :app-name="product.name || formHeading"
         form-heading="Recuperar senha"
         form-subheading="Informe seu e-mail para receber o link de redefinição de senha."
+        :hero-overlay-opacity="product.background_overlay_opacity ?? 50"
     >
         <div v-if="status" class="mb-4 rounded-2xl border border-emerald-200/80 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-800/60 dark:bg-emerald-950/40 dark:text-emerald-200">
             {{ status }}
@@ -94,7 +95,7 @@ const formHeading = computed(() => props.product.title || props.product.name || 
 
     <div
         v-else
-        class="flex min-h-screen flex-col items-center justify-center bg-cover bg-center px-4 py-12 transition-colors"
+        class="relative flex min-h-screen flex-col items-center justify-center bg-cover bg-center px-4 py-12 transition-colors"
         :style="{
             '--ma-primary': product.primary_color || '#0ea5e9',
             ...backgroundStyle(),

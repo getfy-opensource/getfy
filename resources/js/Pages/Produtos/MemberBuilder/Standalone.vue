@@ -135,23 +135,24 @@ const memberAreaFullLink = computed(() => {
 
 const defaultConfig = () => ({
     theme: { primary: '#0ea5e9', background: '#18181b', text: '#f8fafc', sidebar_bg: '#27272a', ...props.produto.member_area_config?.theme },
-    hero: { title: '', subtitle: '', image_url: '', image_url_desktop: '', image_url_mobile: '', overlay: false, ...props.produto.member_area_config?.hero },
+    hero: { title: '', subtitle: '', image_url: '', image_url_desktop: '', image_url_mobile: '', overlay: true, overlay_opacity: 50, ...props.produto.member_area_config?.hero },
     header: { logo_url: '', ...props.produto.member_area_config?.header },
     logos: props.produto.member_area_config?.logos ?? {},
     sidebar: { collapsible: false, items: [], ...props.produto.member_area_config?.sidebar },
-    login: {
-        template: 'v1',
-        title: '',
-        subtitle: '',
-        primary_color: '#0ea5e9',
-        background_color: '#18181b',
-        logo: '',
-        background_image: '',
-        password_mode: props.produto.member_area_config?.login?.password_mode ?? 'auto',
-        default_password: props.produto.member_area_config?.login?.default_password ?? '',
-        login_without_password: props.produto.member_area_config?.login?.login_without_password ?? false,
-        ...props.produto.member_area_config?.login,
-    },
+        login: {
+            template: 'v1',
+            title: '',
+            subtitle: '',
+            primary_color: '#0ea5e9',
+            background_color: '#18181b',
+            logo: '',
+            background_image: '',
+            background_overlay_opacity: 50,
+            password_mode: props.produto.member_area_config?.login?.password_mode ?? 'auto',
+            default_password: props.produto.member_area_config?.login?.default_password ?? '',
+            login_without_password: props.produto.member_area_config?.login?.login_without_password ?? false,
+            ...props.produto.member_area_config?.login,
+        },
     pwa: { name: '', short_name: '', theme_color: '#0ea5e9', push_enabled: false, ...props.produto.member_area_config?.pwa },
     certificate: { enabled: false, title: '', completion_percent: 100, signature_text: '', font_family: 'sans-serif', duration_text: '', platform_name: '', primary_color: '', background_image_url: '', background_overlay_enabled: false, background_overlay_color: '#000000', background_overlay_opacity: 50, text_color: '', title_color: '', signature_font_family: 'Dancing Script', print_format: 'A4', ...props.produto.member_area_config?.certificate },
     community_enabled: props.produto.member_area_config?.community_enabled ?? false,
@@ -2209,6 +2210,11 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Subtítulo</label>
                                 <input v-model="configForm.member_area_config.hero.subtitle" type="text" :class="inputClass" placeholder="Subtítulo" />
                             </div>
+                            <div class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+                                <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Intensidade do overlay (0-100%)</label>
+                                <input v-model.number="configForm.member_area_config.hero.overlay_opacity" type="range" min="0" max="100" class="w-full" />
+                                <span class="text-xs text-zinc-500">{{ Math.round((configForm.member_area_config.hero.overlay_opacity ?? 50)) }}%</span>
+                            </div>
                         </div>
                         <Button type="button" class="mt-4" @click="saveConfig" :disabled="processing">Salvar</Button>
                     </template>
@@ -2319,6 +2325,11 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                 <Button v-else type="button" size="sm" variant="outline" :disabled="loginBackgroundUploading" @click="loginBackgroundFileInput?.click()">
                                     Enviar imagem de fundo
                                 </Button>
+                            </div>
+                            <div v-if="configForm.member_area_config.login.background_image" class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+                                <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Intensidade do overlay (0-100%)</label>
+                                <input v-model.number="configForm.member_area_config.login.background_overlay_opacity" type="range" min="0" max="100" class="w-full" />
+                                <span class="text-xs text-zinc-500">{{ Math.round((configForm.member_area_config.login.background_overlay_opacity ?? 50)) }}%</span>
                             </div>
                             <div v-if="configForm.member_area_config.login.template !== 'v2'">
                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Cor de fundo (sem imagem)</label>
