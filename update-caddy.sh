@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="${GETFY_REPO_URL:-https://github.com/getfy-opensource/getfy.git}"
+REPO_URL="${GETFY_REPO_URL:-https://github.com/reinaldorocha/getfy.git}"
 BRANCH="${GETFY_BRANCH:-main}"
 INSTALL_DIR="${GETFY_DIR:-/opt/getfy}"
 

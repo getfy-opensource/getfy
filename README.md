@@ -5,7 +5,7 @@ Plataforma Laravel + Vue para checkout, área de membros e estrutura completa de
 ## Instalação rápida
 
 - Hospedagem compartilhada (upload manual): acesse `https://SEU_DOMINIO/install`
-- VPS (terminal): `bash -c "$(curl -fsSL https://raw.githubusercontent.com/getfy-opensource/getfy/main/install.sh)"`
+- VPS (terminal): `bash -c "$(curl -fsSL https://raw.githubusercontent.com/reinaldorocha/getfy/main/install.sh)"`
 - Docker na Hostinger (deploy por URL do GitHub): use `docker-compose.yml` do repositório
 
 ---
@@ -98,7 +98,7 @@ Este modo instala e sobe tudo via Docker (app + banco + redis + scheduler).
 Conecte via SSH e execute:
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/getfy-opensource/getfy/main/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/reinaldorocha/getfy/main/install.sh)"
 ```
 
 O que esse comando faz:
@@ -124,7 +124,21 @@ Abra e informe o domínio público (ex.: `seudominio.com`). Isso ajusta `APP_URL
 Você pode definir variáveis antes de rodar o instalador:
 
 ```bash
-GETFY_HTTP_PORT=8080 GETFY_DIR=/opt/getfy bash -c "$(curl -fsSL https://raw.githubusercontent.com/getfy-opensource/getfy/main/install.sh)"
+GETFY_HTTP_PORT=8080 GETFY_DIR=/opt/getfy bash -c "$(curl -fsSL https://raw.githubusercontent.com/reinaldorocha/getfy/main/install.sh)"
+```
+
+### (Opcional) Usar outro repositório ou branch
+
+Os scripts deste fork usam por padrão:
+
+```bash
+https://github.com/reinaldorocha/getfy.git
+```
+
+Se precisar atualizar a VPS a partir de outro fork, repo privado ou branch específica, informe as variáveis:
+
+```bash
+GETFY_REPO_URL="https://github.com/SEU_USUARIO/getfy.git" GETFY_BRANCH="main" sh update.sh
 ```
 
 ---
@@ -163,7 +177,7 @@ Se o seu painel não suportar `docker-compose.yml`, a alternativa mais simples �
 ## Para atualizar:
 VPS:
 1. Conecte via SSH.
-3. Execute: `bash -c "$(curl -fsSL https://raw.githubusercontent.com/getfy-opensource/getfy/main/update.sh)"`.
+3. Execute: `bash -c "$(curl -fsSL https://raw.githubusercontent.com/reinaldorocha/getfy/main/update.sh)"`.
 
 Hospedagem compartilhada:
 1. Baixe o zip update vX.X.X do repositório.
@@ -181,4 +195,3 @@ Se você deseja apoiar o desenvolvimento diretamente:
 | Pix | Chave |
 |---|---|
 | Aleatória | `ce05f7d1-27db-4d46-bca5-0a80c621349a` |
-
