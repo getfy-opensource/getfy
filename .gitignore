@@ -11,6 +11,7 @@
 /.phpunit.cache
 /.vscode
 /.zed
+/.tools
 /auth.json
 /node_modules
 # Plugins instalados pelo painel / ZIP (persistente; não versionar)
@@ -23,6 +24,7 @@
 /storage/app/install.lock
 /storage/*.key
 /storage/pail
+/storage/framework/views/*.php
 Homestead.json
 Homestead.yaml
 Thumbs.db

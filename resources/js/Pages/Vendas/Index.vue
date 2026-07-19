@@ -213,6 +213,14 @@ function vendaNetProfitAmount(v) {
     return v?.net_profit_amount ?? v?.display_amount ?? 0;
 }
 
+function hasNetProfitAmount(v) {
+    return v?.net_profit_amount !== null && v?.net_profit_amount !== undefined;
+}
+
+function displayNetProfit(v) {
+    return hasNetProfitAmount(v) ? displayMoney(vendaNetProfitAmount(v), v.currency) : '–';
+}
+
 function displayMoney(value, currency = 'BRL') {
     return valuesVisible.value ? formatMoney(value, currency) : '••••••';
 }
@@ -869,9 +877,9 @@ function openProofExport() {
                                     Lucro líquido
                                 </p>
                                 <p class="mt-1 text-base font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-                                    {{ displayMoney(vendaNetProfitAmount(v), v.currency) }}
+                                    {{ displayNetProfit(v) }}
                                     <span
-                                        v-if="v.net_profit_amount_is_estimated"
+                                        v-if="hasNetProfitAmount(v) && v.net_profit_amount_is_estimated"
                                         title="Estimativa com base nas taxas configuradas"
                                     >*</span>
                                 </p>
@@ -979,9 +987,9 @@ function openProofExport() {
                         </td>
                         <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-emerald-700 dark:text-emerald-300">
                             <p>
-                                {{ displayMoney(vendaNetProfitAmount(v), v.currency) }}
+                                {{ displayNetProfit(v) }}
                                 <span
-                                    v-if="v.net_profit_amount_is_estimated"
+                                    v-if="hasNetProfitAmount(v) && v.net_profit_amount_is_estimated"
                                     class="text-xs font-normal text-zinc-500"
                                     title="Estimativa com base nas taxas configuradas"
                                 >*</span>

@@ -281,11 +281,16 @@ class VendasController extends Controller
                 $arr['amount_total'] = $o->lineItemsTotalAmount();
                 $arr['billed_amount'] = $arr['amount_total'];
                 $producerAmount = $producerSaleAmount->forOrder($o);
-                $netProfitAmount = $producerAmount['is_producer_share']
-                    ? (float) $producerAmount['amount']
-                    : (float) $netAmountCalculator->forOrder($o)['net'];
-                $arr['net_profit_amount'] = round($netProfitAmount, 2);
-                $arr['net_profit_amount_is_estimated'] = $producerAmount['is_estimated'] || ! $producerAmount['is_producer_share'];
+                if ($o->status === 'completed') {
+                    $netProfitAmount = $producerAmount['is_producer_share']
+                        ? (float) $producerAmount['amount']
+                        : (float) $netAmountCalculator->forOrder($o)['net'];
+                    $arr['net_profit_amount'] = round($netProfitAmount, 2);
+                    $arr['net_profit_amount_is_estimated'] = $producerAmount['is_estimated'] || ! $producerAmount['is_producer_share'];
+                } else {
+                    $arr['net_profit_amount'] = null;
+                    $arr['net_profit_amount_is_estimated'] = false;
+                }
                 $arr['display_amount'] = $arr['billed_amount'];
                 $arr['display_amount_is_producer_share'] = $producerAmount['is_producer_share'];
                 $arr['display_amount_is_estimated'] = $producerAmount['is_estimated'];
@@ -490,11 +495,14 @@ class VendasController extends Controller
         $netAmountCalculator = app(NetAmountCalculator::class);
 
         $rows = $vendas->map(function (Order $o) use ($producerSaleAmount, $netAmountCalculator) {
-            $display = $producerSaleAmount->forOrder($o);
             $billedAmount = $o->lineItemsTotalAmount();
-            $netProfitAmount = $display['is_producer_share']
-                ? (float) $display['amount']
-                : (float) $netAmountCalculator->forOrder($o)['net'];
+            $netProfitAmount = null;
+            if ($o->status === 'completed') {
+                $display = $producerSaleAmount->forOrder($o);
+                $netProfitAmount = $display['is_producer_share']
+                    ? (float) $display['amount']
+                    : (float) $netAmountCalculator->forOrder($o)['net'];
+            }
 
             return [
                 'data' => $o->created_at?->format('d/m/Y H:i'),
@@ -505,7 +513,7 @@ class VendasController extends Controller
                 'gateway' => $o->paymentMethodDisplayLabel(),
                 'moeda' => $o->getCurrencyOrDefault(),
                 'valor_faturado' => number_format($billedAmount, 2, ',', '.'),
-                'lucro_liquido' => number_format($netProfitAmount, 2, ',', '.'),
+                'lucro_liquido' => $netProfitAmount === null ? '' : number_format($netProfitAmount, 2, ',', '.'),
             ];
         })->all();
 

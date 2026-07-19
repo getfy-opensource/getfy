@@ -69,6 +69,14 @@ function vendaNetProfitAmount(v) {
     return v?.net_profit_amount ?? v?.display_amount ?? 0;
 }
 
+function hasNetProfitAmount(v) {
+    return v?.net_profit_amount !== null && v?.net_profit_amount !== undefined;
+}
+
+function formatNetProfit(v) {
+    return hasNetProfitAmount(v) ? formatMoney(vendaNetProfitAmount(v), v.currency) : '–';
+}
+
 function formatDate(value) {
     if (!value) return '–';
     const d = new Date(value);
@@ -211,9 +219,9 @@ function itemLabel(item) {
                                     Lucro líquido
                                 </p>
                                 <p class="text-sm text-emerald-700 dark:text-emerald-300">
-                                    {{ formatMoney(vendaNetProfitAmount(venda), venda.currency) }}
+                                    {{ formatNetProfit(venda) }}
                                     <span
-                                        v-if="venda.net_profit_amount_is_estimated"
+                                        v-if="hasNetProfitAmount(venda) && venda.net_profit_amount_is_estimated"
                                         class="text-xs font-normal text-zinc-500"
                                         title="Estimativa com base nas taxas configuradas"
                                     > *</span>
