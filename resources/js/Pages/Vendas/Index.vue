@@ -205,11 +205,12 @@ function displayCurrency(value) {
     return valuesVisible.value ? formatBRL(value) : '••••••';
 }
 
-function vendaDisplayAmount(v) {
-    if (v?.display_amount_is_producer_share && v.display_amount != null) {
-        return v.display_amount;
-    }
-    return v?.amount_total ?? v?.amount ?? 0;
+function vendaBilledAmount(v) {
+    return v?.billed_amount ?? v?.amount_total ?? v?.amount ?? 0;
+}
+
+function vendaNetProfitAmount(v) {
+    return v?.net_profit_amount ?? v?.display_amount ?? 0;
 }
 
 function displayMoney(value, currency = 'BRL') {
@@ -502,7 +503,7 @@ function openProofExport() {
                     <EyeOff v-else class="h-5 w-5" aria-hidden="true" />
                 </button>
             </div>
-            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                 <div
                     class="panel-card-md"
                 >
@@ -519,7 +520,7 @@ function openProofExport() {
                 >
                     <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
                         <CircleDollarSign class="h-5 w-5" />
-                        <span class="text-sm font-medium">Valor líquido</span>
+                        <span class="text-sm font-medium">Valor faturado</span>
                     </div>
                     <div v-if="(stats.valor_por_moeda ?? []).length" class="mt-2 space-y-1">
                         <p
@@ -531,6 +532,26 @@ function openProofExport() {
                         </p>
                     </div>
                     <p v-else class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">
+                        {{ displayMoney(0, 'BRL') }}
+                    </p>
+                </div>
+                <div
+                    class="panel-card-md"
+                >
+                    <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
+                        <Banknote class="h-5 w-5" />
+                        <span class="text-sm font-medium">Lucro líquido</span>
+                    </div>
+                    <div v-if="(stats.lucro_liquido_por_moeda ?? []).length" class="mt-2 space-y-1">
+                        <p
+                            v-for="row in stats.lucro_liquido_por_moeda"
+                            :key="row.currency"
+                            class="text-lg font-bold text-emerald-600 dark:text-emerald-400 sm:text-2xl"
+                        >
+                            {{ displayMoney(row.total, row.currency) }}
+                        </p>
+                    </div>
+                    <p v-else class="mt-2 text-2xl font-bold text-emerald-600 dark:text-emerald-400">
                         {{ displayMoney(0, 'BRL') }}
                     </p>
                 </div>
@@ -834,19 +855,27 @@ function openProofExport() {
                                 </span>
                             </div>
                         </div>
-                        <div class="col-span-2 flex items-end justify-between gap-3">
-                            <p class="text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                                Valor líquido
-                            </p>
-                            <p class="text-base font-semibold tabular-nums text-zinc-900 dark:text-white">
-                                {{ displayMoney(vendaDisplayAmount(v), v.currency) }}
-                            </p>
-                            <p
-                                v-if="v.display_amount_is_producer_share && v.sale_gross_total != null"
-                                class="text-[11px] text-zinc-500 dark:text-zinc-400"
-                            >
-                                Venda {{ displayMoney(v.sale_gross_total, v.currency) }}
-                            </p>
+                        <div class="col-span-2 grid grid-cols-2 gap-3">
+                            <div>
+                                <p class="text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                                    Valor faturado
+                                </p>
+                                <p class="mt-1 text-base font-semibold tabular-nums text-zinc-900 dark:text-white">
+                                    {{ displayMoney(vendaBilledAmount(v), v.currency) }}
+                                </p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                                    Lucro líquido
+                                </p>
+                                <p class="mt-1 text-base font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                                    {{ displayMoney(vendaNetProfitAmount(v), v.currency) }}
+                                    <span
+                                        v-if="v.net_profit_amount_is_estimated"
+                                        title="Estimativa com base nas taxas configuradas"
+                                    >*</span>
+                                </p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -887,7 +916,12 @@ function openProofExport() {
                         <th
                             class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
                         >
-                            Valor líquido
+                            Valor faturado
+                        </th>
+                        <th
+                            class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
+                        >
+                            Lucro líquido
                         </th>
                         <th class="relative w-20 px-2 py-3">
                             <span class="sr-only">Ações</span>
@@ -941,12 +975,16 @@ function openProofExport() {
                             </div>
                         </td>
                         <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-zinc-900 dark:text-white">
-                            <p>{{ displayMoney(vendaDisplayAmount(v), v.currency) }}</p>
-                            <p
-                                v-if="v.display_amount_is_producer_share && v.sale_gross_total != null"
-                                class="text-xs font-normal text-zinc-500 dark:text-zinc-400"
-                            >
-                                Venda {{ displayMoney(v.sale_gross_total, v.currency) }}
+                            <p>{{ displayMoney(vendaBilledAmount(v), v.currency) }}</p>
+                        </td>
+                        <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                            <p>
+                                {{ displayMoney(vendaNetProfitAmount(v), v.currency) }}
+                                <span
+                                    v-if="v.net_profit_amount_is_estimated"
+                                    class="text-xs font-normal text-zinc-500"
+                                    title="Estimativa com base nas taxas configuradas"
+                                >*</span>
                             </p>
                         </td>
                         <td class="relative whitespace-nowrap px-2 py-3" @click.stop>
@@ -978,7 +1016,7 @@ function openProofExport() {
                         </td>
                     </tr>
                     <tr v-if="!vendasList.length" class="dark:bg-zinc-800/60">
-                        <td colspan="6" class="px-4 py-12 text-center text-zinc-500 dark:text-zinc-400">
+                        <td colspan="7" class="px-4 py-12 text-center text-zinc-500 dark:text-zinc-400">
                             Nenhuma venda encontrada.
                         </td>
                     </tr>

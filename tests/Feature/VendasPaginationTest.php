@@ -38,6 +38,8 @@ class VendasPaginationTest extends TestCase
             ->where('vendas.current_page', 1)
             ->where('vendas.last_page', 2)
             ->has('vendas.data', 20)
+            ->where('vendas.data.0.billed_amount', 25.0)
+            ->where('vendas.data.0.net_profit_amount', 25.0)
             ->has('vendas.links'));
 
         $page2 = $this->actingAs($user)->get('/vendas?page=2');

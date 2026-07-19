@@ -61,11 +61,12 @@ function formatBRL(value) {
     return formatMoney(value, 'BRL');
 }
 
-function vendaDisplayAmount(v) {
-    if (v?.display_amount_is_producer_share && v.display_amount != null) {
-        return v.display_amount;
-    }
-    return v?.amount_total ?? v?.amount ?? 0;
+function vendaBilledAmount(v) {
+    return v?.billed_amount ?? v?.amount_total ?? v?.amount ?? 0;
+}
+
+function vendaNetProfitAmount(v) {
+    return v?.net_profit_amount ?? v?.display_amount ?? 0;
 }
 
 function formatDate(value) {
@@ -199,21 +200,29 @@ function itemLabel(item) {
                             </div>
                             <div class="space-y-1">
                                 <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                                    {{ venda.display_amount_is_producer_share ? 'Sua parte (líquido)' : 'Valor líquido' }}
+                                    Valor faturado
                                 </p>
                                 <p class="text-sm text-zinc-900 dark:text-white">
-                                    {{ formatMoney(vendaDisplayAmount(venda), venda.currency) }}
+                                    {{ formatMoney(vendaBilledAmount(venda), venda.currency) }}
+                                </p>
+                            </div>
+                            <div class="space-y-1">
+                                <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                                    Lucro líquido
+                                </p>
+                                <p class="text-sm text-emerald-700 dark:text-emerald-300">
+                                    {{ formatMoney(vendaNetProfitAmount(venda), venda.currency) }}
                                     <span
-                                        v-if="venda.display_amount_is_estimated"
+                                        v-if="venda.net_profit_amount_is_estimated"
                                         class="text-xs font-normal text-zinc-500"
-                                        title="Estimativa até confirmação do pagamento"
+                                        title="Estimativa com base nas taxas configuradas"
                                     > *</span>
                                 </p>
                                 <p
                                     v-if="venda.display_amount_is_producer_share && venda.sale_gross_total != null"
                                     class="text-xs text-zinc-500 dark:text-zinc-400"
                                 >
-                                    Valor total da venda: {{ formatMoney(venda.sale_gross_total, venda.currency) }}
+                                    Lucro do produtor após comissões desta venda.
                                 </p>
                             </div>
                             <div class="space-y-1">

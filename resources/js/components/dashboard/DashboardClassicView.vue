@@ -22,6 +22,8 @@ const props = defineProps({
     period: { type: String, default: 'hoje' },
     vendas_totais: { type: Number, default: 0 },
     vendas_totais_por_moeda: { type: Array, default: () => [] },
+    lucro_liquido: { type: Number, default: 0 },
+    lucro_liquido_por_moeda: { type: Array, default: () => [] },
     vendas_pendentes: { type: Number, default: 0 },
     quantidade_vendas: { type: Number, default: 0 },
     ticket_medio: { type: Number, default: 0 },
@@ -177,7 +179,7 @@ const chartOptions = computed(() => {
             </div>
         </div>
 
-        <div class="grid gap-4 sm:grid-cols-2">
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div class="panel-card-md">
                 <div class="flex items-center gap-3 text-zinc-600 dark:text-zinc-400">
                     <div class="dash-metric-icon-md" aria-hidden="true">
@@ -199,6 +201,29 @@ const chartOptions = computed(() => {
                 </p>
                 <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
                     Vendas pendentes: {{ displayCurrency(vendas_pendentes) }}
+                </p>
+            </div>
+            <div class="panel-card-md">
+                <div class="flex items-center gap-3 text-zinc-600 dark:text-zinc-400">
+                    <div class="dash-metric-icon-md" aria-hidden="true">
+                        <CircleDollarSign class="h-5 w-5" />
+                    </div>
+                    <span class="text-sm font-medium dark:text-zinc-300">Lucro líquido</span>
+                </div>
+                <div v-if="(lucro_liquido_por_moeda ?? []).length" class="mt-3 space-y-1">
+                    <p
+                        v-for="row in lucro_liquido_por_moeda"
+                        :key="row.currency"
+                        class="text-xl font-bold text-emerald-600 dark:text-emerald-400 sm:text-2xl"
+                    >
+                        {{ displayMoney(row.total, row.currency) }}
+                    </p>
+                </div>
+                <p v-else class="mt-3 text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                    {{ displayMoney(0, 'BRL') }}
+                </p>
+                <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                    Após taxas e comissões
                 </p>
             </div>
             <div class="panel-card-md">

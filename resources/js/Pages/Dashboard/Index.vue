@@ -12,6 +12,8 @@ const props = defineProps({
     period: { type: String, default: 'hoje' },
     vendas_totais: { type: Number, default: 0 },
     vendas_totais_por_moeda: { type: Array, default: () => [] },
+    lucro_liquido: { type: Number, default: 0 },
+    lucro_liquido_por_moeda: { type: Array, default: () => [] },
     vendas_pendentes: { type: Number, default: 0 },
     quantidade_vendas: { type: Number, default: 0 },
     ticket_medio: { type: Number, default: 0 },
