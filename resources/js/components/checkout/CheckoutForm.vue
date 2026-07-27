@@ -9,6 +9,7 @@ import CheckoutDropdown from './CheckoutDropdown.vue';
 import CheckoutOrderBumps from './CheckoutOrderBumps.vue';
 import CheckoutCurrencyPicker from './CheckoutCurrencyPicker.vue';
 import CheckoutPaymentMethods from './CheckoutPaymentMethods.vue';
+import CheckoutPixInfo from './CheckoutPixInfo.vue';
 import AsaasCard from './gateways/asaas/Card.vue';
 import CajuPaySdkMount from './CajuPaySdkMount.vue';
 import CajuPayParceladoMount from './CajuPayParceladoMount.vue';
@@ -291,6 +292,12 @@ const props = defineProps({
     cardMercadopagoPublicKey: { type: String, default: '' },
     /** Se o gateway Mercado Pago está em sandbox. */
     cardMercadopagoSandbox: { type: Boolean, default: false },
+    /** Client ID PayPal (Card Fields). */
+    cardPaypalClientId: { type: String, default: '' },
+    /** Se o gateway PayPal está em sandbox. */
+    cardPaypalSandbox: { type: Boolean, default: false },
+    /** Modo: auto | expanded | buttons (credenciais do gateway). */
+    cardPaypalCheckoutMode: { type: String, default: 'auto' },
     /** Chaves por gateway slug para gateways de plugin (checkout_payload_keys). Ex.: { 'meu-gateway': { publishable_key: '...' } } */
     cardGatewayKeys: { type: Object, default: () => ({}) },
     /** Preço BRL só do produto principal (sem bumps), para contents do pixel. */
@@ -386,11 +393,24 @@ const cardGatewaySlug = computed(() => {
     const cardMethod = methods.find((m) => m.id === 'card');
     return (cardMethod?.gateway_slug || '').toLowerCase();
 });
+const paypalMethodMeta = computed(() => checkoutPaymentMethods.value.find((m) => m.id === 'paypal') || null);
 const isCardGatewayStripe = computed(() => cardGatewaySlug.value === 'stripe');
 const isCardGatewayEfi = computed(() => cardGatewaySlug.value === 'efi');
 const isCardGatewayMercadopago = computed(() => cardGatewaySlug.value === 'mercadopago');
 const isCardGatewayAsaas = computed(() => cardGatewaySlug.value === 'asaas');
 const isCardGatewayPagarme = computed(() => cardGatewaySlug.value === 'pagarme');
+const isCardGatewayPaypal = computed(() => cardGatewaySlug.value === 'paypal');
+/** PayPal como método próprio ou legado sob Cartão */
+const isPaypalCheckout = computed(
+    () => form.payment_method === 'paypal' || (form.payment_method === 'card' && isCardGatewayPaypal.value)
+);
+const paypalShowWalletButton = computed(() => Boolean(paypalMethodMeta.value?.show_wallet_button));
+const paypalPanelTitle = computed(() => {
+    if (form.payment_method === 'paypal' && paypalMethodMeta.value?.display_as === 'paypal') {
+        return props.t('checkout.method_paypal') || 'PayPal';
+    }
+    return props.t('checkout.dados_cartao') || 'Dados do cartão';
+});
 /** Gateway do boleto (primeiro método com id === 'boleto' em available_payment_methods). */
 const boletoGatewaySlug = computed(() => {
     const methods = checkoutPaymentMethods.value;
@@ -568,42 +588,6 @@ const form = useForm({
 });
 
 const isPixLike = computed(() => form.payment_method === 'pix' || form.payment_method === 'pix_auto');
-const showPixProcessingHints = computed(() => isPixLike.value && form.processing);
-
-const pixProcessingMsgIdx = ref(0);
-let pixProcessingMsgTimer = null;
-
-const pixProcessingMessages = computed(() => {
-    const processing = tf('checkout.processing', 'Processando');
-    const secureEnv = tf('checkout.secure_env_loading', 'Carregando ambiente seguro');
-    return [processing, secureEnv].filter((s) => String(s || '').trim() !== '');
-});
-
-const pixProcessingMessage = computed(() => {
-    const msgs = pixProcessingMessages.value;
-    if (!msgs.length) return tf('checkout.processing', 'Processando...');
-    const idx = ((pixProcessingMsgIdx.value % msgs.length) + msgs.length) % msgs.length;
-    return msgs[idx];
-});
-
-watch(showPixProcessingHints, (enabled) => {
-    if (pixProcessingMsgTimer) {
-        clearInterval(pixProcessingMsgTimer);
-        pixProcessingMsgTimer = null;
-    }
-    pixProcessingMsgIdx.value = 0;
-    if (!enabled) return;
-    pixProcessingMsgTimer = setInterval(() => {
-        pixProcessingMsgIdx.value += 1;
-    }, 1300);
-});
-
-onBeforeUnmount(() => {
-    if (pixProcessingMsgTimer) {
-        clearInterval(pixProcessingMsgTimer);
-        pixProcessingMsgTimer = null;
-    }
-});
 
 const pagarmeBillingMode = computed(() => props.config?.pagarme_billing?.mode ?? 'customer');
 const isBoletoGatewayEfi = computed(() => boletoGatewaySlug.value === 'efi');
@@ -1206,6 +1190,8 @@ const cardApproved = ref(false);
 const cardApprovedRedirectUrl = ref('');
 const showCardRefusedModal = ref(false);
 const cardRefusedMessage = ref('');
+const cardRefusedTitle = ref('Pagamento recusado');
+const cardRefusedPrimaryLabel = ref('Tentar com outro cartão');
 
 /** Slug do gateway do método atualmente selecionado em form.payment_method. */
 const currentMethodGatewaySlug = computed(() => {
@@ -1726,6 +1712,34 @@ const stripeInstance = ref(null);
 const stripeCardElement = ref(null);
 const stripeElements = ref(null);
 
+// PayPal: Card Fields (ACDC) ou Buttons (fallback BR / sem Expanded)
+const paypalCardFields = ref(null);
+const paypalButtons = ref(null);
+const paypalMode = ref(null); // 'card_fields' | 'buttons' | null
+const paypalSdkReady = ref(false);
+const paypalSdkError = ref('');
+const paypalPendingOrderId = ref(null);
+/** true depois que o formulário de cartão PayPal já abriu (createOrder ok) */
+const paypalCardFormReady = ref(false);
+/** true enquanto o createOrder abre o formulário de cartão (1º clique) */
+const paypalOpeningForm = ref(false);
+/** true enquanto captura/processa o pagamento (mostra loading) */
+const paypalProcessingPayment = ref(false);
+const paypalNameFieldRef = ref(null);
+const paypalNumberFieldRef = ref(null);
+const paypalExpiryFieldRef = ref(null);
+const paypalCvvFieldRef = ref(null);
+const paypalButtonsContainerRef = ref(null);
+const paypalWalletContainerRef = ref(null);
+const paypalWalletButtons = ref(null);
+
+const isPaypalButtonsMode = computed(
+    () => isPaypalCheckout.value && paypalMode.value === 'buttons'
+);
+const isPaypalCardFieldsMode = computed(
+    () => isPaypalCheckout.value && paypalMode.value === 'card_fields'
+);
+
 // Mercado Pago Card Payment Brick (cartão)
 const mercadopagoBrickContainer = ref(null);
 const mercadopagoBrickController = ref(null);
@@ -1848,21 +1862,61 @@ watch(
     { immediate: true }
 );
 
+watch(
+    () => [form.payment_method, isPaypalCheckout.value, props.cardPaypalClientId, props.cardPaypalSandbox, props.cardPaypalCheckoutMode, props.displayCurrency, props.checkoutLocale, paypalShowWalletButton.value],
+    async ([method, isPaypal]) => {
+        if ((method !== 'card' && method !== 'paypal') || !isPaypal) {
+            destroyPaypalCheckout();
+            return;
+        }
+        paypalSdkError.value = '';
+        // Aguarda o painel PayPal montar (v-if) antes de renderizar o SDK
+        await nextTick();
+        await nextTick();
+        if (!(props.cardPaypalClientId || '').trim()) {
+            paypalSdkError.value = 'Configure o Client ID do PayPal nas credenciais do gateway.';
+            return;
+        }
+        let attempts = 0;
+        while (
+            attempts < 30
+            && !paypalNumberFieldRef.value
+            && !paypalButtonsContainerRef.value
+        ) {
+            await new Promise((r) => setTimeout(r, 50));
+            attempts += 1;
+        }
+        try {
+            await initPaypalCheckout();
+            await nextTick();
+            document.querySelector('[data-checkout="form-card-panel"]')?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'nearest',
+            });
+        } catch (err) {
+            paypalSdkError.value = err?.message || 'Não foi possível carregar o PayPal. Verifique sua conexão e tente recarregar.';
+        }
+    },
+    { immediate: true }
+);
+
 onBeforeUnmount(() => {
     destroyMercadopagoBrick();
+    destroyPaypalCheckout();
 });
 
 function closeRefusedModal() {
     showCardRefusedModal.value = false;
     cardRefusedMessage.value = '';
+    cardRefusedTitle.value = 'Pagamento recusado';
+    cardRefusedPrimaryLabel.value = 'Tentar com outro cartão';
 }
 function onRefusedTryOtherCard(e) {
     if (e) {
         e.preventDefault();
         e.stopPropagation();
     }
-    showCardRefusedModal.value = false;
-    cardRefusedMessage.value = '';
+    closeRefusedModal();
     cardFormError.value = '';
     showFullCardNumber.value = true;
 }
@@ -1871,8 +1925,7 @@ function onRefusedOtherPaymentMethod(e) {
         e.preventDefault();
         e.stopPropagation();
     }
-    showCardRefusedModal.value = false;
-    cardRefusedMessage.value = '';
+    closeRefusedModal();
     const other = checkoutPaymentMethods.value.find((m) => m.id !== 'card');
     if (other) form.payment_method = other.id;
 }
@@ -1918,6 +1971,505 @@ function destroyMercadopagoBrick() {
     mercadopagoBrickReady.value = false;
     mercadopagoBrickError.value = '';
     if (typeof window !== 'undefined') window.cardPaymentBrickController = null;
+}
+
+function destroyPaypalCheckout() {
+    try {
+        const fields = paypalCardFields.value;
+        if (fields && typeof fields.close === 'function') {
+            fields.close();
+        }
+    } catch (_) { /* ignore */ }
+    try {
+        const buttons = paypalButtons.value;
+        if (buttons && typeof buttons.close === 'function') {
+            buttons.close();
+        }
+    } catch (_) { /* ignore */ }
+    try {
+        const wallet = paypalWalletButtons.value;
+        if (wallet && typeof wallet.close === 'function') {
+            wallet.close();
+        }
+    } catch (_) { /* ignore */ }
+    paypalCardFields.value = null;
+    paypalButtons.value = null;
+    paypalWalletButtons.value = null;
+    paypalMode.value = null;
+    paypalSdkReady.value = false;
+    paypalPendingOrderId.value = null;
+    paypalCardFormReady.value = false;
+    paypalOpeningForm.value = false;
+    paypalProcessingPayment.value = false;
+    if (paypalButtonsContainerRef.value) {
+        paypalButtonsContainerRef.value.innerHTML = '';
+    }
+    if (paypalWalletContainerRef.value) {
+        paypalWalletContainerRef.value.innerHTML = '';
+    }
+}
+
+function resolvePaypalCheckoutMode() {
+    const mode = String(props.cardPaypalCheckoutMode || 'auto').toLowerCase().trim();
+    return ['auto', 'expanded', 'buttons', 'wallet'].includes(mode) ? mode : 'auto';
+}
+
+/** Locale do checkout → formato do SDK PayPal (pt_BR, en_US, es_ES). */
+function resolvePaypalSdkLocale() {
+    const raw = String(props.checkoutLocale || 'pt_BR').trim().replace('-', '_');
+    const lower = raw.toLowerCase();
+    if (lower === 'en' || lower.startsWith('en_')) return 'en_US';
+    if (lower === 'es' || lower.startsWith('es_')) return 'es_ES';
+    if (lower === 'pt' || lower.startsWith('pt_')) return 'pt_BR';
+    if (/^[a-z]{2}_[a-z]{2}$/i.test(raw)) {
+        return `${raw.slice(0, 2).toLowerCase()}_${raw.slice(3, 5).toUpperCase()}`;
+    }
+    return 'en_US';
+}
+
+function buildPaypalSdkSrc(clientId, currency, mode) {
+    const cur = (currency || 'BRL').toUpperCase();
+    // Expanded / auto / buttons: tenta campos na página; wallet: só botão da carteira
+    const wantExpanded = mode === 'expanded' || mode === 'auto' || mode === 'buttons';
+    const wantButtons = mode === 'buttons' || mode === 'auto' || mode === 'wallet';
+    const components = [];
+    if (wantButtons) components.push('buttons');
+    if (wantExpanded) components.push('card-fields');
+    if (components.length === 0) components.push('buttons');
+    const params = new URLSearchParams({
+        'client-id': clientId,
+        currency: cur,
+        locale: resolvePaypalSdkLocale(),
+        components: components.join(','),
+        intent: 'capture',
+    });
+    if (mode === 'wallet') {
+        // Só popup da carteira PayPal
+        params.set('disable-funding', 'card,credit,paylater,venmo');
+    } else if (wantButtons) {
+        // Libera botão Debit/Credit Card (abre inputs); evita Pay Later / Venmo
+        params.set('enable-funding', 'card');
+        params.set('disable-funding', 'credit,paylater,venmo');
+    }
+    // NÃO forçar buyer-country: isso dispara conversão USD/BRL e IOF indevidos.
+    // A moeda/idioma vêm do checkout (currency + locale).
+    return `https://www.paypal.com/sdk/js?${params.toString()}`;
+}
+
+function loadPaypalSdkScript(clientId, currency, mode) {
+    return new Promise((resolve, reject) => {
+        if (typeof window === 'undefined') {
+            reject(new Error('PayPal SDK indisponível.'));
+            return;
+        }
+        const src = buildPaypalSdkSrc(clientId, currency, mode);
+        const existing = document.querySelector('script[data-paypal-sdk="checkout"]');
+        if (existing) {
+            const sameSrc = existing.getAttribute('src') === src;
+            if (sameSrc && window.paypal) {
+                resolve(window.paypal);
+                return;
+            }
+            try {
+                existing.remove();
+            } catch (_) { /* ignore */ }
+            try {
+                delete window.paypal;
+            } catch (_) {
+                window.paypal = undefined;
+            }
+        }
+        document.querySelectorAll('script[data-paypal-sdk="card-fields"]').forEach((el) => {
+            try {
+                el.remove();
+            } catch (_) { /* ignore */ }
+        });
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = true;
+        script.dataset.paypalSdk = 'checkout';
+        script.onload = () => {
+            if (!window.paypal) {
+                reject(new Error('PayPal SDK não carregou. Confirme o Client ID (sandbox/live) da conta business.'));
+                return;
+            }
+            resolve(window.paypal);
+        };
+        script.onerror = () => reject(new Error('Falha ao carregar PayPal SDK.'));
+        document.head.appendChild(script);
+    });
+}
+
+async function requestPaypalCreateOrder(mode) {
+    try {
+        const payload = buildPaypalCheckoutPayload(mode);
+        const res = await axios.post('/checkout/paypal/create-order', payload, {
+            headers: {
+                Accept: 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-XSRF-TOKEN': getCsrfToken(),
+            },
+            withCredentials: true,
+        });
+        const data = res?.data;
+        const id = data?.paypal_order_id || data?.id;
+        if (!id) {
+            throw new Error(data?.message || 'Não foi possível criar o pedido PayPal.');
+        }
+        return {
+            paypalOrderId: id,
+            orderId: data?.order_id ?? null,
+        };
+    } catch (err) {
+        const status = err?.response?.status;
+        const apiMsg = err?.response?.data?.message;
+        const msg =
+            (typeof apiMsg === 'string' && apiMsg.trim() !== '' ? apiMsg : null) ||
+            (status === 429
+                ? 'Muitas tentativas. Aguarde alguns minutos e tente novamente.'
+                : null) ||
+            err?.message ||
+            'Não foi possível iniciar o pagamento PayPal.';
+        const wrapped = new Error(msg);
+        wrapped.status = status;
+        wrapped.isRateLimited = status === 429;
+        throw wrapped;
+    }
+}
+
+function showPaypalCheckoutError(err) {
+    const msg = err?.message || 'Erro no pagamento PayPal.';
+    const rateLimited = Boolean(err?.isRateLimited) || err?.status === 429 || /muitas tentativas|aguarde alguns minutos/i.test(msg);
+    cardFormError.value = msg;
+    cardRefusedMessage.value = msg;
+    cardRefusedTitle.value = rateLimited ? 'Muitas tentativas' : 'Pagamento recusado';
+    cardRefusedPrimaryLabel.value = rateLimited ? 'Entendi' : 'Tentar com outro cartão';
+    showCardRefusedModal.value = true;
+    cardTokenizing.value = false;
+    paypalOpeningForm.value = false;
+    paypalProcessingPayment.value = false;
+}
+
+function paypalCreateOrderHandlers(mode) {
+    return {
+        createOrder: async () => {
+            paypalOpeningForm.value = true;
+            paypalProcessingPayment.value = false;
+            try {
+                if (!hasValidPaypalCheckoutEmail()) {
+                    throw new Error('Preencha um e-mail válido antes de pagar.');
+                }
+                const result = await requestPaypalCreateOrder(mode);
+                paypalPendingOrderId.value = result.orderId;
+                // Formulário de cartão abre depois do createOrder
+                paypalCardFormReady.value = true;
+                return result.paypalOrderId;
+            } catch (err) {
+                paypalOpeningForm.value = false;
+                throw err;
+            } finally {
+                // Libera o loading de abertura após o PayPal montar o formulário
+                await nextTick();
+                setTimeout(() => {
+                    paypalOpeningForm.value = false;
+                }, 400);
+            }
+        },
+        onClick: (data, actions) => {
+            // 1º clique: abrir formulário (createOrder). Não marcar como "processando pagamento".
+            if (!paypalCardFormReady.value) {
+                paypalOpeningForm.value = true;
+                cardFormError.value = '';
+            }
+            return actions.resolve();
+        },
+        onApprove: async (data) => {
+            const orderID = data?.orderID;
+            if (!orderID) {
+                throw new Error('Pedido PayPal inválido.');
+            }
+            paypalOpeningForm.value = false;
+            paypalProcessingPayment.value = true;
+            cardTokenizing.value = true;
+            try {
+                const res = await axios.post(
+                    '/checkout/paypal/capture',
+                    {
+                        paypal_order_id: orderID,
+                        order_id: paypalPendingOrderId.value || undefined,
+                    },
+                    {
+                        headers: {
+                            Accept: 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-XSRF-TOKEN': getCsrfToken(),
+                        },
+                        withCredentials: true,
+                    }
+                );
+                const result = res?.data;
+                if (result?.success && result?.redirect_url) {
+                    cardApproved.value = true;
+                    cardApprovedRedirectUrl.value = result.redirect_url;
+                    if (result.status === 'paid' || result.status === 'completed') {
+                        emit('payment-approved', result);
+                    }
+                    setTimeout(() => router.visit(result.redirect_url), 1800);
+                    return;
+                }
+                if (result?.success) {
+                    return;
+                }
+                throw new Error(result?.message || 'Pagamento recusado.');
+            } finally {
+                if (!cardApproved.value) {
+                    cardTokenizing.value = false;
+                    paypalProcessingPayment.value = false;
+                }
+            }
+        },
+        onError: (err) => {
+            showPaypalCheckoutError(err);
+        },
+        onCancel: () => {
+            cardTokenizing.value = false;
+            paypalOpeningForm.value = false;
+            paypalProcessingPayment.value = false;
+        },
+    };
+}
+
+function hasValidPaypalCheckoutEmail() {
+    const email = (form.email || '').trim();
+    return email.length >= 5 && /.+@.+\..+/.test(email);
+}
+
+async function renderPaypalWalletButton(paypal, handlersButtons) {
+    await nextTick();
+    if (!paypalWalletContainerRef.value || !paypal.FUNDING?.PAYPAL) {
+        return false;
+    }
+    paypalWalletContainerRef.value.innerHTML = '';
+    const walletButtons = paypal.Buttons({
+        fundingSource: paypal.FUNDING.PAYPAL,
+        style: {
+            layout: 'vertical',
+            color: 'gold',
+            shape: 'rect',
+            label: 'paypal',
+            tagline: false,
+            height: 48,
+        },
+        ...handlersButtons,
+    });
+    if (typeof walletButtons.isEligible === 'function' && !walletButtons.isEligible()) {
+        return false;
+    }
+    await walletButtons.render(paypalWalletContainerRef.value);
+    paypalWalletButtons.value = walletButtons;
+    return true;
+}
+
+async function renderPaypalButtonsWithPreference(paypal, handlersButtons, preferCardForm) {
+    paypalMode.value = 'buttons';
+    await nextTick();
+    if (!paypalButtonsContainerRef.value) {
+        throw new Error('Container do botão PayPal não encontrado.');
+    }
+    const container = paypalButtonsContainerRef.value;
+    container.innerHTML = '';
+
+    const baseStyle = {
+        layout: 'vertical',
+        color: 'black',
+        shape: 'rect',
+        tagline: false,
+        height: 48,
+    };
+
+    let renderedCard = false;
+    // 1) Botão Debit/Credit Card — abre os inputs na página ao clicar
+    if (preferCardForm && paypal.FUNDING?.CARD) {
+        const cardButtons = paypal.Buttons({
+            fundingSource: paypal.FUNDING.CARD,
+            style: { ...baseStyle, label: 'pay' },
+            ...handlersButtons,
+        });
+        const cardOk = typeof cardButtons.isEligible !== 'function' || cardButtons.isEligible();
+        if (cardOk) {
+            await cardButtons.render(container);
+            paypalButtons.value = cardButtons;
+            paypalSdkReady.value = true;
+            renderedCard = true;
+        }
+    }
+
+    if (!renderedCard) {
+        // 2) Fallback: wallet PayPal (popup) no container principal
+        const walletButtons = paypal.Buttons({
+            fundingSource: paypal.FUNDING?.PAYPAL || undefined,
+            style: { ...baseStyle, label: 'paypal' },
+            ...handlersButtons,
+        });
+        if (typeof walletButtons.isEligible === 'function' && !walletButtons.isEligible()) {
+            throw new Error(
+                'PayPal não está disponível para esta conta/moeda. Verifique Client ID, moeda do checkout e se a conta business está ativa.'
+            );
+        }
+        await walletButtons.render(container);
+        paypalButtons.value = walletButtons;
+        paypalSdkReady.value = true;
+        return;
+    }
+
+    // Opcional: botão da conta PayPal (popup) além do cartão
+    if (paypalShowWalletButton.value) {
+        await renderPaypalWalletButton(paypal, handlersButtons);
+    }
+}
+
+async function initPaypalCheckout() {
+    paypalSdkError.value = '';
+    const clientId = (props.cardPaypalClientId || '').trim();
+    if (!clientId) {
+        paypalSdkError.value = 'Configure o Client ID do PayPal nas credenciais do gateway.';
+        return;
+    }
+    destroyPaypalCheckout();
+    const configuredMode = resolvePaypalCheckoutMode();
+    // Só esconde os campos cedo quando o modo é exclusivamente wallet
+    if (configuredMode === 'wallet') {
+        paypalMode.value = 'buttons';
+    }
+    const currency = (props.displayCurrency || 'BRL').toUpperCase();
+    const paypal = await loadPaypalSdkScript(clientId, currency, configuredMode);
+    const handlersCard = paypalCreateOrderHandlers('card_fields');
+    const handlersButtons = paypalCreateOrderHandlers('buttons');
+
+    const tryExpanded = configuredMode === 'expanded' || configuredMode === 'auto' || configuredMode === 'buttons';
+    const allowButtonsFallback = configuredMode === 'auto' || configuredMode === 'buttons' || configuredMode === 'wallet';
+    const preferCardForm = configuredMode !== 'wallet';
+
+    if (configuredMode === 'wallet') {
+        await renderPaypalButtonsWithPreference(paypal, handlersButtons, false);
+        return;
+    }
+
+    let usedCardFields = false;
+    if (tryExpanded && typeof paypal.CardFields === 'function') {
+        await nextTick();
+        if (paypalNumberFieldRef.value) {
+            const fields = paypal.CardFields({
+                style: {
+                    input: {
+                        'font-size': '16px',
+                        'font-family': 'inherit',
+                        color: '#111827',
+                    },
+                    '.invalid': { color: '#b91c1c' },
+                },
+                ...handlersCard,
+            });
+            const eligible = typeof fields.isEligible !== 'function' || fields.isEligible();
+            // Tenta renderizar mesmo se isEligible=false (às vezes o SDK ainda monta os campos)
+            if (eligible || configuredMode === 'expanded' || configuredMode === 'auto') {
+                try {
+                    if (paypalNameFieldRef.value) {
+                        await Promise.resolve(fields.NameField().render(paypalNameFieldRef.value));
+                    }
+                    await Promise.resolve(fields.NumberField().render(paypalNumberFieldRef.value));
+                    await Promise.resolve(fields.ExpiryField().render(paypalExpiryFieldRef.value));
+                    await Promise.resolve(fields.CVVField().render(paypalCvvFieldRef.value));
+                    // Se nada montou de verdade e não era elegível, cai no fallback
+                    const mounted =
+                        eligible ||
+                        (paypalNumberFieldRef.value && paypalNumberFieldRef.value.childNodes.length > 0);
+                    if (mounted) {
+                        paypalCardFields.value = fields;
+                        paypalMode.value = 'card_fields';
+                        paypalSdkReady.value = true;
+                        usedCardFields = true;
+                        if (paypalShowWalletButton.value) {
+                            await renderPaypalWalletButton(paypal, handlersButtons);
+                        }
+                    } else {
+                        try {
+                            if (typeof fields.close === 'function') fields.close();
+                        } catch (_) { /* ignore */ }
+                    }
+                } catch (_) {
+                    try {
+                        if (typeof fields.close === 'function') fields.close();
+                    } catch (__) { /* ignore */ }
+                }
+            }
+        }
+    }
+
+    if (usedCardFields) {
+        return;
+    }
+
+    if (configuredMode === 'expanded') {
+        throw new Error(
+            'Expanded Card Fields não está disponível nesta conta/região. Em Integrações → PayPal, altere o modo para “Automático” ou “Botão cartão PayPal”.'
+        );
+    }
+
+    if (allowButtonsFallback) {
+        await renderPaypalButtonsWithPreference(paypal, handlersButtons, preferCardForm);
+    }
+}
+
+function buildPaypalCheckoutPayload(mode = 'buttons') {
+    const payload = {
+        product_id: form.product_id,
+        payment_method: form.payment_method === 'paypal' ? 'paypal' : 'card',
+        paypal_mode: mode === 'card_fields' ? 'card_fields' : 'buttons',
+        email: form.email,
+        name: showName.value ? form.name : '',
+        cpf: showCpf.value ? (form.cpf || '').replace(/\D/g, '') : '',
+        phone: showPhone.value ? form.country_code + phoneDigits.value : '',
+        coupon_code: (form.coupon_code || '').trim() || null,
+        checkout_locale: props.checkoutLocale || 'pt_BR',
+    };
+    if (props.productOfferId) payload.product_offer_id = props.productOfferId;
+    if (props.subscriptionPlanId) payload.subscription_plan_id = props.subscriptionPlanId;
+    if (props.checkoutSessionToken) payload.checkout_session_token = props.checkoutSessionToken;
+    if (props.displayCurrency) payload.display_currency = props.displayCurrency;
+    if (Array.isArray(props.orderBumpIds) && props.orderBumpIds.length > 0) {
+        payload.order_bump_ids = props.orderBumpIds
+            .map((id) => (typeof id === 'number' ? id : parseInt(id, 10)))
+            .filter((n) => !Number.isNaN(n));
+    }
+    appendBillingCountry(payload);
+    appendUtms(payload);
+    appendCheckoutSecurity(payload);
+    return appendPluginCheckoutData(payload);
+}
+
+async function submitPaypalCardPayment() {
+    if (!props.cardPaypalClientId?.trim()) {
+        cardFormError.value = props.t('checkout.card_not_configured') || 'Pagamento por cartão não está configurado.';
+        return;
+    }
+    if (paypalMode.value === 'buttons') {
+        cardFormError.value = 'Use o botão abaixo para preencher o cartão e pagar.';
+        return;
+    }
+    if (!paypalCardFields.value || !paypalSdkReady.value) {
+        cardFormError.value = 'Aguarde o formulário do cartão carregar.';
+        return;
+    }
+    cardTokenizing.value = true;
+    cardFormError.value = '';
+    try {
+        await paypalCardFields.value.submit();
+    } catch (err) {
+        showPaypalCheckoutError(err);
+    } finally {
+        cardTokenizing.value = false;
+    }
 }
 
 function submitCardWithMercadopagoFormData(formData) {
@@ -2450,8 +3002,15 @@ function submit() {
         return;
     }
 
-    if (paymentMethod === 'card') {
+    if (paymentMethod === 'card' || paymentMethod === 'paypal') {
         cardFormError.value = '';
+        if (isPaypalCheckout.value) {
+            submitPaypalCardPayment();
+            return;
+        }
+        if (paymentMethod === 'paypal') {
+            return;
+        }
         if (isCardGatewayAsaas.value) {
             if (asaasCardStep.value === 1) {
                 asaasCardStep.value = 2;
@@ -2575,7 +3134,7 @@ function submit() {
                     return;
                 }
             }
-        } else {
+        } else if (isCardGatewayEfi.value) {
             if (!props.cardPayeeCode || !props.cardPayeeCode.trim()) {
                 cardFormError.value = props.t('checkout.card_not_configured') || 'Pagamento por cartão não está configurado.';
                 return;
@@ -2602,6 +3161,9 @@ function submit() {
                     return;
                 }
             }
+        } else {
+            cardFormError.value = props.t('checkout.card_not_configured') || 'Pagamento por cartão não está configurado.';
+            return;
         }
         cardTokenizing.value = true;
         cardFormError.value = '';
@@ -3196,6 +3758,12 @@ function submit() {
             </CheckoutPaymentMethods>
             <p v-if="form.errors.payment_method" class="text-sm font-medium text-red-600">{{ form.errors.payment_method }}</p>
 
+            <CheckoutPixInfo
+                v-if="isPixLike"
+                :primary-color="primaryColor"
+                :t="t"
+            />
+
             <!-- CajuPay SDK (Cartão / Apple Pay / Google Pay) -->
             <!-- Mesmo padrão visual do painel do Stripe: outer com border-2/bg-gray-50/50, header
                  com ícone + título e o widget do SDK dentro de um box branco arredondado. -->
@@ -3299,23 +3867,96 @@ function submit() {
                 </div>
             </div>
 
-            <!-- Formulário de cartão (Stripe Elements ou campos Efí) -->
+            <!-- Formulário de cartão / PayPal -->
             <div
-                v-if="form.payment_method === 'card' && !isCajuPaySdkFlow"
+                v-if="isPaypalCheckout || (form.payment_method === 'card' && !isCajuPaySdkFlow)"
                 class="space-y-4 rounded-xl border-2 border-gray-100 bg-gray-50/50 p-4"
                 data-checkout="form-card-panel"
             >
                 <div class="flex items-center gap-2 text-gray-700">
                     <span class="flex h-8 w-8 shrink-0 items-center justify-center">
-                        <img src="/images/gateways/card.png" alt="" class="h-6 w-6 object-contain" />
+                        <img
+                            :src="isPaypalCheckout && form.payment_method === 'paypal' && paypalMethodMeta?.display_as !== 'card' ? '/images/gateways/paypal.png' : '/images/gateways/card-method.png'"
+                            alt=""
+                            class="h-6 w-6 object-contain"
+                        />
                     </span>
-                    <span class="text-sm font-medium">{{ t('checkout.dados_cartao') || 'Dados do cartão' }}</span>
+                    <span class="text-sm font-medium">{{ paypalPanelTitle }}</span>
                 </div>
                 <p v-if="cardFormError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700" role="alert">
                     {{ cardFormError }}
                 </p>
+                <!-- PayPal: Card Fields / botão cartão (+ wallet opcional) -->
+                <div v-if="isPaypalCheckout" class="space-y-4">
+                    <p v-if="!cardPaypalClientId?.trim()" class="rounded-xl border-2 border-amber-200 bg-amber-50/80 px-4 py-3 text-sm font-medium text-amber-800">
+                        Configure o Client ID do PayPal nas credenciais do gateway.
+                    </p>
+                    <template v-else>
+                        <p v-if="paypalSdkError" class="rounded-xl border-2 border-red-200 bg-red-50/80 px-4 py-3 text-sm font-medium text-red-700" role="alert">
+                            {{ paypalSdkError }}
+                        </p>
+                        <div v-show="paypalMode !== 'buttons'" class="space-y-4">
+                            <div>
+                                <label class="mb-2 block text-sm font-medium text-gray-700">{{ t('checkout.card_holder') || 'Nome no cartão' }}</label>
+                                <div ref="paypalNameFieldRef" class="rounded-xl border-2 border-gray-100 bg-white px-4 py-3 min-h-[3.25rem]" />
+                            </div>
+                            <div>
+                                <label class="mb-2 block text-sm font-medium text-gray-700">{{ t('checkout.card_number') || 'Número do cartão' }}</label>
+                                <div ref="paypalNumberFieldRef" class="rounded-xl border-2 border-gray-100 bg-white px-4 py-3 min-h-[3.25rem]" />
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="mb-2 block text-sm font-medium text-gray-700">{{ t('checkout.card_expiry') || 'Validade' }}</label>
+                                    <div ref="paypalExpiryFieldRef" class="rounded-xl border-2 border-gray-100 bg-white px-4 py-3 min-h-[3.25rem]" />
+                                </div>
+                                <div>
+                                    <label class="mb-2 block text-sm font-medium text-gray-700">CVV</label>
+                                    <div ref="paypalCvvFieldRef" class="rounded-xl border-2 border-gray-100 bg-white px-4 py-3 min-h-[3.25rem]" />
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-500 leading-relaxed">
+                                Ao pagar com cartão, você reconhece que seus dados serão processados pela PayPal conforme a
+                                <a href="https://www.paypal.com/webapps/mpp/ua/privacy-full" target="_blank" rel="noopener noreferrer" class="underline hover:text-gray-700">Declaração de Privacidade da PayPal</a>.
+                            </p>
+                        </div>
+                        <div v-show="paypalMode === 'buttons'" class="relative space-y-2">
+                            <div
+                                v-if="paypalOpeningForm && !paypalProcessingPayment"
+                                class="mx-auto flex w-full max-w-sm items-center justify-center gap-2 rounded-xl border-2 border-gray-100 bg-white px-4 py-3 text-sm text-gray-700"
+                                role="status"
+                                aria-live="polite"
+                            >
+                                <Loader2 class="h-5 w-5 shrink-0 animate-spin" :style="{ color: primaryColor }" />
+                                <span>Abrindo formulário do cartão…</span>
+                            </div>
+                            <div
+                                ref="paypalButtonsContainerRef"
+                                class="mx-auto w-full max-w-sm min-h-[48px]"
+                                :class="paypalProcessingPayment ? 'pointer-events-none absolute opacity-0' : ''"
+                            />
+                            <div
+                                v-if="paypalProcessingPayment"
+                                class="mx-auto flex w-full max-w-sm flex-col items-center justify-center gap-3 rounded-xl border-2 border-gray-100 bg-white px-4 py-10 text-center"
+                                role="status"
+                                aria-live="polite"
+                            >
+                                <Loader2 class="h-8 w-8 animate-spin" :style="{ color: primaryColor }" />
+                                <p class="text-sm font-medium text-gray-800">Processando pagamento…</p>
+                                <p class="text-xs text-gray-500">Aguarde a confirmação. Não feche esta página.</p>
+                            </div>
+                        </div>
+                        <div
+                            v-show="paypalShowWalletButton && !paypalProcessingPayment && !paypalOpeningForm"
+                            class="mx-auto w-full max-w-sm space-y-2 pt-2"
+                        >
+                            <p v-if="paypalMode === 'card_fields' || paypalMode === 'buttons'" class="text-center text-xs text-gray-500">ou</p>
+                            <div ref="paypalWalletContainerRef" class="min-h-[48px]" />
+                        </div>
+                        <p v-if="!paypalSdkReady && !paypalSdkError" class="text-sm text-gray-500">Carregando PayPal…</p>
+                    </template>
+                </div>
                 <!-- Mercado Pago: Card Payment Brick -->
-                <div v-if="isCardGatewayMercadopago" class="min-h-[280px]">
+                <div v-else-if="isCardGatewayMercadopago" class="min-h-[280px]">
                     <p v-if="!cardMercadopagoPublicKey?.trim()" class="rounded-xl border-2 border-amber-200 bg-amber-50/80 px-4 py-3 text-sm font-medium text-amber-800">
                         Configure a Public Key do Mercado Pago nas credenciais do gateway (cartão).
                     </p>
@@ -3586,7 +4227,7 @@ function submit() {
                 </div>
                 <!-- Parcelas (Efí, Asaas e Pagar.me; Stripe, MP Brick e Asaas Card têm seu próprio) -->
                 <div
-                    v-if="form.payment_method === 'card' && cardInstallmentsEnabled && !isCardGatewayStripe && !isCardGatewayMercadopago && !isCardGatewayAsaas"
+                    v-if="form.payment_method === 'card' && cardInstallmentsEnabled && !isCardGatewayStripe && !isCardGatewayMercadopago && !isCardGatewayAsaas && !isCardGatewayPaypal"
                     class="mt-4"
                     data-checkout="form-installments"
                 >
@@ -3729,7 +4370,7 @@ function submit() {
                 data-checkout="honeypot"
             />
             <button
-                v-if="(form.payment_method !== 'card' || !isCardGatewayMercadopago) && !isCajuPayWalletSdk"
+                v-if="(!['card', 'paypal'].includes(form.payment_method) || (!isCardGatewayMercadopago && !isPaypalButtonsMode)) && !isCajuPayWalletSdk"
                 type="submit"
                 data-checkout="form-submit"
                 class="flex w-full items-center justify-center gap-2 rounded-xl px-6 py-4 text-base font-semibold text-white shadow-lg shadow-black/10 transition hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-70"
@@ -3739,23 +4380,12 @@ function submit() {
                 <Loader2 v-if="form.processing || cardTokenizing" class="h-5 w-5 animate-spin" />
                 <Check v-else-if="cardApproved" class="h-5 w-5" />
                 <ScanQrCode v-else-if="form.payment_method === 'pix' || form.payment_method === 'pix_auto'" class="h-5 w-5" />
-                <CreditCard v-else-if="form.payment_method === 'card'" class="h-5 w-5" />
+                <CreditCard v-else-if="form.payment_method === 'card' || form.payment_method === 'paypal'" class="h-5 w-5" />
                 <FileText v-else-if="form.payment_method === 'boleto'" class="h-5 w-5" />
                 <Shield v-else-if="form.payment_method === 'apple_pay' || form.payment_method === 'google_pay'" class="h-5 w-5" />
                 <ShoppingBag v-else class="h-5 w-5" />
                 <template v-if="cardApproved">
                     Aprovado!
-                </template>
-                <template v-else-if="showPixProcessingHints">
-                    <span class="inline-flex items-center gap-2">
-                        <Shield class="h-4 w-4 opacity-90" />
-                        <span class="relative">
-                            <span class="inline-block">{{ pixProcessingMessage }}</span>
-                            <span class="ml-1 inline-flex w-[1.2em] justify-start">
-                                <span class="animate-pulse">…</span>
-                            </span>
-                        </span>
-                    </span>
                 </template>
                 <template v-else-if="form.processing || cardTokenizing">
                     {{ t('checkout.processing') }}
@@ -3766,6 +4396,10 @@ function submit() {
                             ? t('checkout.gerar_pix')
                             : form.payment_method === 'pix_auto'
                               ? (t('checkout.gerar_pix_auto') || 'Gerar PIX (renovação automática)')
+                              : form.payment_method === 'paypal'
+                                ? (paypalMethodMeta?.display_as === 'card'
+                                    ? (t('checkout.pagar_cartao') || 'Pagar com cartão')
+                                    : (t('checkout.pagar_paypal') || 'Pagar com PayPal'))
                               : form.payment_method === 'card'
                                 ? (isCardGatewayAsaas && asaasCardStep === 1 ? 'Continuar' : (t('checkout.pagar_cartao') || 'Pagar com cartão'))
                                 : form.payment_method === 'boleto'
@@ -3855,7 +4489,7 @@ function submit() {
                         <div class="flex h-14 w-14 items-center justify-center rounded-full bg-red-100">
                             <AlertCircle class="h-8 w-8 text-red-600" />
                         </div>
-                        <h2 id="refused-title" class="mt-4 text-lg font-semibold text-gray-900">Pagamento recusado</h2>
+                        <h2 id="refused-title" class="mt-4 text-lg font-semibold text-gray-900">{{ cardRefusedTitle }}</h2>
                         <p class="mt-2 whitespace-pre-line text-sm text-gray-600">{{ cardRefusedMessage }}</p>
                         <div class="mt-6 flex flex-col gap-3 sm:flex-row-reverse">
                             <button
@@ -3864,7 +4498,7 @@ function submit() {
                                 :style="{ backgroundColor: primaryColor }"
                                 @click.prevent.stop="onRefusedTryOtherCard($event)"
                             >
-                                Tentar com outro cartão
+                                {{ cardRefusedPrimaryLabel }}
                             </button>
                             <button
                                 v-if="checkoutPaymentMethods.some(m => m.id !== 'card')"

@@ -8,6 +8,7 @@ use App\Models\ProductOrderBump;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 
 class OrderBumpReportService
 {
@@ -48,18 +49,25 @@ class OrderBumpReportService
         $this->applyOrderBounds($eligibleOrders, $start, $end);
         $eligibleOrdersCount = $eligibleOrders->count();
 
+        $hasBumpColumn = Schema::hasColumn('order_items', 'product_order_bump_id');
         $signatureCounts = $bumps->countBy(fn (ProductOrderBump $bump) => $this->signature($bump));
-        $rows = $bumps->map(function (ProductOrderBump $bump) use ($tenantId, $selected, $start, $end, $eligibleOrdersCount, $signatureCounts) {
-            $directCount = $this->itemsQuery($tenantId, (string) $selected->id, $start, $end)
-                ->where('order_items.product_order_bump_id', $bump->id)
-                ->count();
+        $rows = $bumps->map(function (ProductOrderBump $bump) use ($tenantId, $selected, $start, $end, $eligibleOrdersCount, $signatureCounts, $hasBumpColumn) {
+            $directCount = 0;
+            if ($hasBumpColumn) {
+                $directCount = $this->itemsQuery($tenantId, (string) $selected->id, $start, $end)
+                    ->where('order_items.product_order_bump_id', $bump->id)
+                    ->count();
+            }
 
             $legacyCount = 0;
             if (($signatureCounts[$this->signature($bump)] ?? 0) === 1) {
                 $legacy = $this->itemsQuery($tenantId, (string) $selected->id, $start, $end)
-                    ->whereNull('order_items.product_order_bump_id')
                     ->where('order_items.position', '>', 0)
                     ->where('order_items.product_id', $bump->target_product_id);
+
+                if ($hasBumpColumn) {
+                    $legacy->whereNull('order_items.product_order_bump_id');
+                }
 
                 $this->whereNullableId($legacy, 'order_items.product_offer_id', $bump->target_product_offer_id);
                 $this->whereNullableId($legacy, 'order_items.subscription_plan_id', $bump->target_subscription_plan_id);

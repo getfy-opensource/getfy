@@ -222,6 +222,9 @@ class ProcessPaymentWebhook implements ShouldQueue
         if ($this->gatewaySlug === 'stripe' && $this->event === 'payment_intent.succeeded') {
             return true;
         }
+        if ($this->gatewaySlug === 'paypal' && $this->event === 'PAYMENT.CAPTURE.COMPLETED') {
+            return true;
+        }
 
         return false;
     }

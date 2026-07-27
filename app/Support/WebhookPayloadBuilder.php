@@ -343,6 +343,7 @@ class WebhookPayloadBuilder
             'boleto' => 'Boleto',
             'apple_pay' => 'Apple Pay',
             'google_pay' => 'Google Pay',
+            'paypal' => 'PayPal',
             default => ucfirst(str_replace('_', ' ', $method)),
         };
     }

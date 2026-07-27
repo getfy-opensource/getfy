@@ -25,6 +25,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class PixelXEventSubscriber
 {
@@ -69,6 +70,12 @@ class PixelXEventSubscriber
             Log::debug('PixelXEventSubscriber: received event', [
                 'event_class' => $eventClass,
             ]);
+
+            if (! Schema::hasTable('pixel_x_integrations')) {
+                Log::debug('PixelXEventSubscriber: pixel_x_integrations table missing, skipping');
+
+                return;
+            }
 
             // Verificar se o evento tem mapeamento na Pixel X
             $eventSlug = config('webhook_events.event_slugs')[$eventClass] ?? null;

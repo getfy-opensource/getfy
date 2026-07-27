@@ -635,6 +635,11 @@ class ProdutosController extends Controller
             'payment_gateways.google_pay' => ['nullable', 'string', 'max:64'],
             'payment_gateways.google_pay_redundancy' => ['nullable', 'array'],
             'payment_gateways.google_pay_redundancy.*' => ['string', 'max:64'],
+            'payment_gateways.paypal' => ['nullable', 'string', 'max:64'],
+            'payment_gateways.paypal_redundancy' => ['nullable', 'array'],
+            'payment_gateways.paypal_redundancy.*' => ['string', 'max:64'],
+            'payment_gateways.paypal_display_as' => ['nullable', 'string', 'in:paypal,card'],
+            'payment_gateways.paypal_show_wallet' => ['nullable', 'boolean'],
             'payment_gateways.crypto' => ['nullable', 'string', 'max:64'],
             'payment_gateways.crypto_redundancy' => ['nullable', 'array'],
             'payment_gateways.crypto_redundancy.*' => ['string', 'max:64'],
@@ -901,11 +906,28 @@ class ProdutosController extends Controller
                 'apple_pay_redundancy' => array_values(array_filter(array_map(fn ($s) => is_string($s) ? trim($s) : '', $paymentGateways['apple_pay_redundancy'] ?? []))),
                 'google_pay' => ! empty($paymentGateways['google_pay']) ? $paymentGateways['google_pay'] : null,
                 'google_pay_redundancy' => array_values(array_filter(array_map(fn ($s) => is_string($s) ? trim($s) : '', $paymentGateways['google_pay_redundancy'] ?? []))),
+                'paypal' => ! empty($paymentGateways['paypal']) ? $paymentGateways['paypal'] : null,
+                'paypal_redundancy' => array_values(array_filter(array_map(fn ($s) => is_string($s) ? trim($s) : '', $paymentGateways['paypal_redundancy'] ?? []))),
+                'paypal_display_as' => in_array(($paymentGateways['paypal_display_as'] ?? 'paypal'), ['paypal', 'card'], true)
+                    ? $paymentGateways['paypal_display_as']
+                    : 'paypal',
+                'paypal_show_wallet' => filter_var($paymentGateways['paypal_show_wallet'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'crypto' => ! empty($paymentGateways['crypto']) ? $paymentGateways['crypto'] : null,
                 'crypto_redundancy' => array_values(array_filter(array_map(fn ($s) => is_string($s) ? trim($s) : '', $paymentGateways['crypto_redundancy'] ?? []))),
                 'pix_parcelado' => $pgwPixParcelado,
                 'pix_parcelado_redundancy' => array_values(array_filter(array_map(fn ($s) => is_string($s) ? trim($s) : '', $paymentGateways['pix_parcelado_redundancy'] ?? []))),
             ];
+            // PayPal saiu do slot Cartão: migra card=paypal → método paypal
+            if (($config['payment_gateways']['card'] ?? null) === 'paypal') {
+                if (empty($config['payment_gateways']['paypal'])) {
+                    $config['payment_gateways']['paypal'] = 'paypal';
+                }
+                $config['payment_gateways']['card'] = null;
+            }
+            $config['payment_gateways']['card_redundancy'] = array_values(array_filter(
+                $config['payment_gateways']['card_redundancy'],
+                fn ($s) => $s !== 'paypal'
+            ));
             if ($produto->billing_type === Product::BILLING_SUBSCRIPTION) {
                 $config['payment_gateways']['pix_auto'] = ! empty($paymentGateways['pix_auto']) ? $paymentGateways['pix_auto'] : null;
                 $config['payment_gateways']['pix_auto_redundancy'] = array_values(array_filter(array_map(fn ($s) => is_string($s) ? trim($s) : '', $paymentGateways['pix_auto_redundancy'] ?? [])));
@@ -1627,6 +1649,7 @@ class ProdutosController extends Controller
             'pix_auto' => [],
             'apple_pay' => [],
             'google_pay' => [],
+            'paypal' => [],
             'pix_parcelado' => [],
             'crypto' => [],
         ];
@@ -1637,7 +1660,7 @@ class ProdutosController extends Controller
             }
             $methods = $gateway['methods'] ?? [];
             $item = ['slug' => $slug, 'name' => $gateway['name'] ?? $slug];
-            foreach (['pix', 'card', 'boleto', 'pix_auto', 'apple_pay', 'google_pay', 'pix_parcelado', 'crypto'] as $method) {
+            foreach (['pix', 'card', 'boleto', 'pix_auto', 'apple_pay', 'google_pay', 'paypal', 'pix_parcelado', 'crypto'] as $method) {
                 if (in_array($method, $methods, true)) {
                     $byMethod[$method][] = $item;
                 }

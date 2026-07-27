@@ -16,6 +16,7 @@ class CheckoutCardCredentialsPayload
     public static function forMethods(?int $tenantId, array $paymentMethods): array
     {
         $cardMethod = CheckoutPaymentMethodsBuilder::findMethod($paymentMethods, 'card');
+        $paypalMethod = CheckoutPaymentMethodsBuilder::findMethod($paymentMethods, 'paypal');
         $slug = $cardMethod['gateway_slug'] ?? null;
 
         $payload = [
@@ -29,8 +30,44 @@ class CheckoutCardCredentialsPayload
             'card_mercadopago_sandbox' => false,
             'card_pagarme_public_key' => '',
             'card_pagarme_api_base_url' => rtrim((string) config('services.pagarme.base_url', 'https://api.pagar.me/core/v5'), '/'),
+            'card_paypal_client_id' => '',
+            'card_paypal_sandbox' => false,
+            'card_paypal_checkout_mode' => 'auto',
             'card_gateway_keys' => [],
         ];
+
+        // Credenciais PayPal: método próprio "paypal" ou legado card→paypal
+        $paypalSlug = null;
+        if (($paypalMethod['gateway_slug'] ?? '') === 'paypal') {
+            $paypalSlug = 'paypal';
+        } elseif ($slug === 'paypal') {
+            $paypalSlug = 'paypal';
+        }
+        if ($paypalSlug === 'paypal') {
+            $cred = GatewayCredential::forTenant($tenantId)
+                ->where('gateway_slug', 'paypal')
+                ->where('is_connected', true)
+                ->first();
+            if ($cred) {
+                $creds = $cred->getDecryptedCredentials();
+                $payload['card_paypal_client_id'] = (string) ($creds['client_id'] ?? '');
+                $payload['card_paypal_sandbox'] = ! empty($creds['sandbox']);
+                $mode = strtolower(trim((string) ($creds['checkout_mode'] ?? 'auto')));
+                $payload['card_paypal_checkout_mode'] = in_array($mode, ['auto', 'expanded', 'buttons', 'wallet'], true)
+                    ? $mode
+                    : 'auto';
+                $gateway = GatewayRegistry::get('paypal');
+                $keys = $gateway['checkout_payload_keys'] ?? null;
+                if (is_array($keys) && $keys !== []) {
+                    $payload['card_gateway_keys']['paypal'] = [];
+                    foreach ($keys as $key) {
+                        if (is_string($key) && array_key_exists($key, $creds)) {
+                            $payload['card_gateway_keys']['paypal'][$key] = $creds[$key];
+                        }
+                    }
+                }
+            }
+        }
 
         if ($slug === null || $slug === '') {
             return $payload;
@@ -41,7 +78,7 @@ class CheckoutCardCredentialsPayload
                 continue;
             }
             $methodSlug = $m['gateway_slug'] ?? '';
-            if ($methodSlug === '') {
+            if ($methodSlug === '' || $methodSlug === 'paypal') {
                 continue;
             }
             $cred = GatewayCredential::forTenant($tenantId)

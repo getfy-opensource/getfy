@@ -207,7 +207,7 @@ class UtmifyService
         return match ($checkoutMethod) {
             'pix', 'pix_auto' => 'pix',
             'boleto' => 'boleto',
-            'card', 'apple_pay', 'google_pay' => 'credit_card',
+            'card', 'apple_pay', 'google_pay', 'paypal' => 'credit_card',
             default => $this->mapPaymentMethodFromGatewaySlug($order->gateway),
         };
     }
@@ -224,7 +224,7 @@ class UtmifyService
         if (str_contains($g, 'boleto') || str_contains($g, 'ticket')) {
             return 'boleto';
         }
-        if (str_contains($g, 'card') || str_contains($g, 'credit') || str_contains($g, 'cartao') || str_contains($g, 'cajupay')) {
+        if (str_contains($g, 'card') || str_contains($g, 'credit') || str_contains($g, 'cartao') || str_contains($g, 'cajupay') || str_contains($g, 'paypal')) {
             return 'credit_card';
         }
 

@@ -175,23 +175,36 @@ class IntegrationsController extends Controller
             ->values()
             ->all();
 
-        $pixelXIntegrations = PixelXIntegration::forTenant($tenantId)
-            ->with('products:id,name')
-            ->orderBy('name')
-            ->get()
-            ->map(fn (PixelXIntegration $i) => [
-                'id' => $i->id,
-                'name' => $i->name,
-                'url' => $i->url,
-                'has_token' => (bool) $i->token,
-                'events' => $i->events ?? [],
-                'is_active' => $i->is_active,
-                'configured' => $i->token !== null && $i->token !== '',
-                'products' => $i->products->map(fn ($p) => ['id' => $p->id, 'name' => $p->name])->values()->all(),
-                'product_ids' => $i->products->pluck('id')->values()->all(),
-            ])
-            ->values()
-            ->all();
+        $pixelXIntegrations = [];
+        if (Schema::hasTable('pixel_x_integrations')) {
+            $pixelXIntegrations = PixelXIntegration::forTenant($tenantId)
+                ->with('products:id,name')
+                ->orderBy('name')
+                ->get()
+                ->map(function (PixelXIntegration $i) {
+                    $tokenOk = false;
+                    try {
+                        $token = $i->token;
+                        $tokenOk = $token !== null && $token !== '';
+                    } catch (\Throwable) {
+                        $tokenOk = false;
+                    }
+
+                    return [
+                        'id' => $i->id,
+                        'name' => $i->name,
+                        'url' => $i->url,
+                        'has_token' => $tokenOk,
+                        'events' => $i->events ?? [],
+                        'is_active' => $i->is_active,
+                        'configured' => $tokenOk,
+                        'products' => $i->products->map(fn ($p) => ['id' => (string) $p->id, 'name' => $p->name])->values()->all(),
+                        'product_ids' => $i->products->pluck('id')->map(fn ($id) => (string) $id)->values()->all(),
+                    ];
+                })
+                ->values()
+                ->all();
+        }
 
         $products = Product::forTenant($tenantId)->orderBy('name')->get(['id', 'name']);
         $apiApplications = ApiApplication::forTenant($tenantId)->orderBy('name')->get(['id', 'name']);

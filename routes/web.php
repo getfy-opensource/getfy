@@ -103,6 +103,7 @@ Route::middleware('throttle:60,1')->group(function () {
     Route::post('/webhooks/gateways/asaas', [\App\Http\Controllers\Webhooks\AsaasWebhookController::class, 'handle'])->name('webhooks.asaas');
     Route::post('/webhooks/gateways/pagarme', [\App\Http\Controllers\Webhooks\PagarmeWebhookController::class, 'handle'])->name('webhooks.pagarme');
     Route::post('/webhooks/gateways/cajupay', [\App\Http\Controllers\Webhooks\CajuPayWebhookController::class, 'handle'])->name('webhooks.cajupay');
+    Route::post('/webhooks/gateways/paypal', [\App\Http\Controllers\Webhooks\PayPalWebhookController::class, 'handle'])->name('webhooks.paypal');
     Route::post('/webhooks/inbound/{token}', [\App\Http\Controllers\Webhooks\InboundCheckoutWebhookController::class, 'handle'])
         ->where('token', '[a-fA-F0-9]{64}')
         ->name('webhook-entrada.inbound.post');
@@ -193,6 +194,12 @@ Route::post('/checkout/cajupay/parcelado/confirm-order', [\App\Http\Controllers\
 Route::post('/checkout/cajupay/parcelado/complete', [\App\Http\Controllers\CheckoutController::class, 'cajupayParceladoComplete'])
     ->name('checkout.cajupay.parcelado.complete')
     ->middleware(['throttle:checkout-process', 'checkout.abuse']);
+Route::post('/checkout/paypal/create-order', [\App\Http\Controllers\CheckoutController::class, 'paypalCreateOrder'])
+    ->name('checkout.paypal.create-order')
+    ->middleware(['throttle:checkout-process', 'throttle:checkout-card', 'throttle:checkout-email', 'throttle:checkout-product-ip', 'checkout.abuse']);
+Route::post('/checkout/paypal/capture', [\App\Http\Controllers\CheckoutController::class, 'paypalCapture'])
+    ->name('checkout.paypal.capture')
+    ->middleware(['throttle:checkout-process', 'throttle:checkout-card', 'checkout.abuse']);
 Route::get('/checkout/pix-parcelado', [\App\Http\Controllers\CheckoutController::class, 'pixParceladoPage'])->name('checkout.pix-parcelado');
 // Mesmo handler que webhooks.cajupay — URL alternativa usada em docs/curl da CajuPay
 Route::post('/checkout/cajupay/webhook', [\App\Http\Controllers\Webhooks\CajuPayWebhookController::class, 'handle'])

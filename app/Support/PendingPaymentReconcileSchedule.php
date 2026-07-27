@@ -41,7 +41,8 @@ class PendingPaymentReconcileSchedule
             }
         }
 
-        return max(1, (int) config('payment_reconciliation.legacy_interval_minutes', 2));
+        // PIX older than last tier: slow poll so unpaid orders stay pending and can still settle
+        return max(1, (int) config('payment_reconciliation.pix_stale_interval_minutes', 60));
     }
 
     public static function isDue(Order $order): bool
@@ -56,13 +57,19 @@ class PendingPaymentReconcileSchedule
         return now()->greaterThanOrEqualTo($lastCheckedAt->copy()->addMinutes($intervalMinutes));
     }
 
+    /**
+     * Auto-cancel unpaid PIX by age. Disabled when pix_max_age_minutes <= 0.
+     */
     public static function shouldExpirePix(Order $order): bool
     {
         if (! static::isPixOrder($order)) {
             return false;
         }
 
-        $maxAgeMinutes = max(1, (int) config('payment_reconciliation.pix_max_age_minutes', 120));
+        $maxAgeMinutes = (int) config('payment_reconciliation.pix_max_age_minutes', 0);
+        if ($maxAgeMinutes <= 0) {
+            return false;
+        }
 
         return static::ageMinutes($order) > $maxAgeMinutes;
     }

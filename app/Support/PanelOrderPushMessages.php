@@ -14,7 +14,7 @@ class PanelOrderPushMessages
 
         return match ($method) {
             'boleto' => 'boleto',
-            'card', 'apple_pay', 'google_pay' => 'card',
+            'card', 'apple_pay', 'google_pay', 'paypal' => 'card',
             default => 'pix',
         };
     }

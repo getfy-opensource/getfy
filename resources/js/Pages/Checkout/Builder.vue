@@ -77,6 +77,8 @@ const configForm = reactive({
         previous_price: props.config?.summary?.previous_price ?? null,
         discount_text: props.config?.summary?.discount_text ?? '',
         show_description: props.config?.summary?.show_description !== false,
+        mobile_sticky_footer: props.config?.summary?.mobile_sticky_footer !== false,
+        mobile_sticky_icon_url: props.config?.summary?.mobile_sticky_icon_url ?? '',
     },
     appearance: {
         background_color: props.config?.appearance?.background_color ?? '#E3E3E3',
@@ -93,6 +95,7 @@ const configForm = reactive({
     timer: {
         enabled: props.config?.timer?.enabled ?? false,
         text: props.config?.timer?.text ?? 'Esta oferta expira em:',
+        hours: props.config?.timer?.hours ?? 0,
         minutes: props.config?.timer?.minutes ?? 15,
         background_color: props.config?.timer?.background_color ?? '#000000',
         text_color: props.config?.timer?.text_color ?? '#FFFFFF',
@@ -597,6 +600,28 @@ const inputClass =
                                 v-model="configForm.summary.show_description"
                                 label="Exibir descrição do produto no resumo"
                             />
+                            <Toggle
+                                v-model="configForm.summary.mobile_sticky_footer"
+                                label="Resumo fixo no rodapé (somente mobile)"
+                            />
+                            <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                                Mostra um resumo expansível do pedido fixo na parte inferior da tela em celulares.
+                            </p>
+                            <div v-show="configForm.summary.mobile_sticky_footer" class="space-y-2 rounded-xl border border-zinc-200 p-3 dark:border-zinc-700">
+                                <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                                    Ícone do resumo (opcional)
+                                </label>
+                                <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                                    Sem imagem, usa o ícone padrão de sacola. Envie uma imagem quadrada para personalizar.
+                                </p>
+                                <ImageUpload
+                                    v-model="configForm.summary.mobile_sticky_icon_url"
+                                    :upload-url="uploadUrl"
+                                    label="Imagem do ícone"
+                                    recommended-size="128×128 px (quadrada)"
+                                    aspect-format="square"
+                                />
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -745,11 +770,32 @@ const inputClass =
                                     <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Texto</label>
                                     <input v-model="configForm.timer.text" type="text" :class="inputClass" />
                                 </div>
-                                <div>
-                                    <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Tempo (minutos)</label>
-                                    <input v-model.number="configForm.timer.minutes" type="number" min="1" max="999" :class="inputClass" />
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Horas</label>
+                                        <input
+                                            v-model.number="configForm.timer.hours"
+                                            type="number"
+                                            min="0"
+                                            max="168"
+                                            :class="inputClass"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Minutos</label>
+                                        <input
+                                            v-model.number="configForm.timer.minutes"
+                                            type="number"
+                                            min="0"
+                                            max="999"
+                                            :class="inputClass"
+                                        />
+                                    </div>
                                 </div>
-                                <div class="grid grid-cols-2 gap-2">
+                                <p class="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                                    Ex.: 5 horas e 30 minutos. Se alterar o tempo, o cronômetro reinicia no checkout.
+                                </p>
+                                <div class="mt-3 grid grid-cols-2 gap-2">
                                     <div>
                                         <label class="mb-1 block text-xs text-zinc-500">Fundo</label>
                                         <input v-model="configForm.timer.background_color" type="color" class="h-9 w-full cursor-pointer rounded border" />

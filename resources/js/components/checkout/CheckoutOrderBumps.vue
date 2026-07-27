@@ -121,8 +121,8 @@ defineExpose({
                             {{ t('checkout.oferta_especial') || 'Oferta especial' }}
                         </span>
                     </div>
-                    <!-- Foto + título e descrição -->
-                    <div class="flex flex-row gap-4 pr-24">
+                    <!-- Foto + título; descrição em largura total abaixo (evita coluna estreita no mobile) -->
+                    <div class="flex flex-row items-start gap-3 sm:gap-4">
                         <div class="flex h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-gray-100 ring-2 ring-gray-100">
                             <img
                                 v-if="bump.image_url"
@@ -135,17 +135,22 @@ defineExpose({
                                 <ShoppingBag class="h-8 w-8" />
                             </div>
                         </div>
-                        <div class="min-w-0 flex-1">
-                            <h3 class="font-bold text-gray-900">{{ bump.title }}</h3>
-                            <p v-if="bump.description" class="mt-1 text-sm leading-relaxed text-gray-600">
-                                {{ bump.description }}
-                            </p>
+                        <div class="min-w-0 flex-1 pe-16 sm:pe-20">
+                            <h3 class="text-base font-bold leading-snug text-gray-900 sm:text-[1.05rem]">
+                                {{ bump.title }}
+                            </h3>
                         </div>
                     </div>
-                    <!-- Abaixo da foto: CTA à esquerda, valor à direita (nas duas extremidades) -->
-                    <div class="mt-3 flex w-full items-center justify-between gap-4">
+                    <p
+                        v-if="bump.description"
+                        class="mt-2 w-full text-sm leading-relaxed text-gray-600"
+                    >
+                        {{ bump.description }}
+                    </p>
+                    <!-- Abaixo: CTA à esquerda, valor à direita -->
+                    <div class="mt-3 flex w-full items-center justify-between gap-3">
                         <span
-                            class="flex min-h-[2.25rem] min-w-0 items-center gap-1.5 rounded-lg border-2 px-3 py-2 text-xs font-medium leading-tight transition"
+                            class="flex min-h-[2.25rem] min-w-0 max-w-[65%] items-center gap-1.5 rounded-lg border-2 px-2.5 py-2 text-xs font-medium leading-tight transition sm:max-w-none sm:px-3"
                             :class="selectedSet.has(bump.id)
                                 ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-gray-800'
                                 : 'border-gray-200 bg-white text-gray-800 hover:border-gray-300 hover:bg-gray-50'"
@@ -163,7 +168,7 @@ defineExpose({
                                     class="h-3 w-3 text-white"
                                 />
                             </span>
-                            <span class="whitespace-nowrap text-xs font-medium">{{ bump.cta_title }}</span>
+                            <span class="min-w-0 break-words text-xs font-medium sm:whitespace-nowrap">{{ bump.cta_title }}</span>
                         </span>
                         <div class="shrink-0 flex flex-col items-end">
                             <template v-if="bump.original_amount_brl != null && bump.original_amount_brl > bump.amount_brl">

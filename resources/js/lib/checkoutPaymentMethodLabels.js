@@ -6,6 +6,7 @@ const METHOD_TRANSLATION_KEYS = {
     pix_auto: 'checkout.method_pix_auto',
     apple_pay: 'checkout.method_apple_pay',
     google_pay: 'checkout.method_google_pay',
+    paypal: 'checkout.method_paypal',
     pix_parcelado: 'checkout.method_pix_parcelado',
 };
 
@@ -16,6 +17,7 @@ const DEFAULT_LABELS_PT = {
     pix_auto: 'PIX automático',
     apple_pay: 'Apple Pay',
     google_pay: 'Google Pay',
+    paypal: 'PayPal',
     pix_parcelado: 'PIX Parcelado',
 };
 
@@ -46,8 +48,14 @@ export function localizePaymentMethods(methods, t) {
     if (!Array.isArray(methods)) {
         return [];
     }
-    return methods.map((m) => ({
-        ...m,
-        label: paymentMethodLabel(m.id, t, m.label),
-    }));
+    return methods.map((m) => {
+        // PayPal exibido como Cartão: mantém o label do builder (Cartão / Cartão PayPal)
+        if (m?.id === 'paypal' && m?.display_as === 'card' && m?.label) {
+            return { ...m, label: String(m.label) };
+        }
+        return {
+            ...m,
+            label: paymentMethodLabel(m.id, t, m.label),
+        };
+    });
 }

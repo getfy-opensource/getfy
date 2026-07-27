@@ -25,6 +25,10 @@ class ContentSecurityPolicyTest extends TestCase
         $this->assertStringContainsString('https://www.googleadservices.com', $connectSrc);
         $this->assertStringContainsString('https://googleads.g.doubleclick.net', $connectSrc);
         $this->assertStringContainsString('https://api.utmify.com.br', $connectSrc);
+        $this->assertStringContainsString('https://connect.facebook.net', $connectSrc);
+        $this->assertStringContainsString('https://graph.facebook.com', $connectSrc);
+        $this->assertStringContainsString('https://*.facebook.com', $connectSrc);
+        $this->assertStringContainsString('https://*.facebook.net', $connectSrc);
     }
 
     public function test_production_response_includes_cajupay_in_csp_header(): void

@@ -41,9 +41,11 @@ const props = defineProps({
     purchase_contents: { type: Array, default: () => [] },
 });
 
+const qrImageFailed = ref(false);
+
 const qrcodeSrc = computed(() => {
     const q = (props.qrcode || '').trim();
-    if (!q) return '';
+    if (!q || qrImageFailed.value) return '';
     if (q.startsWith('data:') || q.startsWith('http://') || q.startsWith('https://')) {
         return q;
     }
@@ -51,8 +53,12 @@ const qrcodeSrc = computed(() => {
 });
 
 const showQrFromCopyPaste = computed(
-    () => !qrcodeSrc.value && (props.copy_paste || '').trim().length > 0
+    () => (!qrcodeSrc.value || qrImageFailed.value) && (props.copy_paste || '').trim().length > 0
 );
+
+function onQrImageError() {
+    qrImageFailed.value = true;
+}
 
 const copyButtonText = ref('Copiar');
 const status = ref('pending');
@@ -253,14 +259,15 @@ onUnmounted(() => {
                 <div v-if="qrcodeSrc || showQrFromCopyPaste" class="flex justify-center pt-6 pb-2">
                     <div class="w-40 h-40 sm:w-44 sm:h-44 rounded-2xl border-2 border-dashed border-gray-300 bg-white p-2.5 shadow-sm">
                         <img
-                            v-if="qrcodeSrc"
+                            v-if="qrcodeSrc && !qrImageFailed"
                             :src="qrcodeSrc"
                             alt="QR Code PIX"
                             class="h-full w-full object-contain"
                             style="image-rendering: pixelated"
+                            @error="onQrImageError"
                         />
                         <QrcodeVue
-                            v-else
+                            v-else-if="showQrFromCopyPaste"
                             :value="copy_paste"
                             :size="160"
                             level="M"

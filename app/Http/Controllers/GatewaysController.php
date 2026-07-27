@@ -70,6 +70,12 @@ class GatewaysController extends Controller
             $raw = $decrypted[$key] ?? null;
             if ($type === 'boolean') {
                 $credentialValues[$key] = filter_var($raw, FILTER_VALIDATE_BOOLEAN);
+            } elseif ($type === 'select') {
+                $str = $raw !== null && $raw !== '' ? (string) $raw : '';
+                if ($str === '' && is_array($keyDef['options'] ?? null) && isset($keyDef['options'][0]['value'])) {
+                    $str = (string) $keyDef['options'][0]['value'];
+                }
+                $credentialValues[$key] = $str;
             } elseif (in_array($key, ['secret_key', 'webhook_secret', 'webhook_signing_secret'], true) && $raw !== null && (string) $raw !== '') {
                 $credentialValues[$key] = $this->maskCredentialSecret((string) $raw) ?? '';
             } else {
@@ -84,6 +90,8 @@ class GatewaysController extends Controller
             $webhookUrl = Route::has($webhookRoute) ? route($webhookRoute) : null;
         } elseif ($slug === 'cajupay' && Route::has('webhooks.cajupay')) {
             $webhookUrl = route('webhooks.cajupay');
+        } elseif ($slug === 'paypal' && Route::has('webhooks.paypal')) {
+            $webhookUrl = route('webhooks.paypal');
         }
 
         $usesOauth = ! empty($gateway['oauth']);
@@ -197,6 +205,20 @@ class GatewaysController extends Controller
                 $rules[$key] = ['nullable', 'boolean'];
                 continue;
             }
+            if ($type === 'select') {
+                $allowed = [];
+                foreach ($keyDef['options'] ?? [] as $opt) {
+                    if (is_array($opt) && isset($opt['value'])) {
+                        $allowed[] = (string) $opt['value'];
+                    } elseif (is_string($opt)) {
+                        $allowed[] = $opt;
+                    }
+                }
+                $rules[$key] = $allowed !== []
+                    ? ['nullable', 'string', 'in:'.implode(',', $allowed)]
+                    : ['nullable', 'string', 'max:64'];
+                continue;
+            }
             // Tokens (ex.: Mercado Pago Access Token) podem ultrapassar 500 caracteres
             $rules[$key] = ['nullable', 'string', 'max:2000'];
         }
@@ -221,6 +243,15 @@ class GatewaysController extends Controller
             $v = array_key_exists($key, $validated) ? $validated[$key] : $request->input($key);
             if ($type === 'boolean') {
                 $credentials[$key] = filter_var($v, FILTER_VALIDATE_BOOLEAN);
+                continue;
+            }
+            if ($type === 'select') {
+                $trimmed = is_string($v) ? trim($v) : '';
+                if ($trimmed === '' && ! empty($existingCredentials[$key])) {
+                    $credentials[$key] = $existingCredentials[$key];
+                } else {
+                    $credentials[$key] = $trimmed !== '' ? $trimmed : (string) (($keyDef['options'][0]['value'] ?? 'auto'));
+                }
                 continue;
             }
             $trimmed = is_string($v) ? trim($v) : '';

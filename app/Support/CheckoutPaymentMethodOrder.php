@@ -20,7 +20,7 @@ class CheckoutPaymentMethodOrder
             return $methods;
         }
 
-        $priorityOrder = ['card', 'apple_pay', 'google_pay', 'boleto'];
+        $priorityOrder = ['card', 'paypal', 'apple_pay', 'google_pay', 'boleto'];
         $pixTail = ['pix_auto', 'pix'];
 
         $byId = [];

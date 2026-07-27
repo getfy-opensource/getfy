@@ -318,8 +318,10 @@ class PagarmeDriver implements GatewayDriver
         if (is_array($lastTx)) {
             $copy = isset($lastTx['qr_code']) && is_string($lastTx['qr_code']) ? $lastTx['qr_code'] : null;
             $qrUrl = $lastTx['qr_code_url'] ?? null;
-            if (is_string($qrUrl) && $qrUrl !== '') {
-                $qr = $this->fetchQrAsBase64($qrUrl);
+            // Pass the PNG URL through; Pix.vue already accepts https:// image srcs.
+            // Avoid server-side fetch (fragile auth/status) that can store invalid base64 and suppress copy_paste fallback.
+            if (is_string($qrUrl) && $qrUrl !== '' && filter_var($qrUrl, FILTER_VALIDATE_URL)) {
+                $qr = $qrUrl;
             }
         }
 
@@ -329,20 +331,6 @@ class PagarmeDriver implements GatewayDriver
             'copy_paste' => $copy,
             'raw' => $charge,
         ];
-    }
-
-    private function fetchQrAsBase64(string $url): ?string
-    {
-        try {
-            $bin = Http::timeout(15)->get($url)->body();
-            if ($bin === '') {
-                return null;
-            }
-
-            return base64_encode($bin);
-        } catch (\Throwable) {
-            return null;
-        }
     }
 
     /**

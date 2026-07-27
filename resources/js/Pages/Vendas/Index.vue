@@ -78,6 +78,8 @@ const canManageRefund = computed(() => {
     return !!page.props.auth?.permissions?.['reembolsos.manage'];
 });
 let toastTimer = null;
+let searchTimer = null;
+let removeInertiaListener = null;
 
 const filterOptions = [
     { value: 'aprovadas', label: 'Aprovadas' },
@@ -147,7 +149,6 @@ watch(
 );
 
 const advancedFiltersOpen = ref(false);
-let searchTimer = null;
 
 const offersForSelectedProduct = computed(() => {
     const pid = filterForm.value.product_id;
@@ -175,9 +176,20 @@ function buildQuery(overrides = {}) {
 
 function applyFilters(overrides = {}) {
     router.get('/vendas', buildQuery(overrides), {
-        preserveState: false,
+        preserveState: true,
         preserveScroll: true,
         replace: true,
+        only: [
+            'vendas',
+            'stats',
+            'filters',
+            'status_filter',
+            'products',
+            'offers',
+            'plugin_fulfillment_providers',
+            'plugin_vendas_row_actions',
+            'plugin_order_detail_panels',
+        ],
     });
 }
 
@@ -424,12 +436,22 @@ onMounted(() => {
     document.addEventListener('click', handleClickOutside);
     window.addEventListener('resize', updateMenuPosition);
     window.addEventListener('scroll', updateMenuPosition, true);
+    removeInertiaListener = router.on('before', () => {
+        closeSidebar();
+        closeMenu();
+        closeRefundModal();
+    });
 });
-
 onUnmounted(() => {
     document.removeEventListener('click', handleClickOutside);
     window.removeEventListener('resize', updateMenuPosition);
     window.removeEventListener('scroll', updateMenuPosition, true);
+    if (typeof removeInertiaListener === 'function') {
+        removeInertiaListener();
+        removeInertiaListener = null;
+    }
+    closeSidebar();
+    closeMenu();
     if (toastTimer) clearTimeout(toastTimer);
     if (searchTimer) clearTimeout(searchTimer);
 });
@@ -1096,7 +1118,7 @@ function openProofExport() {
             <div
                 v-if="openMenuId != null && menuVenda"
                 ref="menuEl"
-                class="fixed z-[100000] w-48 rounded-xl border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+                class="fixed z-[99990] w-48 rounded-xl border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
                 :style="{ top: `${menuPos.top}px`, left: `${menuPos.left}px` }"
                 role="menu"
                 aria-label="Ações da venda"

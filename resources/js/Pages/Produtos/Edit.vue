@@ -294,7 +294,7 @@ const props = defineProps({
     product_pixel_integrations: { type: Array, default: () => [] },
     gateways_by_method: {
         type: Object,
-        default: () => ({ pix: [], card: [], boleto: [], pix_auto: [], apple_pay: [], google_pay: [], pix_parcelado: [], crypto: [] }),
+        default: () => ({ pix: [], card: [], boleto: [], pix_auto: [], apple_pay: [], google_pay: [], paypal: [], pix_parcelado: [], crypto: [] }),
     },
     cajupay_parcelado_enrollment: { type: Object, default: null },
     plugin_product_panels: { type: Array, default: () => [] },
@@ -515,24 +515,43 @@ const form = useForm({
     is_active: props.produto.is_active,
     image: null,
     deliverable_link: props.produto.checkout_config?.deliverable_link ?? '',
-    payment_gateways: {
-        pix: pg.pix ?? '',
-        pix_redundancy: Array.isArray(pg.pix_redundancy) ? pg.pix_redundancy : [],
-        card: pg.card ?? '',
-        card_redundancy: Array.isArray(pg.card_redundancy) ? pg.card_redundancy : [],
-        boleto: pg.boleto ?? '',
-        boleto_redundancy: Array.isArray(pg.boleto_redundancy) ? pg.boleto_redundancy : [],
-        pix_auto: pg.pix_auto ?? '',
-        pix_auto_redundancy: Array.isArray(pg.pix_auto_redundancy) ? pg.pix_auto_redundancy : [],
-        apple_pay: pg.apple_pay ?? '',
-        apple_pay_redundancy: Array.isArray(pg.apple_pay_redundancy) ? pg.apple_pay_redundancy : [],
-        google_pay: pg.google_pay ?? '',
-        google_pay_redundancy: Array.isArray(pg.google_pay_redundancy) ? pg.google_pay_redundancy : [],
-        crypto: pg.crypto ?? '',
-        crypto_redundancy: Array.isArray(pg.crypto_redundancy) ? pg.crypto_redundancy : [],
-        pix_parcelado: pg.pix_parcelado ?? '',
-        pix_parcelado_redundancy: Array.isArray(pg.pix_parcelado_redundancy) ? pg.pix_parcelado_redundancy : [],
-    },
+    payment_gateways: (() => {
+        // Migra legado card=paypal → método PayPal (select de Cartão não oferece mais PayPal)
+        let card = pg.card ?? '';
+        let cardRedundancy = Array.isArray(pg.card_redundancy) ? [...pg.card_redundancy] : [];
+        let paypal = pg.paypal ?? '';
+        let paypalRedundancy = Array.isArray(pg.paypal_redundancy) ? [...pg.paypal_redundancy] : [];
+        if (card === 'paypal') {
+            if (!paypal) {
+                paypal = 'paypal';
+            }
+            card = '';
+            cardRedundancy = cardRedundancy.filter((s) => s !== 'paypal');
+        }
+        cardRedundancy = cardRedundancy.filter((s) => s !== 'paypal');
+        return {
+            pix: pg.pix ?? '',
+            pix_redundancy: Array.isArray(pg.pix_redundancy) ? pg.pix_redundancy : [],
+            card,
+            card_redundancy: cardRedundancy,
+            boleto: pg.boleto ?? '',
+            boleto_redundancy: Array.isArray(pg.boleto_redundancy) ? pg.boleto_redundancy : [],
+            pix_auto: pg.pix_auto ?? '',
+            pix_auto_redundancy: Array.isArray(pg.pix_auto_redundancy) ? pg.pix_auto_redundancy : [],
+            apple_pay: pg.apple_pay ?? '',
+            apple_pay_redundancy: Array.isArray(pg.apple_pay_redundancy) ? pg.apple_pay_redundancy : [],
+            google_pay: pg.google_pay ?? '',
+            google_pay_redundancy: Array.isArray(pg.google_pay_redundancy) ? pg.google_pay_redundancy : [],
+            paypal,
+            paypal_redundancy: paypalRedundancy,
+            paypal_display_as: pg.paypal_display_as === 'card' ? 'card' : 'paypal',
+            paypal_show_wallet: Boolean(pg.paypal_show_wallet),
+            crypto: pg.crypto ?? '',
+            crypto_redundancy: Array.isArray(pg.crypto_redundancy) ? pg.crypto_redundancy : [],
+            pix_parcelado: pg.pix_parcelado ?? '',
+            pix_parcelado_redundancy: Array.isArray(pg.pix_parcelado_redundancy) ? pg.pix_parcelado_redundancy : [],
+        };
+    })(),
     pix_parcelado: { ...pixParceladoInitial },
     card_installments: {
         enabled: Boolean(ci.enabled),
@@ -1422,7 +1441,7 @@ function gatewayOptions(method) {
 
 const redundancySidebarOpen = ref(false);
 const redundancySidebarMethod = ref(null);
-const METHOD_LABELS = { pix: 'PIX', card: 'Cartão', boleto: 'Boleto', pix_auto: 'PIX automático', apple_pay: 'Apple Pay', google_pay: 'Google Pay', pix_parcelado: 'PIX Parcelado', crypto: 'Criptomoeda' };
+const METHOD_LABELS = { pix: 'PIX', card: 'Cartão', boleto: 'Boleto', pix_auto: 'PIX automático', apple_pay: 'Apple Pay', google_pay: 'Google Pay', paypal: 'PayPal', pix_parcelado: 'PIX Parcelado', crypto: 'Criptomoeda' };
 const pixParceladoRulesSidebarOpen = ref(false);
 const cajupayParceladoEnrollmentStatus = computed(() => {
     const s = String(props.cajupay_parcelado_enrollment?.status || '').toLowerCase();
@@ -1564,6 +1583,10 @@ function submit() {
             (form.payment_gateways.apple_pay_redundancy || []).forEach((s) => fd.append('payment_gateways[apple_pay_redundancy][]', s));
             fd.append('payment_gateways[google_pay]', form.payment_gateways.google_pay || '');
             (form.payment_gateways.google_pay_redundancy || []).forEach((s) => fd.append('payment_gateways[google_pay_redundancy][]', s));
+            fd.append('payment_gateways[paypal]', form.payment_gateways.paypal || '');
+            (form.payment_gateways.paypal_redundancy || []).forEach((s) => fd.append('payment_gateways[paypal_redundancy][]', s));
+            fd.append('payment_gateways[paypal_display_as]', form.payment_gateways.paypal_display_as || 'paypal');
+            fd.append('payment_gateways[paypal_show_wallet]', form.payment_gateways.paypal_show_wallet ? '1' : '0');
             fd.append('payment_gateways[crypto]', form.payment_gateways.crypto || '');
             (form.payment_gateways.crypto_redundancy || []).forEach((s) => fd.append('payment_gateways[crypto_redundancy][]', s));
             if (form.billing_type === 'one_time') {
@@ -2622,6 +2645,64 @@ function submit() {
                                     </button>
                                     <p v-if="(gateways_by_method.google_pay || []).length === 0" class="text-xs text-zinc-500 dark:text-zinc-400">
                                         <Link href="/integracoes?tab=gateways" class="text-[var(--color-primary)] hover:underline">Conectar gateway compatível (CajuPay)</Link>
+                                    </p>
+                                </div>
+                            </div>
+                            <!-- PayPal -->
+                            <div class="panel-card-md">
+                                <div class="flex flex-col gap-3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white p-2 shadow-sm dark:bg-zinc-700/50">
+                                            <img src="/images/gateways/paypal.png" alt="PayPal" class="h-7 w-7 object-contain" @error="($e) => $e.target && ($e.target.style.display = 'none')" />
+                                        </div>
+                                        <div class="min-w-0 flex-1">
+                                            <p class="font-semibold text-zinc-900 dark:text-white">PayPal</p>
+                                            <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">Carteira / cartão via PayPal</p>
+                                        </div>
+                                    </div>
+                                    <GatewaySelect
+                                        v-model="form.payment_gateways.paypal"
+                                        :options="gatewayOptions('paypal')"
+                                        placeholder="Nenhum"
+                                        label="Gateway PayPal"
+                                    />
+                                    <template v-if="form.payment_gateways.paypal">
+                                        <div>
+                                            <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Exibir no checkout como</label>
+                                            <select
+                                                v-model="form.payment_gateways.paypal_display_as"
+                                                class="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
+                                            >
+                                                <option value="paypal">PayPal</option>
+                                                <option value="card">Cartão</option>
+                                            </select>
+                                            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                                “Cartão” usa o mesmo fluxo PayPal com rótulo de cartão. Se já houver outro Cartão, aparece como “Cartão PayPal”.
+                                            </p>
+                                        </div>
+                                        <label class="flex cursor-pointer items-start gap-2.5 rounded-lg border border-zinc-200 px-3 py-2.5 dark:border-zinc-600">
+                                            <input
+                                                v-model="form.payment_gateways.paypal_show_wallet"
+                                                type="checkbox"
+                                                class="mt-0.5 h-4 w-4 rounded border-zinc-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
+                                            />
+                                            <span class="min-w-0">
+                                                <span class="block text-sm font-medium text-zinc-800 dark:text-zinc-200">Mostrar também botão da conta PayPal</span>
+                                                <span class="mt-0.5 block text-xs text-zinc-500 dark:text-zinc-400">Abre o popup da carteira PayPal, além do pagamento com cartão.</span>
+                                            </span>
+                                        </label>
+                                    </template>
+                                    <button
+                                        v-if="canShowRedundancy(form.payment_gateways.paypal)"
+                                        type="button"
+                                        class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)]/10 hover:text-[var(--color-primary)] dark:border-zinc-600 dark:text-zinc-300 dark:hover:border-[var(--color-primary)] dark:hover:bg-[var(--color-primary)]/20"
+                                        @click="openRedundancySidebar('paypal')"
+                                    >
+                                        <Layers class="h-4 w-4" />
+                                        Redundância
+                                    </button>
+                                    <p v-if="(gateways_by_method.paypal || []).length === 0" class="text-xs text-zinc-500 dark:text-zinc-400">
+                                        <Link href="/integracoes?tab=gateways" class="text-[var(--color-primary)] hover:underline">Conectar PayPal</Link>
                                     </p>
                                 </div>
                             </div>

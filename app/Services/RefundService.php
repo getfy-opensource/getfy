@@ -284,9 +284,10 @@ class RefundService
     }
 
     /**
+     * @param  bool  $resolveGatewayPayment  Se false, não consulta o gateway (lista/index). Use true no fluxo de reembolso.
      * @return array{can: bool, message: string|null, auto_cajupay_pix: bool}
      */
-    public function canRefundFromPanel(Order $order): array
+    public function canRefundFromPanel(Order $order, bool $resolveGatewayPayment = true): array
     {
         if ($order->status === 'refunded') {
             return [
@@ -333,8 +334,12 @@ class RefundService
             ];
         }
 
-        $autoPix = $this->canExecuteCajuPayPixRefund($order)
-            && $this->cajuPayDriver->resolvePaymentIdForOrder($order) !== null;
+        $autoPix = $this->canExecuteCajuPayPixRefund($order);
+        // Lista de vendas: não resolver payment_id via HTTP (timeout 15s × N linhas).
+        // No reembolso real, initiateRefundFromPanel resolve o payment_id de novo.
+        if ($resolveGatewayPayment && $autoPix) {
+            $autoPix = $this->cajuPayDriver->resolvePaymentIdForOrder($order) !== null;
+        }
 
         return [
             'can' => true,

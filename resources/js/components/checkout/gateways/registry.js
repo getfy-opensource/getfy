@@ -24,6 +24,9 @@ import CajupayApplePay from './cajupay/ApplePay.vue';
 import CajupayGooglePay from './cajupay/GooglePay.vue';
 import CajupayPixParcelado from './cajupay/PixParcelado.vue';
 
+import PaypalCard from './paypal/Card.vue';
+import PaypalMethod from './paypal/Paypal.vue';
+
 /** @type {Record<string, Record<string, import('vue').Component>>} */
 export const gatewayMethodComponents = {
     spacepag: {
@@ -38,6 +41,12 @@ export const gatewayMethodComponents = {
     },
     stripe: {
         card: StripeCard,
+        pix: DefaultMethodCard,
+        boleto: DefaultMethodCard,
+    },
+    paypal: {
+        card: PaypalCard,
+        paypal: PaypalMethod,
         pix: DefaultMethodCard,
         boleto: DefaultMethodCard,
     },
@@ -106,6 +115,10 @@ export function getMethodCardComponent(method) {
         return pluginComponent;
     }
     const gateway = gatewayMethodComponents[slug];
+    // PayPal exibido como Cartão: usa o tile de cartão PayPal
+    if (methodId === 'paypal' && method?.display_as === 'card' && gateway?.card) {
+        return gateway.card;
+    }
     const component = gateway?.[methodId];
     return component || DefaultMethodCard;
 }

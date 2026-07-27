@@ -22,6 +22,7 @@ class ReconcilePendingPaymentsTest extends TestCase
 
         FakeGatewayDriver::$statusCallCount = 0;
         FakeGatewayDriver::$returnStatus = 'paid';
+        config(['payment_reconciliation.pix_max_age_minutes' => 0]);
 
         GatewayRegistry::register([
             'slug' => 'fake',
@@ -124,10 +125,36 @@ class ReconcilePendingPaymentsTest extends TestCase
         $this->assertGreaterThanOrEqual(1, FakeGatewayDriver::$statusCallCount - $callsBefore);
     }
 
-    public function test_pix_order_older_than_120_minutes_expires_without_gateway_call(): void
+    public function test_pix_order_older_than_120_minutes_stays_pending_and_still_reconciles(): void
     {
         Event::fake();
         Carbon::setTestNow('2026-06-07 12:00:00');
+        FakeGatewayDriver::$returnStatus = 'pending';
+
+        $order = $this->createPendingOrder([
+            'checkout_payment_method' => 'pix',
+            'created_at' => now()->subMinutes(121),
+        ]);
+
+        $callsBefore = FakeGatewayDriver::$statusCallCount;
+
+        Artisan::call('payments:reconcile-pending', [
+            '--limit' => 10,
+            '--days' => 30,
+        ]);
+
+        $order->refresh();
+        $this->assertSame('pending', $order->status);
+        $this->assertNull($order->metadata['cancelled_reason'] ?? null);
+        $this->assertGreaterThanOrEqual(1, FakeGatewayDriver::$statusCallCount - $callsBefore);
+        $this->assertNotEmpty($order->metadata['reconcile_last_checked_at'] ?? null);
+    }
+
+    public function test_pix_order_expires_when_max_age_config_is_enabled(): void
+    {
+        Event::fake();
+        Carbon::setTestNow('2026-06-07 12:00:00');
+        config(['payment_reconciliation.pix_max_age_minutes' => 120]);
 
         $order = $this->createPendingOrder([
             'checkout_payment_method' => 'pix',

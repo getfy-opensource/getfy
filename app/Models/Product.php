@@ -91,6 +91,9 @@ class Product extends Model
             'summary' => [
                 'previous_price' => null,
                 'discount_text' => '',
+                'show_description' => true,
+                'mobile_sticky_footer' => true,
+                'mobile_sticky_icon_url' => '',
             ],
             'appearance' => [
                 'background_color' => '#E3E3E3',
@@ -103,6 +106,7 @@ class Product extends Model
             'timer' => [
                 'enabled' => false,
                 'text' => 'Esta oferta expira em:',
+                'hours' => 0,
                 'minutes' => 15,
                 'background_color' => '#000000',
                 'text_color' => '#FFFFFF',
@@ -144,6 +148,10 @@ class Product extends Model
                 'apple_pay_redundancy' => [],
                 'google_pay' => null,
                 'google_pay_redundancy' => [],
+                'paypal' => null,
+                'paypal_redundancy' => [],
+                'paypal_display_as' => 'paypal',
+                'paypal_show_wallet' => false,
                 'crypto' => null,
                 'crypto_redundancy' => [],
                 'pix_parcelado' => null,

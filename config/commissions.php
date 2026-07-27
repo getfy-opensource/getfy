@@ -8,6 +8,7 @@ return [
         'pix_auto' => ['percent' => 0.99, 'fixed_cents' => 0],
         'apple_pay' => ['percent' => 3.99, 'fixed_cents' => 39],
         'google_pay' => ['percent' => 3.99, 'fixed_cents' => 39],
+        'paypal' => ['percent' => 3.99, 'fixed_cents' => 39],
     ],
 
     /** Defaults por gateway quando o tenant ainda não salvou taxas customizadas. */
@@ -24,13 +25,14 @@ return [
         'pix_auto' => 0,
         'apple_pay' => 30,
         'google_pay' => 30,
+        'paypal' => 30,
     ],
 
     'coproducer_invite_expires_days' => 14,
 
     'wallet_buckets' => [
         'pix' => ['pix', 'pix_auto'],
-        'card' => ['card', 'apple_pay', 'google_pay'],
+        'card' => ['card', 'apple_pay', 'google_pay', 'paypal'],
         'boleto' => ['boleto'],
     ],
 

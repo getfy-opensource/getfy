@@ -13,7 +13,7 @@ class WalletBucket
     {
         return config('commissions.wallet_buckets', [
             'pix' => ['pix', 'pix_auto'],
-            'card' => ['card', 'apple_pay', 'google_pay'],
+            'card' => ['card', 'apple_pay', 'google_pay', 'paypal'],
             'boleto' => ['boleto'],
         ]);
     }

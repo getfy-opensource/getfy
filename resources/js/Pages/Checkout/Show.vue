@@ -12,6 +12,7 @@ import CheckoutYoutube from '@/components/checkout/CheckoutYoutube.vue';
 import CheckoutSummary from '@/components/checkout/CheckoutSummary.vue';
 import CheckoutForm from '@/components/checkout/CheckoutForm.vue';
 import CheckoutSidebar from '@/components/checkout/CheckoutSidebar.vue';
+import CheckoutMobileSummary from '@/components/checkout/CheckoutMobileSummary.vue';
 import SalesNotification from '@/components/checkout/SalesNotification.vue';
 import SupportButton from '@/components/checkout/SupportButton.vue';
 import ExitPopup from '@/components/checkout/ExitPopup.vue';
@@ -75,6 +76,12 @@ const props = defineProps({
     card_mercadopago_public_key: { type: String, default: '' },
     /** Se o gateway Mercado Pago está em sandbox. */
     card_mercadopago_sandbox: { type: Boolean, default: false },
+    /** Client ID PayPal (Card Fields). */
+    card_paypal_client_id: { type: String, default: '' },
+    /** Se o gateway PayPal está em sandbox. */
+    card_paypal_sandbox: { type: Boolean, default: false },
+    /** Modo PayPal: auto | expanded | buttons */
+    card_paypal_checkout_mode: { type: String, default: 'auto' },
     /** Chaves por gateway slug para gateways de plugin (checkout_payload_keys na definição). Ex.: { 'meu-gateway': { publishable_key: '...' } } */
     card_gateway_keys: { type: Object, default: () => ({}) },
     subscription_plan: { type: Object, default: null },
@@ -317,6 +324,9 @@ const previewRootClass = computed(() => {
 });
 const timerConfig = computed(() => effectiveConfig.value?.timer ?? {});
 const salesNotificationConfig = computed(() => effectiveConfig.value?.sales_notification ?? {});
+const mobileStickyFooterEnabled = computed(
+    () => effectiveConfig.value?.summary?.mobile_sticky_footer !== false
+);
 
 /** Sentinel quando o backend não detecta país (localhost / headers ausentes). */
 const CHECKOUT_GEO_UNKNOWN = '__UNKNOWN__';
@@ -789,7 +799,11 @@ const hasCustomBodyEnd = computed(() => String(customBodyEndHtml.value).trim() !
             v-html="customBodyStartHtml"
         />
 
-        <div class="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:py-10" data-checkout="layout-inner">
+        <div
+            class="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:py-10"
+            :class="mobileStickyFooterEnabled ? 'pb-28 lg:pb-10' : ''"
+            data-checkout="layout-inner"
+        >
             <!-- Flash -->
             <div
                 v-if="flash?.error"
@@ -891,6 +905,9 @@ const hasCustomBodyEnd = computed(() => String(customBodyEndHtml.value).trim() !
                             :card-max-installments="card_max_installments || 1"
                             :card-mercadopago-public-key="card_mercadopago_public_key || ''"
                             :card-mercadopago-sandbox="card_mercadopago_sandbox"
+                            :card-paypal-client-id="card_paypal_client_id || ''"
+                            :card-paypal-sandbox="card_paypal_sandbox"
+                            :card-paypal-checkout-mode="card_paypal_checkout_mode || 'auto'"
                             :card-gateway-keys="card_gateway_keys || {}"
                             :checkout-total-brl="checkoutTotalBrl"
                             :checkout-total-in-currency="checkoutTotalInCurrency"
@@ -948,6 +965,25 @@ const hasCustomBodyEnd = computed(() => String(customBodyEndHtml.value).trim() !
             :product-image-url="productImageUrlForNotification"
         />
 
+        <div
+            v-if="mobileStickyFooterEnabled"
+            class="lg:hidden"
+            data-checkout="mobile-summary-host"
+        >
+            <CheckoutMobileSummary
+                :product="product"
+                :selected-order-bumps="selectedOrderBumpsList"
+                :applied-coupon="appliedCoupon"
+                :order-bumps-total-brl="orderBumpsTotalBrl"
+                :primary-color="primaryColor"
+                :icon-url="effectiveConfig?.summary?.mobile_sticky_icon_url || ''"
+                :t="t"
+                :display-currency="displayCurrency"
+                :price-in-currency="priceInCurrency"
+                :format-price="formatPrice"
+            />
+        </div>
+
         <SupportButton :config="effectiveConfig?.support_button" :primary-color="primaryColor" />
         <ExitPopup
             :config="effectiveConfig"
@@ -971,6 +1007,14 @@ const hasCustomBodyEnd = computed(() => String(customBodyEndHtml.value).trim() !
 
 .checkout-preview--mobile .checkout-sidebar-mobile {
     display: block !important;
+}
+
+.checkout-preview--mobile [data-checkout="mobile-summary-host"] {
+    display: block !important;
+}
+
+.checkout-preview--desktop [data-checkout="mobile-summary-host"] {
+    display: none !important;
 }
 
 .checkout-preview--desktop .checkout-layout-columns {

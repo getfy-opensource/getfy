@@ -157,10 +157,11 @@ class CheckoutPixReuseTest extends TestCase
 
     public function test_relaxed_rate_limit_defaults(): void
     {
-        $this->assertSame(6, config('checkout_security.rate.pix_per_5_minutes'));
-        $this->assertSame(15, config('checkout_security.rate.email_per_hour'));
-        $this->assertSame(10, config('checkout_security.pending.max_per_ip_hour'));
-        $this->assertSame(6, config('checkout_security.pending.max_per_email_hour'));
+        $this->assertSame(20, config('checkout_security.rate.pix_per_5_minutes'));
+        $this->assertSame(30, config('checkout_security.rate.email_per_hour'));
+        $this->assertSame(25, config('checkout_security.pending.max_per_ip_hour'));
+        $this->assertSame(15, config('checkout_security.pending.max_per_email_hour'));
+        $this->assertSame(8, config('checkout_security.flood.pix_attempts_per_minute'));
     }
 
     public function test_checkout_throttle_returns_friendly_inertia_error(): void

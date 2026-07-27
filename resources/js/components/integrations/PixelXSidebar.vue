@@ -220,8 +220,14 @@ async function saveIntegration() {
         emit('saved');
         resetForm();
     } catch (err) {
+        const data = err.response?.data;
+        const firstValidationError = data?.errors
+            ? Object.values(data.errors).flat().find(Boolean)
+            : null;
         errorMessage.value =
-            err.response?.data?.message || 'Erro ao salvar integração.';
+            firstValidationError ||
+            data?.message ||
+            'Erro ao salvar integração.';
     } finally {
         saving.value = false;
     }

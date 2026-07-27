@@ -231,6 +231,7 @@ class Order extends Model
             'card' => 'Cartão',
             'apple_pay' => 'Apple Pay',
             'google_pay' => 'Google Pay',
+            'paypal' => 'PayPal',
             'boleto' => 'Boleto',
             'crypto' => 'Criptomoeda',
             'external' => 'Checkout externo',
@@ -249,6 +250,9 @@ class Order extends Model
         }
         if ($g === 'card' || str_contains($g, 'cartao') || str_contains($g, 'cartão') || str_contains($g, 'credito')) {
             return 'Cartão';
+        }
+        if ($g === 'paypal') {
+            return 'PayPal';
         }
         if ($g === 'boleto' || str_contains($g, 'boleto')) {
             return 'Boleto';

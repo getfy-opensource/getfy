@@ -160,7 +160,7 @@ class VendasController extends Controller
                         ->orWhereRaw("LOWER(gateway) LIKE '%cartao%'")
                         ->orWhereRaw("LOWER(gateway) LIKE '%cartão%'")
                         ->orWhereRaw("LOWER(gateway) LIKE '%credito%'")
-                        ->orWhereIn('metadata->checkout_payment_method', ['card', 'apple_pay', 'google_pay']);
+                        ->orWhereIn('metadata->checkout_payment_method', ['card', 'apple_pay', 'google_pay', 'paypal']);
                 });
             } elseif ($m === 'boleto') {
                 $query->where(function ($q) {
@@ -304,7 +304,8 @@ class VendasController extends Controller
                     'name' => $affiliate['name'],
                 ] : null;
                 try {
-                    $refundCheck = app(RefundService::class)->canRefundFromPanel($o);
+                    // Sem HTTP ao gateway na listagem (resolveGatewayPayment=false).
+                    $refundCheck = app(RefundService::class)->canRefundFromPanel($o, false);
                     $arr['can_refund'] = $refundCheck['can'];
                     $arr['refund_auto_cajupay_pix'] = $refundCheck['auto_cajupay_pix'];
                 } catch (\Throwable $e) {
@@ -355,7 +356,7 @@ class VendasController extends Controller
                     ->orWhereRaw("LOWER(gateway) LIKE '%cartao%'")
                     ->orWhereRaw("LOWER(gateway) LIKE '%cartão%'")
                     ->orWhereRaw("LOWER(gateway) LIKE '%credito%'")
-                    ->orWhereIn('metadata->checkout_payment_method', ['card', 'apple_pay', 'google_pay']);
+                    ->orWhereIn('metadata->checkout_payment_method', ['card', 'apple_pay', 'google_pay', 'paypal']);
             })
             ->count();
 

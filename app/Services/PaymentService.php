@@ -321,7 +321,11 @@ class PaymentService
                 continue;
             }
             $gateway = GatewayRegistry::get($gatewaySlug);
-            if (! $gateway || ! in_array($method, $gateway['methods'] ?? [], true)) {
+            $declaredMethods = $gateway['methods'] ?? [];
+            $supportsDeclared = $gateway && in_array($method, $declaredMethods, true);
+            // Legado: payment_gateways.card = paypal
+            $legacyPaypalCard = $gatewaySlug === 'paypal' && $method === 'card';
+            if (! $supportsDeclared && ! $legacyPaypalCard) {
                 continue;
             }
             return $gatewaySlug;
