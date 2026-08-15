@@ -21,6 +21,7 @@ const props = defineProps({
     sectionTypeLabel: { type: Function, required: true },
     lessonForm: { type: Object, default: null },
     lessonFormSaving: { type: Boolean, default: false },
+    moduleFormSaving: { type: Boolean, default: false },
     lessonPdfUploading: { type: Boolean, default: false },
     lessonSupportUploading: { type: Boolean, default: false },
     isLessonPdfContentType: { type: Function, required: true },
@@ -438,6 +439,7 @@ const columnClass = (step) => [
                         :editing-access-duration-days="editingModuleAccessDurationDays"
                         :editing-thumbnail="editingModuleThumbnail"
                         :thumbnail-uploading="moduleThumbnailUploading"
+                        :saving="moduleFormSaving"
                         @update:editing-title="emit('update:editingModuleTitle', $event)"
                         @update:editing-show-title-on-cover="emit('update:editingModuleShowTitleOnCover', $event)"
                         @update:editing-related-product-id="emit('update:editingModuleRelatedProductId', $event)"

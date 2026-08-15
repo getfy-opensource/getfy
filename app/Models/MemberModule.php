@@ -63,4 +63,5 @@ class MemberModule extends Model
     {
         return $this->hasMany(MemberLesson::class, 'member_module_id')->orderBy('position');
     }
+
 }

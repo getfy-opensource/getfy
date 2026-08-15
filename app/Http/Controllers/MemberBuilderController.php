@@ -5,40 +5,39 @@ namespace App\Http\Controllers;
 use App\Models\MemberAreaDomain;
 use App\Models\MemberComment;
 use App\Models\MemberCommunityPage;
-use App\Models\MemberCommunityPost;
 use App\Models\MemberInternalProduct;
 use App\Models\MemberLesson;
 use App\Models\MemberLessonProgress;
 use App\Models\MemberModule;
+use App\Models\MemberNotification;
+use App\Models\MemberPushSubscription;
 use App\Models\MemberSection;
 use App\Models\MemberTurma;
 use App\Models\Product;
 use App\Models\User;
-use App\Models\MemberNotification;
-use App\Models\MemberPushSubscription;
 use App\Rules\StorageOrHttpUrl;
-use App\Support\StoredFileUrl;
-use Illuminate\Support\Facades\Hash;
+use App\Services\GamificationService;
 use App\Services\MemberAreaResolver;
 use App\Services\MemberCommentService;
-use App\Services\StorageService;
-use App\Services\GamificationService;
 use App\Services\MemberProgressService;
+use App\Services\StorageService;
 use App\Services\TeamAccessService;
+use App\Support\StoredFileUrl;
+use App\Support\VapidKeyGenerator;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Inertia\Inertia;
 use Inertia\Response;
-use App\Support\VapidKeyGenerator;
-use Minishlink\WebPush\WebPush;
 use Minishlink\WebPush\Subscription;
+use Minishlink\WebPush\WebPush;
 
 class MemberBuilderController extends Controller
 {
@@ -55,6 +54,7 @@ class MemberBuilderController extends Controller
                 if ($url !== '' && StoredFileUrl::isValid($url)) {
                     $out[] = ['url' => StoredFileUrl::normalize($url), 'name' => 'Material'];
                 }
+
                 continue;
             }
             if (! is_array($item)) {
@@ -116,6 +116,7 @@ class MemberBuilderController extends Controller
         $produto->load([
             'memberAreaDomain',
             'memberSections.modules.lessons',
+            'memberSections.modules.lessons.releaseDependencies',
             'memberSections.modules.relatedProduct',
             'memberInternalProducts.relatedProduct',
             'memberTurmas.users:id,name,email',
@@ -230,6 +231,7 @@ class MemberBuilderController extends Controller
                             'release_after_days' => $l->release_after_days,
                             'release_at_date' => $l->release_at_date?->format('Y-m-d'),
                             'access_duration_days' => $l->access_duration_days,
+                            'release_dependency_lesson_ids' => $l->releaseDependencies->pluck('required_member_lesson_id')->map(fn ($id) => (int) $id)->values()->all(),
                             'content_text' => \App\Support\HtmlSanitizer::sanitize($l->content_text),
                             'duration_seconds' => $l->duration_seconds,
                             'is_free' => $l->is_free,
@@ -247,6 +249,7 @@ class MemberBuilderController extends Controller
                             'image_url' => $m->relatedProduct->image ? app(StorageService::class)->url($m->relatedProduct->image) : null,
                         ] : null,
                     ]);
+
                     return array_merge($base, $extra);
                 })->values()->all(),
             ])->values()->all(),
@@ -374,6 +377,7 @@ class MemberBuilderController extends Controller
                         'message' => 'O segmento do path deve ter entre 6 e 16 caracteres (apenas letras minúsculas e números).',
                     ], 422);
                 }
+
                 return back()->with('error', 'O segmento do path deve ter entre 6 e 16 caracteres (apenas letras minúsculas e números).');
             }
             $conflictProduct = Product::where('checkout_slug', $pathSegment)
@@ -390,6 +394,7 @@ class MemberBuilderController extends Controller
                         'message' => 'Este segmento de URL já está em uso por outra área de membros.',
                     ], 422);
                 }
+
                 return back()->with('error', 'Este segmento de URL já está em uso por outra área de membros.');
             }
         }
@@ -467,6 +472,7 @@ class MemberBuilderController extends Controller
                             'message' => 'Informe um domínio ou subdomínio válido (apenas o host, sem https:// e sem /path).',
                         ], 422);
                     }
+
                     return back()->with('error', 'Informe um domínio ou subdomínio válido (apenas o host, sem https:// e sem /path).');
                 }
                 $conflictCustom = MemberAreaDomain::where('type', MemberAreaDomain::TYPE_CUSTOM)
@@ -479,6 +485,7 @@ class MemberBuilderController extends Controller
                             'message' => 'Este domínio já está vinculado a outra área de membros.',
                         ], 422);
                     }
+
                     return back()->with('error', 'Este domínio já está vinculado a outra área de membros.');
                 }
             }
@@ -493,6 +500,7 @@ class MemberBuilderController extends Controller
             if ($vapidWarning !== null) {
                 $json['warning'] = $vapidWarning;
             }
+
             return response()->json($json);
         }
 
@@ -511,7 +519,8 @@ class MemberBuilderController extends Controller
             'file.max' => 'A imagem deve ter no máximo '.(int) max(1, floor($maxKb / 1024)).' MB.',
         ]);
         $storage = app(StorageService::class);
-        $path = $storage->putFile('member-area/' . $produto->id, $request->file('file'));
+        $path = $storage->putFile('member-area/'.$produto->id, $request->file('file'));
+
         return response()->json(['url' => $storage->url($path), 'path' => $path]);
     }
 
@@ -528,9 +537,10 @@ class MemberBuilderController extends Controller
         ]);
         $file = $request->file('file');
         $name = $file->getClientOriginalName();
-        $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', pathinfo($name, PATHINFO_FILENAME)) . '.pdf';
+        $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', pathinfo($name, PATHINFO_FILENAME)).'.pdf';
         $storage = app(StorageService::class);
-        $path = $storage->putFileAs('member-area/' . $produto->id, $file, $safeName);
+        $path = $storage->putFileAs('member-area/'.$produto->id, $file, $safeName);
+
         return response()->json(['url' => $storage->url($path), 'path' => $path]);
     }
 
@@ -549,7 +559,8 @@ class MemberBuilderController extends Controller
             'file.max' => 'A imagem da badge deve ter no máximo '.(int) max(1, floor($maxKb / 1024)).' MB.',
         ]);
         $storage = app(StorageService::class);
-        $path = $storage->putFile('member-area-gamification/' . $produto->id . '/badges', $request->file('file'));
+        $path = $storage->putFile('member-area-gamification/'.$produto->id.'/badges', $request->file('file'));
+
         return response()->json(['url' => $storage->url($path), 'path' => $path]);
     }
 
@@ -573,6 +584,7 @@ class MemberBuilderController extends Controller
         if ($request->expectsJson()) {
             return response()->json(['message' => 'Seção criada.']);
         }
+
         return back()->with('success', 'Seção criada.');
     }
 
@@ -592,6 +604,7 @@ class MemberBuilderController extends Controller
         if ($request->expectsJson()) {
             return response()->json(['message' => 'Seção atualizada.']);
         }
+
         return back()->with('success', 'Seção atualizada.');
     }
 
@@ -605,6 +618,7 @@ class MemberBuilderController extends Controller
         if ($request->expectsJson()) {
             return response()->json(['message' => 'Seção removida.']);
         }
+
         return back()->with('success', 'Seção removida.');
     }
 
@@ -706,6 +720,7 @@ class MemberBuilderController extends Controller
         foreach ($orderedIds as $index => $id) {
             MemberSection::query()->where('product_id', $produto->id)->whereKey($id)->update(['position' => $index + 1]);
         }
+
     }
 
     /** @param  array<int>  $orderedIds */
@@ -731,6 +746,7 @@ class MemberBuilderController extends Controller
                 ->whereKey($id)
                 ->update(['position' => $index + 1]);
         }
+
     }
 
     /** @param  array<int>  $orderedIds */
@@ -755,6 +771,24 @@ class MemberBuilderController extends Controller
                 ->where('member_module_id', $module->id)
                 ->whereKey($id)
                 ->update(['position' => $index + 1]);
+        }
+
+        $this->pruneInvalidLessonReleaseDependencies($module);
+    }
+
+    private function pruneInvalidLessonReleaseDependencies(MemberModule $module): void
+    {
+        $previousLessonIds = [];
+
+        foreach ($module->lessons()->orderBy('position')->get() as $lesson) {
+            $dependencies = $lesson->releaseDependencies();
+            if ($previousLessonIds === []) {
+                $dependencies->delete();
+            } else {
+                $dependencies->whereNotIn('required_member_lesson_id', $previousLessonIds)->delete();
+            }
+
+            $previousLessonIds[] = (int) $lesson->id;
         }
     }
 
@@ -831,6 +865,7 @@ class MemberBuilderController extends Controller
                 if ($request->expectsJson()) {
                     return response()->json(['message' => 'Não é possível referenciar o próprio produto.'], 422);
                 }
+
                 return back()->with('error', 'Não é possível referenciar o próprio produto.');
             }
             $max = MemberModule::where('member_section_id', $section->id)->max('position') ?? 0;
@@ -927,6 +962,7 @@ class MemberBuilderController extends Controller
 
             return response()->json(['message' => 'Módulo criado.', 'module' => $payload, 'modules' => [$payload]]);
         }
+
         return back()->with('success', 'Módulo criado.');
     }
 
@@ -981,6 +1017,57 @@ class MemberBuilderController extends Controller
         return $payload;
     }
 
+    /** @return \Illuminate\Support\Collection<int, MemberModule> */
+    private function orderedCourseModules(Product $product): \Illuminate\Support\Collection
+    {
+        return $product->memberSections()
+            ->where('section_type', 'courses')
+            ->orderBy('position')
+            ->with(['modules' => fn ($query) => $query->orderBy('position')])
+            ->get()
+            ->flatMap(fn (MemberSection $section) => $section->modules)
+            ->values();
+    }
+
+    /** @param array<int, mixed> $dependencyIds */
+    private function syncLessonReleaseDependencies(MemberModule $module, MemberLesson $lesson, array $dependencyIds): void
+    {
+        $this->assertLessonReleaseDependenciesAreValid($module, $lesson, $dependencyIds);
+
+        $ids = array_values(array_unique(array_map('intval', $dependencyIds)));
+        $lesson->releaseDependencies()->delete();
+        $lesson->releaseDependencies()->createMany(array_map(fn (int $id) => [
+            'required_member_lesson_id' => $id,
+        ], $ids));
+    }
+
+    /** @param array<int, mixed> $dependencyIds */
+    private function assertLessonReleaseDependenciesAreValid(MemberModule $module, MemberLesson $lesson, array $dependencyIds): void
+    {
+        $ids = array_values(array_unique(array_map('intval', $dependencyIds)));
+        $orderedLessons = $module->lessons()->orderBy('position')->get();
+        $currentIndex = $orderedLessons->search(fn (MemberLesson $candidate) => $candidate->id === $lesson->id);
+        $allowedIds = $currentIndex === false ? [] : $orderedLessons->take($currentIndex)->pluck('id')->map(fn ($id) => (int) $id)->all();
+        if ($ids !== [] && array_diff($ids, $allowedIds) !== []) {
+            throw ValidationException::withMessages([
+                'release_dependency_lesson_ids' => ['Selecione apenas aulas anteriores deste módulo.'],
+            ]);
+        }
+    }
+
+    /** @param array<int, mixed> $dependencyIds */
+    private function assertNewLessonReleaseDependenciesAreValid(MemberModule $module, array $dependencyIds): void
+    {
+        $ids = array_values(array_unique(array_map('intval', $dependencyIds)));
+        $allowedIds = $module->lessons()->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        if ($ids !== [] && array_diff($ids, $allowedIds) !== []) {
+            throw ValidationException::withMessages([
+                'release_dependency_lesson_ids' => ['Selecione apenas aulas anteriores deste módulo.'],
+            ]);
+        }
+    }
+
     public function updateModule(Request $request, Product $produto, MemberModule $module): JsonResponse|RedirectResponse
     {
         $this->authorizeProduct($produto);
@@ -1028,6 +1115,7 @@ class MemberBuilderController extends Controller
                     if ($request->expectsJson()) {
                         return response()->json(['message' => 'Não é possível referenciar o próprio produto.'], 422);
                     }
+
                     return back()->with('error', 'Não é possível referenciar o próprio produto.');
                 }
             }
@@ -1044,6 +1132,7 @@ class MemberBuilderController extends Controller
         if ($request->expectsJson()) {
             return response()->json(['message' => 'Módulo atualizado.']);
         }
+
         return back()->with('success', 'Módulo atualizado.');
     }
 
@@ -1057,6 +1146,7 @@ class MemberBuilderController extends Controller
         if ($request->expectsJson()) {
             return response()->json(['message' => 'Módulo removido.']);
         }
+
         return back()->with('success', 'Módulo removido.');
     }
 
@@ -1110,17 +1200,19 @@ class MemberBuilderController extends Controller
             'content_url' => ['nullable', 'string', 'max:2000'],
             'link_title' => ['nullable', 'string', 'max:255'],
             'content_files' => ['nullable', 'array', 'max:30'],
-            'content_files.*.url' => ['nullable', 'string', 'max:2000', new StorageOrHttpUrl()],
+            'content_files.*.url' => ['nullable', 'string', 'max:2000', new StorageOrHttpUrl],
             'content_files.*.name' => ['nullable', 'string', 'max:255'],
             'support_files' => ['nullable', 'array', 'max:30'],
-            'support_files.*.url' => ['nullable', 'string', 'max:2000', new StorageOrHttpUrl()],
+            'support_files.*.url' => ['nullable', 'string', 'max:2000', new StorageOrHttpUrl],
             'support_files.*.name' => ['nullable', 'string', 'max:255'],
             'useful_links' => ['nullable', 'array', 'max:20'],
             'useful_links.*.title' => ['nullable', 'string', 'max:255'],
-            'useful_links.*.url' => ['nullable', 'string', 'max:2000', new StorageOrHttpUrl()],
+            'useful_links.*.url' => ['nullable', 'string', 'max:2000', new StorageOrHttpUrl],
             'release_after_days' => ['nullable', 'integer', 'min:1', 'max:3650'],
             'release_at_date' => ['nullable', 'date_format:Y-m-d'],
             'access_duration_days' => ['nullable', 'integer', 'min:1', 'max:3650'],
+            'release_dependency_lesson_ids' => ['nullable', 'array'],
+            'release_dependency_lesson_ids.*' => ['integer', 'distinct'],
             'content_text' => ['nullable', 'string'],
             'duration_seconds' => ['nullable', 'integer', 'min:0'],
             'is_free' => ['boolean'],
@@ -1163,8 +1255,12 @@ class MemberBuilderController extends Controller
             'is_free' => $request->boolean('is_free', false),
             'watermark_enabled' => $request->boolean('watermark_enabled', false),
         ]);
+        $dependencyLessonIds = $validated['release_dependency_lesson_ids'] ?? [];
+        $this->assertNewLessonReleaseDependenciesAreValid($module, $dependencyLessonIds);
+
         try {
-            MemberLesson::create($attributes);
+            $lesson = MemberLesson::create($attributes);
+            $this->syncLessonReleaseDependencies($module, $lesson, $dependencyLessonIds);
         } catch (QueryException $e) {
             Log::warning('member_lesson create failed', ['error' => $e->getMessage(), 'product_id' => $produto->id]);
 
@@ -1178,6 +1274,7 @@ class MemberBuilderController extends Controller
         if ($request->expectsJson()) {
             return response()->json(['message' => 'Aula criada.']);
         }
+
         return back()->with('success', 'Aula criada.');
     }
 
@@ -1194,17 +1291,19 @@ class MemberBuilderController extends Controller
             'content_url' => ['nullable', 'string', 'max:2000'],
             'link_title' => ['nullable', 'string', 'max:255'],
             'content_files' => ['nullable', 'array', 'max:30'],
-            'content_files.*.url' => ['nullable', 'string', 'max:2000', new StorageOrHttpUrl()],
+            'content_files.*.url' => ['nullable', 'string', 'max:2000', new StorageOrHttpUrl],
             'content_files.*.name' => ['nullable', 'string', 'max:255'],
             'support_files' => ['nullable', 'array', 'max:30'],
-            'support_files.*.url' => ['nullable', 'string', 'max:2000', new StorageOrHttpUrl()],
+            'support_files.*.url' => ['nullable', 'string', 'max:2000', new StorageOrHttpUrl],
             'support_files.*.name' => ['nullable', 'string', 'max:255'],
             'useful_links' => ['nullable', 'array', 'max:20'],
             'useful_links.*.title' => ['nullable', 'string', 'max:255'],
-            'useful_links.*.url' => ['nullable', 'string', 'max:2000', new StorageOrHttpUrl()],
+            'useful_links.*.url' => ['nullable', 'string', 'max:2000', new StorageOrHttpUrl],
             'release_after_days' => ['nullable', 'integer', 'min:1', 'max:3650'],
             'release_at_date' => ['nullable', 'date_format:Y-m-d'],
             'access_duration_days' => ['nullable', 'integer', 'min:1', 'max:3650'],
+            'release_dependency_lesson_ids' => ['nullable', 'array'],
+            'release_dependency_lesson_ids.*' => ['integer', 'distinct'],
             'content_text' => ['nullable', 'string'],
             'duration_seconds' => ['nullable', 'integer', 'min:0'],
             'is_free' => ['boolean'],
@@ -1254,8 +1353,17 @@ class MemberBuilderController extends Controller
         if ($request->has('useful_links')) {
             $validated['useful_links'] = $usefulLinks !== [] ? $usefulLinks : null;
         }
+        $dependencyLessonIds = $validated['release_dependency_lesson_ids'] ?? null;
+        if ($dependencyLessonIds !== null) {
+            $this->assertLessonReleaseDependenciesAreValid($lesson->module, $lesson, $dependencyLessonIds);
+        }
+        unset($validated['release_dependency_lesson_ids']);
+
         try {
             $lesson->update(MemberLesson::onlyExistingColumns($validated));
+            if ($dependencyLessonIds !== null) {
+                $this->syncLessonReleaseDependencies($lesson->module, $lesson, $dependencyLessonIds);
+            }
         } catch (QueryException $e) {
             Log::warning('member_lesson update failed', ['error' => $e->getMessage(), 'lesson_id' => $lesson->id]);
 
@@ -1269,6 +1377,7 @@ class MemberBuilderController extends Controller
         if ($request->expectsJson()) {
             return response()->json(['message' => 'Aula atualizada.']);
         }
+
         return back()->with('success', 'Aula atualizada.');
     }
 
@@ -1282,6 +1391,7 @@ class MemberBuilderController extends Controller
         if ($request->expectsJson()) {
             return response()->json(['message' => 'Aula removida.']);
         }
+
         return back()->with('success', 'Aula removida.');
     }
 
@@ -1329,6 +1439,7 @@ class MemberBuilderController extends Controller
             ['product_id' => $produto->id, 'related_product_id' => $validated['related_product_id']],
             ['position' => $max + 1]
         );
+
         return back()->with('success', 'Produto adicionado à loja interna.');
     }
 
@@ -1339,6 +1450,7 @@ class MemberBuilderController extends Controller
             abort(404);
         }
         $internalProduct->delete();
+
         return back()->with('success', 'Produto removido da loja interna.');
     }
 
@@ -1361,6 +1473,7 @@ class MemberBuilderController extends Controller
             'end_date' => $validated['end_date'] ?? null,
             'position' => $max + 1,
         ]);
+
         return back()->with('success', 'Turma criada.');
     }
 
@@ -1378,6 +1491,7 @@ class MemberBuilderController extends Controller
             'position' => ['sometimes', 'integer', 'min:0'],
         ]);
         $turma->update($validated);
+
         return back()->with('success', 'Turma atualizada.');
     }
 
@@ -1388,6 +1502,7 @@ class MemberBuilderController extends Controller
             abort(404);
         }
         $turma->delete();
+
         return back()->with('success', 'Turma removida.');
     }
 
@@ -1402,6 +1517,7 @@ class MemberBuilderController extends Controller
         if ($request->expectsJson()) {
             return response()->json(['message' => 'Aluno adicionado à turma.']);
         }
+
         return back()->with('success', 'Aluno adicionado à turma.');
     }
 
@@ -1415,6 +1531,7 @@ class MemberBuilderController extends Controller
         if ($request->expectsJson()) {
             return response()->json(['message' => 'Aluno removido da turma.']);
         }
+
         return back()->with('success', 'Aluno removido da turma.');
     }
 
@@ -1437,6 +1554,7 @@ class MemberBuilderController extends Controller
                 if ($request->expectsJson()) {
                     return response()->json(['message' => 'Turma inválida.'], 422);
                 }
+
                 return back()->with('error', 'Turma inválida.');
             }
         }
@@ -1450,6 +1568,7 @@ class MemberBuilderController extends Controller
                 if ($request->expectsJson()) {
                     return response()->json(['message' => $msg, 'errors' => ['email' => [$msg]]], 422);
                 }
+
                 return back()->with('error', $msg);
             }
             if (! $existing->isAluno()) {
@@ -1457,6 +1576,7 @@ class MemberBuilderController extends Controller
                 if ($request->expectsJson()) {
                     return response()->json(['message' => $msg, 'errors' => ['email' => [$msg]]], 422);
                 }
+
                 return back()->with('error', $msg);
             }
 
@@ -1482,6 +1602,7 @@ class MemberBuilderController extends Controller
             if ($request->expectsJson()) {
                 return response()->json(['message' => $msg, 'errors' => ['password' => [$msg]]], 422);
             }
+
             return back()->with('error', $msg);
         }
 
@@ -1503,6 +1624,7 @@ class MemberBuilderController extends Controller
                 'user' => ['id' => $user->id, 'name' => $user->name, 'email' => $user->email],
             ]);
         }
+
         return back()->with('success', 'Aluno criado e adicionado.');
     }
 
@@ -1516,6 +1638,7 @@ class MemberBuilderController extends Controller
             ->with(['user:id,name,email', 'lesson:id,title', 'reviewer:id,name'])
             ->latest()
             ->paginate(20);
+
         return Inertia::render('Produtos/MemberBuilder/Comments', [
             'produto' => ['id' => $produto->id, 'name' => $produto->name],
             'comments' => $comments,
@@ -1539,6 +1662,7 @@ class MemberBuilderController extends Controller
         if ($request->expectsJson()) {
             return response()->json(['success' => true, 'message' => 'Comentário atualizado.']);
         }
+
         return back()->with('success', 'Comentário atualizado.');
     }
 
@@ -1577,6 +1701,7 @@ class MemberBuilderController extends Controller
                 'community_pages' => $this->buildCommunityPagesPayload($produto),
             ]);
         }
+
         return back()->with('success', 'Página da comunidade criada.');
     }
 
@@ -1607,6 +1732,7 @@ class MemberBuilderController extends Controller
                 'community_pages' => $this->buildCommunityPagesPayload($produto),
             ]);
         }
+
         return back()->with('success', 'Página atualizada.');
     }
 
@@ -1624,6 +1750,7 @@ class MemberBuilderController extends Controller
                 'community_pages' => $this->buildCommunityPagesPayload($produto),
             ]);
         }
+
         return back()->with('success', 'Página removida.');
     }
 
@@ -1633,6 +1760,7 @@ class MemberBuilderController extends Controller
     private function buildCommunityPagesPayload(Product $produto): array
     {
         $produto->load('memberCommunityPages');
+
         return $produto->memberCommunityPages->map(fn (MemberCommunityPage $p) => [
             'id' => $p->id,
             'title' => $p->title,
@@ -1669,7 +1797,7 @@ class MemberBuilderController extends Controller
         }
         $subscriptions = MemberPushSubscription::where('product_id', $produto->id)->get();
         $sent = 0;
-        $subject = 'mailto:' . (config('mail.from.address') ?: 'noreply@' . parse_url(config('app.url'), PHP_URL_HOST));
+        $subject = 'mailto:'.(config('mail.from.address') ?: 'noreply@'.parse_url(config('app.url'), PHP_URL_HOST));
         $auth = [
             'VAPID' => [
                 'subject' => $subject,
@@ -1716,8 +1844,9 @@ class MemberBuilderController extends Controller
                 ]);
             }
         } catch (\Throwable $e) {
-            return response()->json(['message' => 'Erro ao enviar: ' . $e->getMessage()], 500);
+            return response()->json(['message' => 'Erro ao enviar: '.$e->getMessage()], 500);
         }
+
         return response()->json([
             'success' => true,
             'sent' => $sent,
@@ -1736,6 +1865,7 @@ class MemberBuilderController extends Controller
         if (str_contains($key, '+') || str_contains($key, '/')) {
             return strtr($key, ['+' => '-', '/' => '_']);
         }
+
         return $key;
     }
 
@@ -1810,7 +1940,7 @@ class MemberBuilderController extends Controller
 
         $mask = $bitsInt === 0 ? 0 : (-1 << (32 - $bitsInt));
 
-        return (($ipLong & $mask) === ($subnetLong & $mask));
+        return ($ipLong & $mask) === ($subnetLong & $mask);
     }
 
     /** Para o front: exibe só "path" ou "custom". Subdomínio vira custom com valor = host completo. */
@@ -1825,8 +1955,10 @@ class MemberBuilderController extends Controller
         if ($domain->type === MemberAreaDomain::TYPE_SUBDOMAIN && config('members.subdomain_enabled')) {
             $base = config('members.subdomain_base', '');
             $slug = $domain->value ?: $product->checkout_slug;
-            return $base !== '' ? $slug . '.' . $base : (string) $domain->value;
+
+            return $base !== '' ? $slug.'.'.$base : (string) $domain->value;
         }
+
         return (string) ($domain->value ?? '');
     }
 
@@ -1916,6 +2048,8 @@ class MemberBuilderController extends Controller
      */
     private function serializeMemberLessonForBuilder(MemberLesson $lesson): array
     {
+        $lesson->loadMissing('releaseDependencies');
+
         return [
             'id' => $lesson->id,
             'title' => $lesson->title,
@@ -1929,6 +2063,7 @@ class MemberBuilderController extends Controller
             'release_after_days' => $lesson->release_after_days,
             'release_at_date' => $lesson->release_at_date?->format('Y-m-d'),
             'access_duration_days' => $lesson->access_duration_days,
+            'release_dependency_lesson_ids' => $lesson->releaseDependencies->pluck('required_member_lesson_id')->map(fn ($id) => (int) $id)->values()->all(),
             'content_text' => \App\Support\HtmlSanitizer::sanitize($lesson->content_text),
             'duration_seconds' => $lesson->duration_seconds,
             'is_free' => (bool) $lesson->is_free,
@@ -1941,7 +2076,7 @@ class MemberBuilderController extends Controller
      */
     private function serializeMemberModuleForBuilder(MemberModule $module): array
     {
-        $module->loadMissing(['lessons' => fn ($q) => $q->orderBy('position'), 'relatedProduct']);
+        $module->loadMissing(['lessons' => fn ($q) => $q->orderBy('position'), 'lessons.releaseDependencies', 'relatedProduct']);
 
         $payload = [
             'id' => $module->id,

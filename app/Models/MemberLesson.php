@@ -10,12 +10,17 @@ use Illuminate\Support\Facades\Schema;
 class MemberLesson extends Model
 {
     public const TYPE_VIDEO = 'video';
+
     public const TYPE_LINK = 'link';
+
     public const TYPE_PDF = 'pdf';
+
     /** Slides / leitura em tela com navegação por páginas (pdf.js), distinto de "Material" (download). */
     public const TYPE_PDF_PRESENTATION = 'pdf_presentation';
+
     /** Leitor de PDF completo (marcações, miniaturas, curtidas) — mesma origem de arquivo que pdf_presentation. */
     public const TYPE_PDF_READER = 'pdf_reader';
+
     public const TYPE_TEXT = 'text';
 
     protected $fillable = [
@@ -78,6 +83,11 @@ class MemberLesson extends Model
     public function pdfAnnotations(): HasMany
     {
         return $this->hasMany(MemberLessonPdfAnnotation::class, 'member_lesson_id');
+    }
+
+    public function releaseDependencies(): HasMany
+    {
+        return $this->hasMany(MemberLessonReleaseDependency::class, 'member_lesson_id');
     }
 
     /**

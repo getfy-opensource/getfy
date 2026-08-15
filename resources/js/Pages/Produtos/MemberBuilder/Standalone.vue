@@ -289,6 +289,10 @@ function cloneMemberSectionsStructure(sections) {
 
 const courseStructureSections = ref(cloneMemberSectionsStructure(props.produto.sections));
 
+const initialModuleSelection = typeof window === 'undefined'
+    ? null
+    : new URLSearchParams(window.location.search);
+
 watch(
     () => props.produto.sections,
     (next) => {
@@ -297,8 +301,8 @@ watch(
     { deep: true },
 );
 
-const modulosSelectedSectionId = ref(null);
-const modulosSelectedModuleId = ref(null);
+const modulosSelectedSectionId = ref(Number(initialModuleSelection?.get('member_section')) || null);
+const modulosSelectedModuleId = ref(Number(initialModuleSelection?.get('member_module')) || null);
 
 const effectiveShowPreview = computed(() => {
     if (!showPreview.value) return false;
@@ -660,6 +664,7 @@ const editingModuleId = ref(null);
 // Módulos: painel direito (aulas do módulo + formulário nova/editar)
 const modulosLessonForm = ref(null);
 const modulosLessonFormSaving = ref(false);
+const modulosModuleFormSaving = ref(false);
 const lessonPdfFileInput = ref(null);
 const lessonPdfUploading = ref(false);
 const lessonSupportFileInput = ref(null);
@@ -740,6 +745,8 @@ function openModulosLessonForm(lesson) {
             release_after_days: lesson.release_after_days ? String(lesson.release_after_days) : '',
             release_at_date: lesson.release_at_date || '',
             access_duration_days: lesson.access_duration_days ? String(lesson.access_duration_days) : '',
+            release_dependency_lesson_ids: Array.isArray(lesson.release_dependency_lesson_ids) ? lesson.release_dependency_lesson_ids.map(Number) : [],
+            requires_previous_lessons: Array.isArray(lesson.release_dependency_lesson_ids) && lesson.release_dependency_lesson_ids.length > 0,
         };
     } else {
         modulosLessonForm.value = {
@@ -756,6 +763,8 @@ function openModulosLessonForm(lesson) {
             release_after_days: '',
             release_at_date: '',
             access_duration_days: '',
+            release_dependency_lesson_ids: [],
+            requires_previous_lessons: false,
         };
     }
 }
@@ -902,6 +911,9 @@ function lessonPayload(form) {
         release_after_days,
         release_at_date,
         access_duration_days: Number.isFinite(accessDurationDays) && accessDurationDays > 0 ? accessDurationDays : null,
+        release_dependency_lesson_ids: form.requires_previous_lessons && Array.isArray(form.release_dependency_lesson_ids)
+            ? form.release_dependency_lesson_ids.map(Number)
+            : [],
         content_text: form.content_text ?? '',
         duration_seconds: 0,
         is_free: false,
@@ -913,6 +925,10 @@ async function saveLessonFromSidebar() {
     const form = modulosLessonForm.value;
     const moduleId = modulosSelectedModuleId.value;
     if (!form || !moduleId) return;
+    if (form.requires_previous_lessons && !(form.release_dependency_lesson_ids?.length > 0)) {
+        alert('Selecione ao menos uma aula anterior concluída.');
+        return;
+    }
     modulosLessonFormSaving.value = true;
     try {
         const payload = lessonPayload(form);
@@ -1119,6 +1135,7 @@ async function saveModuleTitle() {
         payload.external_url = editingModuleExternalUrl.value?.trim() ?? '';
         payload.show_title_on_cover = editingModuleShowTitleOnCover.value;
     }
+    modulosModuleFormSaving.value = true;
     try {
         await axios.put(`${base.value}/modules/${id}`, payload, { headers: headers() });
         cancelEdit();
@@ -1130,6 +1147,8 @@ async function saveModuleTitle() {
             || err?.message
             || 'Não foi possível salvar o módulo.';
         window.alert(msg);
+    } finally {
+        modulosModuleFormSaving.value = false;
     }
 }
 
@@ -1494,8 +1513,15 @@ function removeLoginBackground() {
 function reload() {
     const url = new URL(window.location.href);
     url.searchParams.set('tab', activeTab.value);
+    if (activeTab.value === 'modulos') {
+        if (modulosSelectedSectionId.value) url.searchParams.set('member_section', modulosSelectedSectionId.value);
+        else url.searchParams.delete('member_section');
+        if (modulosSelectedModuleId.value) url.searchParams.set('member_module', modulosSelectedModuleId.value);
+        else url.searchParams.delete('member_module');
+    }
     window.location.href = url.toString();
 }
+
 
 // Modal nativo para pedir um texto (substitui prompt())
 const promptModal = ref({ show: false, title: '', placeholder: '', value: '', callback: null });
@@ -2660,6 +2686,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                             :section-type-label="sectionTypeLabel"
                             :lesson-form="modulosLessonForm"
                             :lesson-form-saving="modulosLessonFormSaving"
+                            :module-form-saving="modulosModuleFormSaving"
                             :lesson-pdf-uploading="lessonPdfUploading"
                             :lesson-support-uploading="lessonSupportUploading"
                             :is-lesson-pdf-content-type="isLessonPdfContentType"
@@ -3365,7 +3392,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                 class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
                 @click.self="cancelPrompt"
             >
-                <div class="w-full max-w-sm overflow-hidden rounded-xl bg-white shadow-xl dark:bg-zinc-900" @click.stop>
+                <div class="w-full max-w-xl overflow-hidden rounded-xl bg-white shadow-xl dark:bg-zinc-900" @click.stop>
                     <div class="border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
                         <h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">{{ promptModal.title }}</h3>
                     </div>

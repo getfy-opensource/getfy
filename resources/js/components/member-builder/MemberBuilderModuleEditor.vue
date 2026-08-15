@@ -24,6 +24,7 @@ const props = defineProps({
     editingAccessDurationDays: { type: String, default: '' },
     editingThumbnail: { type: String, default: null },
     thumbnailUploading: { type: Boolean, default: false },
+    saving: { type: Boolean, default: false },
 });
 
 const emit = defineEmits([
@@ -242,6 +243,8 @@ function toggleRequiredModule(id) {
             <p class="mt-1 text-[10px] text-zinc-500">Máx. {{ uploadLimits.image_max_mb }} MB.</p>
         </div>
 
-        <Button size="sm" class="w-full" @click="emit('save')">Salvar módulo</Button>
+        <Button size="sm" class="w-full" :disabled="saving" @click="emit('save')">
+            {{ saving ? 'Salvando…' : 'Salvar módulo' }}
+        </Button>
     </div>
 </template>

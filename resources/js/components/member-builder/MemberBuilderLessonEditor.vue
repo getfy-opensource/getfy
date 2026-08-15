@@ -1,4 +1,5 @@
 <script setup>
+import { computed, watch } from 'vue';
 import Draggable from 'vuedraggable';
 import Button from '@/components/ui/Button.vue';
 import Toggle from '@/components/ui/Toggle.vue';
@@ -39,6 +40,26 @@ const emit = defineEmits([
 ]);
 
 const lessonsModel = defineModel('lessons', { type: Array, default: () => [] });
+const previousLessons = computed(() => {
+    if (!props.lessonForm) return [];
+    const lessons = props.module?.lessons ?? [];
+    const index = props.lessonForm.id ? lessons.findIndex((lesson) => lesson.id === props.lessonForm.id) : lessons.length;
+    return lessons.slice(0, Math.max(0, index)).reverse();
+});
+
+watch(previousLessons, (lessons) => {
+    if (!props.lessonForm) return;
+
+    const validIds = new Set(lessons.map((lesson) => Number(lesson.id)));
+    const validDependencies = (props.lessonForm.release_dependency_lesson_ids ?? [])
+        .map(Number)
+        .filter((id) => validIds.has(id));
+
+    props.lessonForm.release_dependency_lesson_ids = validDependencies;
+    if (validDependencies.length === 0) {
+        props.lessonForm.requires_previous_lessons = false;
+    }
+}, { immediate: true });
 </script>
 
 <template>
@@ -166,6 +187,15 @@ const lessonsModel = defineModel('lessons', { type: Array, default: () => [] });
                 <p class="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
                     Em dias após a compra. Deixe vazio para acesso ilimitado.
                 </p>
+                <label class="flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                    <input v-model="lessonForm.requires_previous_lessons" type="checkbox" :disabled="previousLessons.length === 0" class="rounded border-zinc-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)]" />
+                    Aula(s) anterior(es) concluída(s)?
+                </label>
+                <select v-if="lessonForm.requires_previous_lessons && previousLessons.length" v-model="lessonForm.release_dependency_lesson_ids" multiple size="4" :class="inputClass" class="mt-2 w-full">
+                    <option v-for="(lesson, index) in previousLessons" :key="lesson.id" :value="lesson.id">{{ index === 0 ? 'Aula anterior — ' : '' }}{{ lesson.title }}</option>
+                </select>
+                <p v-if="previousLessons.length === 0" class="mt-1 text-[10px] text-zinc-500">Não há aula anterior neste módulo para selecionar.</p>
+                <p v-else-if="lessonForm.requires_previous_lessons" class="mt-1 text-[10px] text-zinc-500">Selecione uma ou mais aulas que o aluno deve concluir.</p>
             </div>
             <div v-if="lessonForm.type === 'link'">
                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Título do link</label>
