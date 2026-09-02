@@ -22,6 +22,7 @@ defineOptions({ layout: LayoutInfoprodutor });
 
 const valuesVisible = ref(true);
 const isDarkMode = ref(false);
+const chartReceitaMode = ref('bruto');
 
 onMounted(() => {
     isDarkMode.value = document.documentElement.classList.contains('dark');
@@ -32,12 +33,16 @@ const props = defineProps({
     date_from: { type: String, default: '' },
     date_to: { type: String, default: '' },
     receita_total: { type: Number, default: 0 },
+    receita_bruta: { type: Number, default: 0 },
+    taxas_gateway: { type: Number, default: 0 },
+    receita_liquida: { type: Number, default: 0 },
     quantidade_vendas: { type: Number, default: 0 },
     ticket_medio: { type: Number, default: 0 },
     total_alunos: { type: Number, default: 0 },
     total_produtos: { type: Number, default: 0 },
     formas_pagamento: { type: Array, default: () => [] },
     grafico_receita: { type: Array, default: () => [] },
+    grafico_receita_liquida: { type: Array, default: () => [] },
     receita_por_produto: { type: Array, default: () => [] },
     abandonados_visit: { type: Number, default: 0 },
     abandonados_form: { type: Number, default: 0 },
@@ -139,10 +144,14 @@ function formatDate(iso) {
     return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+const chartReceitaData = computed(() =>
+    chartReceitaMode.value === 'liquido' ? props.grafico_receita_liquida : props.grafico_receita
+);
+
 const chartSeriesReceita = computed(() => [
     {
-        name: 'Receita',
-        data: valuesVisible.value ? props.grafico_receita.map((d) => d.total) : props.grafico_receita.map(() => 0),
+        name: chartReceitaMode.value === 'liquido' ? 'Receita líquida' : 'Faturamento bruto',
+        data: valuesVisible.value ? chartReceitaData.value.map((d) => d.total) : chartReceitaData.value.map(() => 0),
     },
 ]);
 
@@ -153,7 +162,7 @@ const chartOptionsReceita = computed(() => ({
     stroke: { curve: 'smooth', width: 2 },
     fill: { type: 'gradient', gradient: { shadeIntensity: 0.2, opacityFrom: 0.4, opacityTo: 0.05 } },
     xaxis: {
-        categories: props.grafico_receita.map((d) => {
+        categories: chartReceitaData.value.map((d) => {
             const [y, m, day] = (d.data || '').split('-');
             return day && m ? `${day}/${m}` : d.data;
         }),
@@ -402,13 +411,27 @@ const chartOptionsFormas = computed(() => ({
             </div>
         </div>
 
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-8">
             <div class="panel-card-md">
                 <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
                     <CircleDollarSign class="h-5 w-5" />
-                    <span class="text-sm font-medium">Receita total</span>
+                    <span class="text-sm font-medium" title="Valor pago pelos clientes">Faturamento bruto</span>
                 </div>
-                <p class="mt-2 text-xl font-bold text-zinc-900 dark:text-white">{{ displayCurrency(receita_total) }}</p>
+                <p class="mt-2 text-xl font-bold text-zinc-900 dark:text-white">{{ displayCurrency(receita_bruta || receita_total) }}</p>
+            </div>
+            <div class="panel-card-md">
+                <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
+                    <CircleDollarSign class="h-5 w-5 opacity-60" />
+                    <span class="text-sm font-medium" title="Taxas do gateway (reais ou estimadas)">Taxas gateway</span>
+                </div>
+                <p class="mt-2 text-xl font-bold text-zinc-900 dark:text-white">{{ displayCurrency(taxas_gateway) }}</p>
+            </div>
+            <div class="panel-card-md">
+                <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
+                    <TrendingUp class="h-5 w-5" />
+                    <span class="text-sm font-medium" title="Bruto menos taxas do gateway">Receita líquida</span>
+                </div>
+                <p class="mt-2 text-xl font-bold text-zinc-900 dark:text-white">{{ displayCurrency(receita_liquida) }}</p>
             </div>
             <div class="panel-card-md">
                 <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
@@ -450,10 +473,38 @@ const chartOptionsFormas = computed(() => ({
 
         <div class="grid gap-4 lg:grid-cols-2">
             <div class="panel-card-md">
-                <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">Receita por período</h2>
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">Receita por período</h2>
+                    <div class="flex rounded-lg border border-zinc-200 p-0.5 dark:border-zinc-700">
+                        <button
+                            type="button"
+                            :class="[
+                                'rounded-md px-2.5 py-1 text-xs font-medium transition',
+                                chartReceitaMode === 'bruto'
+                                    ? 'bg-white text-[var(--color-primary)] shadow-sm dark:bg-zinc-700'
+                                    : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200',
+                            ]"
+                            @click="chartReceitaMode = 'bruto'"
+                        >
+                            Bruto
+                        </button>
+                        <button
+                            type="button"
+                            :class="[
+                                'rounded-md px-2.5 py-1 text-xs font-medium transition',
+                                chartReceitaMode === 'liquido'
+                                    ? 'bg-white text-[var(--color-primary)] shadow-sm dark:bg-zinc-700'
+                                    : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200',
+                            ]"
+                            @click="chartReceitaMode = 'liquido'"
+                        >
+                            Líquido
+                        </button>
+                    </div>
+                </div>
                 <div class="mt-4 min-h-[260px]">
                     <VueApexCharts
-                        v-if="grafico_receita.length"
+                        v-if="chartReceitaData.length"
                         type="area"
                         height="260"
                         :options="chartOptionsReceita"
@@ -566,13 +617,17 @@ const chartOptionsFormas = computed(() => ({
                     <li
                         v-for="fp in formas_pagamento"
                         :key="fp.metodo"
-                        class="flex items-center justify-between border-b border-zinc-200/60 py-2 last:border-0 dark:border-zinc-700/60"
+                        class="flex flex-col gap-1 border-b border-zinc-200/60 py-2 last:border-0 dark:border-zinc-700/60 sm:flex-row sm:items-center sm:justify-between"
                     >
                         <span class="text-sm text-zinc-700 dark:text-zinc-300">{{ fp.label }}</span>
-                        <span class="text-sm font-medium text-zinc-900 dark:text-white">
-                            {{ displayCurrency(fp.total) }}
-                            <span class="font-normal text-zinc-500">({{ displayNumber(fp.quantidade) }})</span>
-                        </span>
+                        <div class="text-right text-sm">
+                            <span class="font-medium text-zinc-900 dark:text-white">{{ displayCurrency(fp.gross ?? fp.total) }}</span>
+                            <span class="mx-1 text-zinc-400">·</span>
+                            <span class="text-zinc-500" title="Taxas">−{{ displayCurrency(fp.fees ?? 0) }}</span>
+                            <span class="mx-1 text-zinc-400">=</span>
+                            <span class="font-medium text-emerald-700 dark:text-emerald-400">{{ displayCurrency(fp.net ?? fp.total) }}</span>
+                            <span class="ml-1 font-normal text-zinc-500">({{ displayNumber(fp.quantidade) }})</span>
+                        </div>
                     </li>
                     <li v-if="!formas_pagamento.length" class="py-4 text-center text-sm text-zinc-500 dark:text-zinc-400">
                         Nenhum pagamento no período

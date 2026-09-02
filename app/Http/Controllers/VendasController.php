@@ -18,6 +18,7 @@ use App\Services\ProducerSaleAmount;
 use App\Services\RefundService;
 use App\Services\TeamAccessService;
 use App\Support\OrderCurrencyTotals;
+use App\Support\OrderFinancialTotals;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -281,6 +282,11 @@ class VendasController extends Controller
                 $arr['display_amount_is_producer_share'] = $producerAmount['is_producer_share'];
                 $arr['display_amount_is_estimated'] = $producerAmount['is_estimated'];
                 $arr['sale_gross_total'] = $producerAmount['gross_total'];
+                $financial = $o->financialBreakdown();
+                $arr['gross_amount'] = $financial['gross'];
+                $arr['gateway_fee'] = $financial['fee'];
+                $arr['net_amount'] = $financial['net'];
+                $arr['fee_source'] = $financial['fee_source'];
                 $arr['sale_channel'] = $o->saleChannel();
                 $arr['is_affiliate_sale'] = $o->saleChannel() === 'affiliate';
                 $affiliateKey = $o->product_id.':'.($o->affiliateCode() ?? '');
@@ -312,6 +318,9 @@ class VendasController extends Controller
 
         try {
             $valorPorMoeda = OrderCurrencyTotals::valorPorMoedaFromQuery($statsQuery);
+            $financeiroPorMoeda = OrderFinancialTotals::porMoedaFromQuery(
+                (clone $statsQuery)->where('orders.status', 'completed')
+            );
         } catch (\Throwable $e) {
             Log::error('VendasController::index valorPorMoeda', [
                 'message' => $e->getMessage(),
@@ -320,6 +329,9 @@ class VendasController extends Controller
             $fallbackTotal = (float) (clone $statsQuery)->where('status', 'completed')->sum('amount');
             $valorPorMoeda = $fallbackTotal > 0
                 ? [['currency' => 'BRL', 'total' => round($fallbackTotal, 2)]]
+                : [];
+            $financeiroPorMoeda = $fallbackTotal > 0
+                ? [['currency' => 'BRL', 'gross' => round($fallbackTotal, 2), 'fees' => 0.0, 'net' => round($fallbackTotal, 2)]]
                 : [];
         }
 
@@ -356,7 +368,19 @@ class VendasController extends Controller
         $stats = [
             'vendas_encontradas' => $vendasEncontradas,
             'valor_por_moeda' => $valorPorMoeda,
-            'valor_liquido' => ($brl = collect($valorPorMoeda)->firstWhere('currency', 'BRL')) ? (float) $brl['total'] : 0.0,
+            'valor_bruto_por_moeda' => collect($financeiroPorMoeda)->map(fn ($r) => [
+                'currency' => $r['currency'],
+                'total' => $r['gross'],
+            ])->values()->all(),
+            'taxas_gateway_por_moeda' => collect($financeiroPorMoeda)->map(fn ($r) => [
+                'currency' => $r['currency'],
+                'total' => $r['fees'],
+            ])->values()->all(),
+            'valor_liquido_por_moeda' => collect($financeiroPorMoeda)->map(fn ($r) => [
+                'currency' => $r['currency'],
+                'total' => $r['net'],
+            ])->values()->all(),
+            'valor_liquido' => ($brl = collect($financeiroPorMoeda)->firstWhere('currency', 'BRL')) ? (float) $brl['net'] : 0.0,
             'vendas_pix' => $vendasPix,
             'vendas_cartao' => $vendasCartao,
             'vendas_boleto' => $vendasBoleto,

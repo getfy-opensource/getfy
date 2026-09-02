@@ -876,6 +876,7 @@ const canTestConnection = computed(() => {
                                 </div>
                                 <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                                     Só necessário se você usa co-produção ou afiliados e quer descontar a taxa do gateway no valor líquido.
+                                    Usado também como estimativa nos relatórios quando o gateway não informar a taxa real no webhook.
                                 </p>
                                 <p v-if="isCajuPay && !feesPanelOpen" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                                     Padrão CajuPay PIX: 0% + R$ 0,99 fixo.

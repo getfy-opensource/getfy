@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Services\MetaCustomAudienceCsvService;
 use App\Services\OrderBumpReportService;
+use App\Support\OrderFinancialTotals;
 use App\Support\ReportingPeriod;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -53,7 +54,11 @@ class RelatoriosController extends Controller
         $ordersCompleted = (clone $ordersQuery)->where('status', 'completed');
         $ordersRefunded = (clone $ordersQuery)->where('status', 'refunded');
 
-        $receitaTotal = (float) $ordersCompleted->sum('amount');
+        $financialRows = OrderFinancialTotals::porMoedaFromQuery(clone $ordersCompleted);
+        $brlFinancial = OrderFinancialTotals::brlTotals($financialRows);
+        $receitaTotal = $brlFinancial['gross'];
+        $taxasGateway = $brlFinancial['fees'];
+        $receitaLiquida = $brlFinancial['net'];
         $quantidadeVendas = $ordersCompleted->count();
         $ticketMedio = $quantidadeVendas > 0 ? $receitaTotal / $quantidadeVendas : 0.0;
         $reembolsosCount = $ordersRefunded->count();
@@ -64,25 +69,23 @@ class RelatoriosController extends Controller
             ->count();
         $totalProdutos = Product::forTenant($tenantId)->count();
 
-        $formasPagamento = (clone $ordersQuery)
-            ->where('status', 'completed')
-            ->selectRaw('gateway, SUM(amount) as total, COUNT(*) as quantidade')
-            ->groupBy('gateway')
-            ->get()
+        $formasPagamento = collect(OrderFinancialTotals::porGatewayFromQuery(clone $ordersCompleted))
             ->map(function ($row) {
-                $label = $this->gatewayLabel($row->gateway);
-
                 return [
-                    'metodo' => $row->gateway ?? 'outro',
-                    'label' => $label,
-                    'total' => (float) $row->total,
-                    'quantidade' => (int) $row->quantidade,
+                    'metodo' => $row['metodo'],
+                    'label' => $this->gatewayLabel($row['metodo']),
+                    'total' => $row['gross'],
+                    'gross' => $row['gross'],
+                    'fees' => $row['fees'],
+                    'net' => $row['net'],
+                    'quantidade' => $row['quantidade'],
                 ];
             })
             ->values()
             ->all();
 
         $graficoReceita = $this->buildGraficoReceita($tenantId, $start, $end);
+        $graficoReceitaLiquida = $this->buildGraficoReceitaLiquida($tenantId, $start, $end);
 
         $receitaPorProduto = Order::query()
             ->when($tenantId === null, fn ($q) => $q->whereNull('orders.tenant_id'), fn ($q) => $q->where('orders.tenant_id', $tenantId))
@@ -166,12 +169,16 @@ class RelatoriosController extends Controller
             'order_bump_report' => $orderBumpReport,
             'meta_export_products' => $this->metaCustomAudienceCsv->productsForExportDropdown($request->user()),
             'receita_total' => round($receitaTotal, 2),
+            'receita_bruta' => round($receitaTotal, 2),
+            'taxas_gateway' => round($taxasGateway, 2),
+            'receita_liquida' => round($receitaLiquida, 2),
             'quantidade_vendas' => $quantidadeVendas,
             'ticket_medio' => round($ticketMedio, 2),
             'total_alunos' => $totalAlunos,
             'total_produtos' => $totalProdutos,
             'formas_pagamento' => $formasPagamento,
             'grafico_receita' => $graficoReceita,
+            'grafico_receita_liquida' => $graficoReceitaLiquida,
             'receita_por_produto' => $receitaPorProduto,
             'abandonados_visit' => $abandonadosVisit,
             'abandonados_form' => $abandonadosForm,
@@ -233,6 +240,35 @@ class RelatoriosController extends Controller
                 $totalsByDate[$d] = ($totalsByDate[$d] ?? 0.0) + (float) $order->amount;
             }
         });
+        ksort($totalsByDate);
+
+        $out = [];
+        foreach ($totalsByDate as $data => $total) {
+            $out[] = ['data' => $data, 'total' => round($total, 2)];
+        }
+
+        return $out;
+    }
+
+    private function buildGraficoReceitaLiquida(?int $tenantId, ?\Carbon\Carbon $start, ?\Carbon\Carbon $end): array
+    {
+        $query = Order::forTenant($tenantId)->where('status', 'completed');
+        ReportingPeriod::applyCreatedAtBounds($query, $start, $end);
+
+        $calculator = app(\App\Services\NetAmountCalculator::class);
+        $totalsByDate = [];
+        $tz = ReportingPeriod::timezone();
+        $query->with([
+            'orderItems:id,order_id,amount',
+            'commissionEntries:id,order_id,role,gateway_fee_amount,net_amount',
+        ])->select(['id', 'amount', 'currency', 'gateway', 'metadata', 'tenant_id', 'created_at'])
+            ->orderBy('created_at')
+            ->chunk(500, function ($orders) use (&$totalsByDate, $tz, $calculator) {
+                foreach ($orders as $order) {
+                    $d = $order->created_at->timezone($tz)->format('Y-m-d');
+                    $totalsByDate[$d] = ($totalsByDate[$d] ?? 0.0) + $calculator->forOrder($order)['net'];
+                }
+            });
         ksort($totalsByDate);
 
         $out = [];

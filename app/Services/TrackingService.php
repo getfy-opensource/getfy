@@ -9,6 +9,7 @@ use App\Models\Order;
 use App\Models\TrackingAdSpend;
 use App\Models\TrackingAdSpendOverride;
 use App\Support\CountryCatalog;
+use App\Support\OrderFinancialTotals;
 use App\Support\ReportingPeriod;
 use App\Services\TeamAccessService;
 use Carbon\Carbon;
@@ -70,39 +71,30 @@ class TrackingService
         ReportingPeriod::applyCreatedAtBounds($sessionsQuery, $start, $end);
 
         $completedQuery = (clone $ordersQuery)->where('status', 'completed');
-        $faturamentoBruto = (float) (clone $completedQuery)->where('currency', 'BRL')->sum('amount');
+        $financialRows = OrderFinancialTotals::porMoedaFromQuery(clone $completedQuery);
+        $brlFinancial = OrderFinancialTotals::brlTotals($financialRows);
+        $faturamentoBruto = $brlFinancial['gross'];
+        $taxasGateway = $brlFinancial['fees'];
+        $receitaLiquida = $brlFinancial['net'];
         $quantidadeVendas = (clone $completedQuery)->count();
         $ticketMedio = $quantidadeVendas > 0 ? round($faturamentoBruto / $quantidadeVendas, 2) : 0.0;
 
         $reembolsosTotal = (float) (clone $ordersQuery)->where('status', 'refunded')->where('currency', 'BRL')->sum('amount');
 
         $orderIds = (clone $completedQuery)->pluck('id');
-        $taxasGateway = 0.0;
         $comissoesParceiros = 0.0;
 
         if ($orderIds->isNotEmpty()) {
-            $taxasGateway = (float) CommissionEntry::query()
-                ->whereIn('order_id', $orderIds)
-                ->where('role', CommissionEntry::ROLE_PRODUTOR)
-                ->sum('gateway_fee_amount');
-
             $comissoesParceiros = (float) CommissionEntry::query()
                 ->whereIn('order_id', $orderIds)
                 ->whereIn('role', [CommissionEntry::ROLE_AFILIADO, CommissionEntry::ROLE_COPRODUTOR])
                 ->sum('commission_amount');
         }
 
-        if ($taxasGateway <= 0 && $orderIds->isNotEmpty()) {
-            $calculator = app(NetAmountCalculator::class);
-            foreach ((clone $completedQuery)->where('currency', 'BRL')->get(['id', 'amount', 'gateway', 'metadata']) as $order) {
-                $taxasGateway += $calculator->forOrder($order)['fee'];
-            }
-        }
-
         $adSpend = $this->resolveAdSpend($tenantId, $period, $start, $end);
         $gastoAds = (float) $adSpend['amount'];
-        $lucroLiquido = round($faturamentoBruto - $taxasGateway - $comissoesParceiros - $reembolsosTotal - $gastoAds, 2);
-        $roi = $gastoAds > 0 ? round(($lucroLiquido / $gastoAds) * 100, 1) : null;
+        $lucroOperacional = round($receitaLiquida - $comissoesParceiros - $reembolsosTotal - $gastoAds, 2);
+        $roi = $gastoAds > 0 ? round(($lucroOperacional / $gastoAds) * 100, 1) : null;
         $roas = $gastoAds > 0 ? round($faturamentoBruto / $gastoAds, 2) : null;
 
         $totalSessoes = (clone $sessionsQuery)->count();
@@ -145,9 +137,11 @@ class TrackingService
             'financial' => [
                 'faturamento_bruto' => round($faturamentoBruto, 2),
                 'taxas_gateway' => round($taxasGateway, 2),
+                'receita_liquida' => round($receitaLiquida, 2),
                 'comissoes_parceiros' => round($comissoesParceiros, 2),
                 'reembolsos' => round($reembolsosTotal, 2),
-                'lucro_liquido' => $lucroLiquido,
+                'lucro_operacional' => $lucroOperacional,
+                'lucro_liquido' => $lucroOperacional,
                 'gasto_ads' => round($gastoAds, 2),
                 'roi' => $roi,
                 'roas' => $roas,

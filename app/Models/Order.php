@@ -204,6 +204,14 @@ class Order extends Model
         return round((float) $this->orderItems->sum(fn ($it) => (float) ($it->amount ?? 0)), 2);
     }
 
+    /**
+     * @return array{gross: float, fee: float, net: float, fee_source: string}
+     */
+    public function financialBreakdown(): array
+    {
+        return app(\App\Services\NetAmountCalculator::class)->forOrder($this);
+    }
+
     public function getCheckoutSlug(): string
     {
         if ($this->productOffer && $this->productOffer->checkout_slug) {

@@ -524,7 +524,7 @@ function openProofExport() {
                     <EyeOff v-else class="h-5 w-5" aria-hidden="true" />
                 </button>
             </div>
-            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
                 <div
                     class="panel-card-md"
                 >
@@ -541,12 +541,52 @@ function openProofExport() {
                 >
                     <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
                         <CircleDollarSign class="h-5 w-5" />
-                        <span class="text-sm font-medium">Valor líquido</span>
+                        <span class="text-sm font-medium" title="Valor pago pelo cliente (pedidos concluídos)">Faturamento bruto</span>
                     </div>
-                    <div v-if="(stats.valor_por_moeda ?? []).length" class="mt-2 space-y-1">
+                    <div v-if="(stats.valor_bruto_por_moeda ?? stats.valor_por_moeda ?? []).length" class="mt-2 space-y-1">
                         <p
-                            v-for="row in stats.valor_por_moeda"
-                            :key="row.currency"
+                            v-for="row in (stats.valor_bruto_por_moeda ?? stats.valor_por_moeda)"
+                            :key="'bruto-' + row.currency"
+                            class="text-lg font-bold text-zinc-900 dark:text-white sm:text-2xl"
+                        >
+                            {{ displayMoney(row.total, row.currency) }}
+                        </p>
+                    </div>
+                    <p v-else class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">
+                        {{ displayMoney(0, 'BRL') }}
+                    </p>
+                </div>
+                <div
+                    class="panel-card-md"
+                >
+                    <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
+                        <CircleDollarSign class="h-5 w-5 opacity-60" />
+                        <span class="text-sm font-medium" title="Taxas do gateway (reais quando informadas, senão estimativa da configuração)">Taxas gateway</span>
+                    </div>
+                    <div v-if="(stats.taxas_gateway_por_moeda ?? []).length" class="mt-2 space-y-1">
+                        <p
+                            v-for="row in stats.taxas_gateway_por_moeda"
+                            :key="'taxa-' + row.currency"
+                            class="text-lg font-bold text-zinc-900 dark:text-white sm:text-2xl"
+                        >
+                            {{ displayMoney(row.total, row.currency) }}
+                        </p>
+                    </div>
+                    <p v-else class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">
+                        {{ displayMoney(0, 'BRL') }}
+                    </p>
+                </div>
+                <div
+                    class="panel-card-md"
+                >
+                    <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
+                        <CircleDollarSign class="h-5 w-5" />
+                        <span class="text-sm font-medium" title="Faturamento bruto menos taxas do gateway">Receita líquida</span>
+                    </div>
+                    <div v-if="(stats.valor_liquido_por_moeda ?? []).length" class="mt-2 space-y-1">
+                        <p
+                            v-for="row in stats.valor_liquido_por_moeda"
+                            :key="'liq-' + row.currency"
                             class="text-lg font-bold text-zinc-900 dark:text-white sm:text-2xl"
                         >
                             {{ displayMoney(row.total, row.currency) }}
@@ -856,19 +896,25 @@ function openProofExport() {
                                 </span>
                             </div>
                         </div>
-                        <div class="col-span-2 flex items-end justify-between gap-3">
-                            <p class="text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                                Valor líquido
-                            </p>
-                            <p class="text-base font-semibold tabular-nums text-zinc-900 dark:text-white">
-                                {{ displayMoney(vendaDisplayAmount(v), v.currency) }}
-                            </p>
-                            <p
-                                v-if="v.display_amount_is_producer_share && v.sale_gross_total != null"
-                                class="text-[11px] text-zinc-500 dark:text-zinc-400"
-                            >
-                                Venda {{ displayMoney(v.sale_gross_total, v.currency) }}
-                            </p>
+                        <div class="col-span-2 grid grid-cols-3 gap-2">
+                            <div>
+                                <p class="text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Bruto</p>
+                                <p class="text-sm font-semibold tabular-nums text-zinc-900 dark:text-white">
+                                    {{ v.status === 'completed' ? displayMoney(v.gross_amount ?? v.amount_total, v.currency) : '—' }}
+                                </p>
+                            </div>
+                            <div>
+                                <p class="text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Taxa</p>
+                                <p class="text-sm font-semibold tabular-nums text-zinc-900 dark:text-white">
+                                    {{ v.status === 'completed' ? displayMoney(v.gateway_fee ?? 0, v.currency) : '—' }}
+                                </p>
+                            </div>
+                            <div>
+                                <p class="text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Líquido</p>
+                                <p class="text-sm font-semibold tabular-nums text-zinc-900 dark:text-white">
+                                    {{ v.status === 'completed' ? displayMoney(v.net_amount ?? v.gross_amount, v.currency) : displayMoney(vendaDisplayAmount(v), v.currency) }}
+                                </p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -907,9 +953,19 @@ function openProofExport() {
                             Status
                         </th>
                         <th
-                            class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
+                            class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
                         >
-                            Valor líquido
+                            Bruto
+                        </th>
+                        <th
+                            class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
+                        >
+                            Taxa
+                        </th>
+                        <th
+                            class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
+                        >
+                            Líquido
                         </th>
                         <th class="relative w-20 px-2 py-3">
                             <span class="sr-only">Ações</span>
@@ -962,13 +1018,19 @@ function openProofExport() {
                                 </span>
                             </div>
                         </td>
-                        <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-zinc-900 dark:text-white">
-                            <p>{{ displayMoney(vendaDisplayAmount(v), v.currency) }}</p>
+                        <td class="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+                            {{ v.status === 'completed' ? displayMoney(v.gross_amount ?? v.amount_total, v.currency) : '—' }}
+                        </td>
+                        <td class="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+                            {{ v.status === 'completed' ? displayMoney(v.gateway_fee ?? 0, v.currency) : '—' }}
+                        </td>
+                        <td class="whitespace-nowrap px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-white">
+                            <p>{{ v.status === 'completed' ? displayMoney(v.net_amount ?? v.gross_amount, v.currency) : displayMoney(vendaDisplayAmount(v), v.currency) }}</p>
                             <p
                                 v-if="v.display_amount_is_producer_share && v.sale_gross_total != null"
                                 class="text-xs font-normal text-zinc-500 dark:text-zinc-400"
                             >
-                                Venda {{ displayMoney(v.sale_gross_total, v.currency) }}
+                                Sua parte
                             </p>
                         </td>
                         <td class="relative whitespace-nowrap px-2 py-3" @click.stop>

@@ -216,6 +216,35 @@ function itemLabel(item) {
                                     Valor total da venda: {{ formatMoney(venda.sale_gross_total, venda.currency) }}
                                 </p>
                             </div>
+                            <div v-if="venda.status === 'completed' && venda.gross_amount != null" class="space-y-2 rounded-lg border border-zinc-200/80 p-3 dark:border-zinc-700/80">
+                                <p class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Financeiro</p>
+                                <div class="grid grid-cols-3 gap-2 text-sm">
+                                    <div>
+                                        <p class="text-[11px] text-zinc-500">Bruto</p>
+                                        <p class="font-medium text-zinc-900 dark:text-white">{{ formatMoney(venda.gross_amount, venda.currency) }}</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-[11px] text-zinc-500">Taxa</p>
+                                        <p class="font-medium text-zinc-900 dark:text-white">
+                                            {{ formatMoney(venda.gateway_fee ?? 0, venda.currency) }}
+                                            <span
+                                                v-if="venda.fee_source === 'gateway_webhook' || venda.fee_source === 'cajupay_webhook'"
+                                                class="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+                                                title="Taxa informada pelo gateway"
+                                            >real</span>
+                                            <span
+                                                v-else-if="venda.fee_source === 'estimated'"
+                                                class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
+                                                title="Taxa estimada conforme configuração do gateway"
+                                            >est.</span>
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <p class="text-[11px] text-zinc-500">Líquido</p>
+                                        <p class="font-medium text-zinc-900 dark:text-white">{{ formatMoney(venda.net_amount ?? venda.gross_amount, venda.currency) }}</p>
+                                    </div>
+                                </div>
+                            </div>
                             <div class="space-y-1">
                                 <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Produto</p>
                                 <p class="text-sm text-zinc-900 dark:text-white">{{ venda.product_display_name ?? venda.product?.name ?? '–' }}</p>
