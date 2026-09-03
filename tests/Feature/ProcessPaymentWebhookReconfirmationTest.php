@@ -47,11 +47,11 @@ class ProcessPaymentWebhookReconfirmationTest extends TestCase
             'status' => 'pending',
             'amount' => 10,
             'email' => 't2@test.com',
-            'gateway' => 'spacepag',
-            'gateway_id' => 'sp-tx-1',
+            'gateway' => 'pushinpay',
+            'gateway_id' => 'pp-tx-1',
         ]);
 
-        ProcessPaymentWebhook::dispatchSync('spacepag', 'sp-tx-1', 'order.cancelled', 'cancelled', []);
+        ProcessPaymentWebhook::dispatchSync('pushinpay', 'pp-tx-1', 'order.cancelled', 'cancelled', []);
 
         $this->assertSame('cancelled', $order->fresh()->status);
     }

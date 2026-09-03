@@ -52,12 +52,9 @@ class PaymentService
             }
             try {
                 $startedAt = microtime(true);
-                $postbackUrl = route('webhooks.spacepag');
-                if ($gatewaySlug === 'efi') {
-                    $postbackUrl = route('webhooks.efi.pix');
-                } elseif ($gatewaySlug !== 'spacepag') {
-                    $postbackUrl = $this->webhookUrlForGateway($gatewaySlug);
-                }
+                $postbackUrl = $gatewaySlug === 'efi'
+                    ? route('webhooks.efi.pix')
+                    : $this->webhookUrlForGateway($gatewaySlug);
                 $splitId = null;
                 $splitContext = null;
                 if ($gatewaySlug === 'cajupay' && $product) {

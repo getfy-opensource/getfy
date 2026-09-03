@@ -322,12 +322,9 @@ async function testConnection() {
         if ((k.type || 'text') === 'boolean') continue;
         if (k.optional) continue;
         if (
-            (gateway.value.slug === 'spacepag' || gateway.value.slug === 'cajupay')
+            gateway.value.slug === 'cajupay'
             && (k.key === 'secret_key' || k.key === 'public_key')
-            && (
-                gateway.value.spacepag_keys_configured
-                || (gateway.value.slug === 'cajupay' && gateway.value.is_configured)
-            )
+            && gateway.value.is_configured
         ) {
             continue;
         }

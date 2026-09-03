@@ -1,6 +1,6 @@
 # Gateways de pagamento – estrutura modular
 
-Cada gateway fica em sua própria pasta (ex: `Spacepag/`, `Efi/`) para facilitar manutenção.
+Cada gateway fica em sua própria pasta (ex: `CajuPay/`, `Efi/`) para facilitar manutenção.
 
 ## Gateways no core
 

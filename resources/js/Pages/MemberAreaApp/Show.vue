@@ -220,7 +220,7 @@ function productSectionUnlocked(mod) {
                                 <LockOpen v-if="productSectionUnlocked(mod)" class="h-4 w-4 text-emerald-300" />
                                 <Lock v-else class="h-4 w-4 text-amber-300" />
                             </div>
-                            <img v-if="mod.related_product?.image_url || mod.thumbnail" :src="mod.related_product?.image_url || mod.thumbnail" :alt="mod.title" class="absolute inset-0 h-full w-full object-cover" />
+                            <img v-if="mod.thumbnail || mod.related_product?.image_url" :src="mod.thumbnail || mod.related_product?.image_url" :alt="mod.title" class="absolute inset-0 h-full w-full object-cover" />
                             <svg v-else class="h-12 w-12 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14" /></svg>
                             <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-3 pb-3 pt-8">
                                 <p class="truncate text-base font-medium text-white">{{ mod.title }}</p>

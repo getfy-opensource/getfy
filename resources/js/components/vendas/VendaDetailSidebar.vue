@@ -68,6 +68,10 @@ function vendaDisplayAmount(v) {
     return v?.amount_total ?? v?.amount ?? 0;
 }
 
+function vendaGrossAmount(v) {
+    return v?.gross_amount ?? v?.amount_total ?? v?.amount ?? 0;
+}
+
 function formatDate(value) {
     if (!value) return '–';
     const d = new Date(value);
@@ -106,7 +110,7 @@ function itemLabel(item) {
     <Teleport to="body">
         <div
             v-if="open"
-            class="fixed inset-0 z-[99990] flex justify-end"
+            class="fixed inset-0 z-[100000] flex justify-end"
             aria-modal="true"
             role="dialog"
         >
@@ -116,7 +120,7 @@ function itemLabel(item) {
                 @click="close"
             />
             <aside
-                class="relative flex h-full w-full max-w-md flex-col rounded-l-2xl bg-white shadow-2xl dark:bg-zinc-900"
+                class="relative z-[100001] flex h-full w-full max-w-md flex-col rounded-l-2xl bg-white shadow-2xl dark:bg-zinc-900 sm:w-[420px]"
             >
                 <div class="flex items-center justify-between rounded-tl-2xl px-5 py-5">
                     <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">
@@ -199,29 +203,23 @@ function itemLabel(item) {
                             </div>
                             <div class="space-y-1">
                                 <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                                    {{ venda.display_amount_is_producer_share ? 'Sua parte (líquido)' : 'Valor líquido' }}
+                                    Valor bruto
                                 </p>
-                                <p class="text-sm text-zinc-900 dark:text-white">
-                                    {{ formatMoney(vendaDisplayAmount(venda), venda.currency) }}
-                                    <span
-                                        v-if="venda.display_amount_is_estimated"
-                                        class="text-xs font-normal text-zinc-500"
-                                        title="Estimativa até confirmação do pagamento"
-                                    > *</span>
-                                </p>
-                                <p
-                                    v-if="venda.display_amount_is_producer_share && venda.sale_gross_total != null"
-                                    class="text-xs text-zinc-500 dark:text-zinc-400"
-                                >
-                                    Valor total da venda: {{ formatMoney(venda.sale_gross_total, venda.currency) }}
+                                <p class="text-sm font-medium text-zinc-900 dark:text-white">
+                                    {{ formatMoney(vendaGrossAmount(venda), venda.currency) }}
                                 </p>
                             </div>
-                            <div v-if="venda.status === 'completed' && venda.gross_amount != null" class="space-y-2 rounded-lg border border-zinc-200/80 p-3 dark:border-zinc-700/80">
-                                <p class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Financeiro</p>
+                            <div
+                                v-if="venda.status === 'completed'"
+                                class="space-y-2 rounded-lg border border-zinc-200/80 p-3 dark:border-zinc-700/80"
+                            >
+                                <p class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                                    Financeiro (gateway)
+                                </p>
                                 <div class="grid grid-cols-3 gap-2 text-sm">
                                     <div>
                                         <p class="text-[11px] text-zinc-500">Bruto</p>
-                                        <p class="font-medium text-zinc-900 dark:text-white">{{ formatMoney(venda.gross_amount, venda.currency) }}</p>
+                                        <p class="font-medium text-zinc-900 dark:text-white">{{ formatMoney(venda.gross_amount ?? vendaGrossAmount(venda), venda.currency) }}</p>
                                     </div>
                                     <div>
                                         <p class="text-[11px] text-zinc-500">Taxa</p>
@@ -241,9 +239,53 @@ function itemLabel(item) {
                                     </div>
                                     <div>
                                         <p class="text-[11px] text-zinc-500">Líquido</p>
-                                        <p class="font-medium text-zinc-900 dark:text-white">{{ formatMoney(venda.net_amount ?? venda.gross_amount, venda.currency) }}</p>
+                                        <p class="font-medium text-zinc-900 dark:text-white">{{ formatMoney(venda.net_amount ?? venda.gross_amount ?? vendaGrossAmount(venda), venda.currency) }}</p>
                                     </div>
                                 </div>
+                            </div>
+                            <div
+                                v-else
+                                class="space-y-2 rounded-lg border border-dashed border-zinc-200/80 p-3 dark:border-zinc-700/80"
+                            >
+                                <p class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                                    Financeiro estimado
+                                </p>
+                                <div class="grid grid-cols-3 gap-2 text-sm">
+                                    <div>
+                                        <p class="text-[11px] text-zinc-500">Bruto</p>
+                                        <p class="font-medium text-zinc-900 dark:text-white">{{ formatMoney(vendaGrossAmount(venda), venda.currency) }}</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-[11px] text-zinc-500">Taxa</p>
+                                        <p class="font-medium text-zinc-900 dark:text-white">
+                                            {{ formatMoney(venda.gateway_fee ?? 0, venda.currency) }}
+                                            <span class="text-[10px] font-normal text-zinc-500"> (est.)</span>
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <p class="text-[11px] text-zinc-500">Líquido</p>
+                                        <p class="font-medium text-zinc-900 dark:text-white">
+                                            {{ formatMoney(venda.net_amount ?? Math.max(0, vendaGrossAmount(venda) - Number(venda.gateway_fee ?? 0)), venda.currency) }}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-if="venda.has_partner_split && venda.display_amount_is_producer_share" class="space-y-1">
+                                <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                                    Sua parte
+                                    <span v-if="venda.display_amount_is_estimated"> (estimada)</span>
+                                </p>
+                                <p class="text-sm text-zinc-900 dark:text-white">
+                                    {{ formatMoney(vendaDisplayAmount(venda), venda.currency) }}
+                                    <span
+                                        v-if="venda.display_amount_is_estimated"
+                                        class="text-xs font-normal text-zinc-500"
+                                        title="Estimativa até confirmação do pagamento e alocação de comissões"
+                                    > *</span>
+                                </p>
+                                <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                                    Valor que fica com você após taxas do gateway e comissões de afiliados/co-produtores.
+                                </p>
                             </div>
                             <div class="space-y-1">
                                 <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Produto</p>

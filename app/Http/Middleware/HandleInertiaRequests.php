@@ -13,6 +13,7 @@ use App\Plugins\PluginCapabilityRegistry;
 use App\Plugins\PluginHookBus;
 use App\Plugins\PluginRegistry;
 use App\Plugins\ThemeEngine;
+use App\Services\MemberAreaResolver;
 use App\Services\RefundService;
 use App\Services\SalesAchievementsService;
 use App\Services\StorageService;
@@ -54,7 +55,10 @@ class HandleInertiaRequests extends Middleware
         $tenantId = $user?->tenant_id;
 
         $path = $request->path();
-        $isMemberArea = str_starts_with($path, 'm/') || $request->attributes->get('member_area_slug');
+        $isMemberArea = str_starts_with($path, 'm/')
+            || $request->attributes->get('member_area_slug')
+            || $request->attributes->get('member_area_product')
+            || app(MemberAreaResolver::class)->resolve($request) !== null;
         $isCheckout = str_starts_with($path, 'c/')
             || str_starts_with($path, 'checkout')
             || str_starts_with($path, 'api-checkout')

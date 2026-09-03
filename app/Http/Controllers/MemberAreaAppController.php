@@ -82,7 +82,7 @@ class MemberAreaAppController extends Controller
         $completedLessonIds = $this->progressService->completedLessonIdSet($product, $user);
         $releaseCtx = $this->makeReleaseContext($product, $user);
         $config = $product->member_area_config;
-        $sections = $product->memberSections()->with(['modules.lessons', 'modules.relatedProduct'])->orderBy('position')->get();
+        $sections = $product->memberSections()->with(['modules.lessons', 'modules.relatedProduct', 'modules.sourceModule'])->orderBy('position')->get();
         $progressPercent = $this->progressService->completionPercent($product, $user);
         $continueWatching = $this->getContinueWatching($product, $user);
         $internalProducts = $product->memberInternalProducts()->with('relatedProduct')->orderBy('position')->get();
@@ -1715,7 +1715,7 @@ class MemberAreaAppController extends Controller
             return [
                 'id' => $m->id,
                 'title' => $m->title,
-                'thumbnail' => $m->thumbnail,
+                'thumbnail' => $this->moduleThumbnailUrl($m, $product),
                 'show_title_on_cover' => $m->show_title_on_cover ?? true,
                 ...$this->moduleLockPayload($m, $accessStartAt, $now, $releaseCtx),
                 'lessons' => $m->lessons->map(fn (MemberLesson $l) => [
@@ -1747,7 +1747,7 @@ class MemberAreaAppController extends Controller
             return [
                 'id' => $m->id,
                 'title' => $m->title,
-                'thumbnail' => $m->thumbnail,
+                'thumbnail' => $this->moduleThumbnailUrl($m, $product, $m->sourceModule),
                 'show_title_on_cover' => $m->show_title_on_cover ?? true,
                 'related_product_id' => $m->related_product_id,
                 'source_member_module_id' => $m->source_member_module_id,
@@ -1771,7 +1771,7 @@ class MemberAreaAppController extends Controller
         return [
             'id' => $m->id,
             'title' => $m->title,
-            'thumbnail' => $m->thumbnail,
+            'thumbnail' => $this->moduleThumbnailUrl($m, $product),
             'show_title_on_cover' => $m->show_title_on_cover ?? true,
             'external_url' => $m->external_url,
         ];

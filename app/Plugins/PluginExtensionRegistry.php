@@ -584,6 +584,14 @@ class PluginExtensionRegistry
     /**
      * @return array<int, array<string, mixed>>
      */
+    public static function getMemberBuilderTabs(): array
+    {
+        return self::collectSlotItemsWithUi('member_builder_tabs', 'member_builder');
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
     private static function collectSlotItems(string $manifestKey): array
     {
         $items = [];

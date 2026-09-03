@@ -246,6 +246,7 @@ class PluginRegistry
                     'vendas_row_actions' => $manifest['vendas_row_actions'] ?? null,
                     'order_detail_panels' => $manifest['order_detail_panels'] ?? null,
                     'financeiro_tabs' => $manifest['financeiro_tabs'] ?? null,
+                    'member_builder_tabs' => $manifest['member_builder_tabs'] ?? null,
                     'api_routes' => $manifest['api_routes'] ?? null,
                     'commerce_scopes' => $manifest['commerce_scopes'] ?? null,
                     'commands' => $manifest['commands'] ?? null,

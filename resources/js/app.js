@@ -61,7 +61,10 @@ const createFirstAdminPage = import.meta.glob('./Pages/Auth/CreateFirstAdmin.vue
 
 function resolvePluginPage(name) {
     if (!name.startsWith('Plugin/')) return null;
-    const pluginUi = getPluginUiPayloadFromDom();
+    const pluginUi =
+        getPluginUiPayloadFromDom()
+        ?? initialPage?.props?.plugin_ui
+        ?? null;
     const runtime = resolvePluginPageComponent(name, pluginUi);
     if (runtime) {
         return Promise.resolve({ default: runtime });

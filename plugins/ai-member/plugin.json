@@ -1,0 +1,56 @@
+{
+  "slug": "ai-member",
+  "name": "AI Member",
+  "version": "1.0.0",
+  "description": "Chat de suporte com IA na área de membros. Agente configurável por produto com base de conhecimento das aulas.",
+  "type": "member",
+  "requires": {
+    "getfy": ">=2.0.0",
+    "plugin_api": 2
+  },
+  "migrations": "migrations",
+  "routes": "routes.php",
+  "public_routes": {
+    "prefix": "api/ai-member",
+    "middleware": ["web", "throttle:120,1"],
+    "file": "routes-public.php"
+  },
+  "commands": [
+    "Plugins\\AiMember\\Console\\ReindexCommand"
+  ],
+  "integration_app": {
+    "id": "ai-member-openrouter",
+    "name": "OpenRouter (AI Member)",
+    "description": "Credenciais OpenRouter para o agente de suporte IA na área de membros.",
+    "image": "logo.svg"
+  },
+  "product_panel": {
+    "id": "ai-member",
+    "label": "AI Member"
+  },
+  "member_builder_tabs": [
+    {
+      "id": "ai-member",
+      "label": "AI Member"
+    }
+  ],
+  "render_zones": {
+    "member_area.layout.floating": {
+      "id": "ai-member-chat",
+      "export": "FloatingChatWidget"
+    }
+  },
+  "frontend": {
+    "entry": "dist/plugin-ui.js",
+    "manifest": "dist/ui.manifest.json",
+    "exports": {
+      "integrations": "IntegrationsSidebar",
+      "product_panel": "ProductAgentPanel",
+      "member_builder": "ProductAgentPanel",
+      "settings": "SettingsPage"
+    },
+    "pages": {
+      "Index": "SettingsPage"
+    }
+  }
+}

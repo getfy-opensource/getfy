@@ -52,39 +52,6 @@ return [
                 ],
             ],
         ],
-        'spacepag' => [
-            'slug' => 'spacepag',
-            'name' => 'Spacepag',
-            'image' => 'images/gateways/spacepag2.png',
-            'methods' => ['pix'],
-            'scope' => 'national',
-            'country' => 'br',
-            'country_name' => 'Brasil',
-            'country_flag' => 'brasil.png',
-            'signup_url' => 'https://hub.spacepag.com.br/auth/jwt/sign-up?ref=4a5d0212320748719ee818cffdb93248',
-            'driver' => \App\Gateways\Spacepag\SpacepagDriver::class,
-            'credential_keys' => [
-                [
-                    'key' => 'public_key',
-                    'label' => 'Chave pública',
-                    'type' => 'text',
-                    'hint' => 'Chave pública do painel Spacepag (pk_live_… ou pk_test_…).',
-                ],
-                [
-                    'key' => 'secret_key',
-                    'label' => 'Chave privada',
-                    'type' => 'password',
-                    'hint' => 'Chave privada / secret (sk_live_… ou sk_test_…). O Getfy testa automaticamente: X-API-Key com sk, pk+sk (X-API-Key + X-API-Secret) ou só pk, conforme a API aceitar.',
-                ],
-                [
-                    'key' => 'webhook_secret',
-                    'label' => 'Secret do webhook (opcional)',
-                    'type' => 'password',
-                    'optional' => true,
-                    'hint' => 'Ao criar o webhook na Spacepag apontando para a URL do Getfy, copie o secret retornado. Com ele o Getfy valida o header X-Webhook-Signature (HMAC SHA-256 do corpo). Cadastre na Spacepag a URL: https://SEU_DOMINIO/webhooks/gateways/spacepag . Deixe em branco ao salvar para manter o secret já gravado.',
-                ],
-            ],
-        ],
         'efi' => [
             'slug' => 'efi',
             'name' => 'Efí',
@@ -258,7 +225,7 @@ return [
     |--------------------------------------------------------------------------
     */
     'default_order' => [
-        'pix' => ['cajupay', 'spacepag', 'efi', 'mercadopago', 'pagarme', 'pushinpay', 'asaas'],
+        'pix' => ['cajupay', 'efi', 'mercadopago', 'pagarme', 'pushinpay', 'asaas'],
         'card' => ['cajupay', 'efi', 'stripe', 'mercadopago', 'pagarme', 'asaas'],
         'boleto' => ['efi', 'mercadopago', 'pagarme', 'asaas'],
         'pix_auto' => ['cajupay', 'efi', 'pushinpay'],

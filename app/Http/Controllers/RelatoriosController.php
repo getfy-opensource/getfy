@@ -214,7 +214,7 @@ class RelatoriosController extends Controller
             return 'Outro';
         }
         $g = strtolower($gateway);
-        if (str_contains($g, 'pix') || in_array($g, ['spacepag'], true)) {
+        if (str_contains($g, 'pix')) {
             return 'Pix';
         }
         if (str_contains($g, 'card') || str_contains($g, 'cartao') || str_contains($g, 'cartão') || str_contains($g, 'credito')) {

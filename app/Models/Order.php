@@ -253,7 +253,7 @@ class Order extends Model
             return 'Outro';
         }
         $g = strtolower($gateway);
-        if (in_array($g, ['spacepag'], true) || str_contains($g, 'pix')) {
+        if (str_contains($g, 'pix')) {
             return 'PIX';
         }
         if ($g === 'card' || str_contains($g, 'cartao') || str_contains($g, 'cartão') || str_contains($g, 'credito')) {

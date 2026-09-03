@@ -1,0 +1,17 @@
+{
+  "name": "ai-member-plugin-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "lucide-vue-next": "^0.469.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^6.0.7",
+    "vue": "^3.5.13"
+  }
+}

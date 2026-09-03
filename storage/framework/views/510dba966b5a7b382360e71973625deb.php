@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="<?php echo e(csrf_token()); ?>">
     <title>Member Builder — <?php echo e($produto['name'] ?? config('app.name')); ?></title>
+    <?php
+        $viteDevHot = public_path('hot');
+        $vueBridgeBuilt = public_path('build/getfy-plugin-vue.mjs');
+        $vueBridgeImport = (! file_exists($viteDevHot) && file_exists($vueBridgeBuilt))
+            ? asset('build/getfy-plugin-vue.mjs')
+            : \Illuminate\Support\Facades\Vite::asset('resources/js/plugins/getfyPluginVueBridge.js');
+    ?>
+    <script type="importmap">
+        {"scopes":{"/plugins/":{"vue":<?php echo json_encode($vueBridgeImport, 15, 512) ?>}}}
+    </script>
     <?php echo app('Illuminate\Foundation\Vite')(['resources/css/app.css', 'resources/js/member-builder.js']); ?>
 </head>
 <body class="bg-zinc-100 text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100">
@@ -21,6 +31,9 @@
                 'badge_max_mb' => 5,
                 'pdf_max_mb' => 50,
             ],
+            'plugin_member_builder_tabs' => $plugin_member_builder_tabs ?? [],
+            'plugin_ui' => $plugin_ui ?? ['plugins' => []],
+            'vue_bridge_url' => $vueBridgeImport,
         ];
     ?>
     <script>

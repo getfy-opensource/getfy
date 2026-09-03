@@ -2,6 +2,7 @@
 import { computed, ref, onMounted, watch, onUnmounted } from 'vue';
 import { Link, usePage, Head, router } from '@inertiajs/vue3';
 import PwaInstallPrompt from '@/components/member-area/PwaInstallPrompt.vue';
+import MemberAreaAiChatFab from '@/components/member-area/MemberAreaAiChatFab.vue';
 import MemberAreaNotificationsPanel from '@/components/member-area/MemberAreaNotificationsPanel.vue';
 import Button from '@/components/ui/Button.vue';
 import { Bell, ChevronDown, User, X, Camera, Lock, CheckCircle, AlertCircle, Menu, Trophy, RotateCcw, ShoppingCart } from 'lucide-vue-next';
@@ -946,6 +947,7 @@ watch(cinemaMode, (active) => {
             </main>
         </div>
         <PwaInstallPrompt v-if="slug" :app-name="appName" :slug="slug" />
+        <MemberAreaAiChatFab />
         <MemberAreaNotificationsPanel
             :open="notificationsPanelOpen"
             :base-path="notificationsApiBasePath"

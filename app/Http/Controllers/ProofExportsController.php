@@ -76,8 +76,7 @@ class ProofExportsController extends Controller
             $m = strtolower($method);
             if ($m === 'pix') {
                 $query->where(function ($q) {
-                    $q->whereIn('gateway', ['spacepag'])
-                        ->orWhereRaw("LOWER(gateway) LIKE '%pix%'")
+                    $q->whereRaw("LOWER(gateway) LIKE '%pix%'")
                         ->orWhere(function ($q2) {
                             $q2->where('metadata->checkout_payment_method', 'pix')
                                 ->orWhere('metadata->checkout_payment_method', 'pix_auto');

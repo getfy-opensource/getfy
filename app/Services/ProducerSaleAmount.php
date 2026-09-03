@@ -14,22 +14,19 @@ class ProducerSaleAmount
     ) {}
 
     /**
-     * @return array{amount: float, is_producer_share: bool, is_estimated: bool, gross_total: float}
+     * @return array{
+     *     amount: float,
+     *     is_producer_share: bool,
+     *     is_estimated: bool,
+     *     gross_total: float,
+     *     has_partner_split: bool
+     * }
      */
     public function forOrder(Order $order): array
     {
         $grossTotal = $order->lineItemsTotalAmount();
+        $order->loadMissing('product', 'commissionEntries');
 
-        if ($order->saleChannel() !== 'affiliate' && ! $this->hasActiveCoproducerOnProducerSale($order)) {
-            return [
-                'amount' => $grossTotal,
-                'is_producer_share' => false,
-                'is_estimated' => false,
-                'gross_total' => $grossTotal,
-            ];
-        }
-
-        $order->loadMissing('commissionEntries');
         $producerEntry = $order->commissionEntries
             ->firstWhere('role', CommissionEntry::ROLE_PRODUTOR);
 
@@ -39,51 +36,61 @@ class ProducerSaleAmount
                 'is_producer_share' => true,
                 'is_estimated' => false,
                 'gross_total' => $grossTotal,
+                'has_partner_split' => true,
             ];
         }
 
+        $beneficiaries = $this->resolveBeneficiaries($order);
+        if ($beneficiaries === []) {
+            return [
+                'amount' => $grossTotal,
+                'is_producer_share' => false,
+                'is_estimated' => false,
+                'gross_total' => $grossTotal,
+                'has_partner_split' => false,
+            ];
+        }
+
+        $estimatedShare = $this->estimateProducerShare($order, $beneficiaries);
+
         return [
-            'amount' => $this->estimateProducerShare($order),
+            'amount' => $estimatedShare,
             'is_producer_share' => true,
             'is_estimated' => true,
             'gross_total' => $grossTotal,
+            'has_partner_split' => true,
         ];
     }
 
-    private function hasActiveCoproducerOnProducerSale(Order $order): bool
-    {
-        if ($order->saleChannel() === 'affiliate') {
-            return true;
-        }
-
-        $order->loadMissing('product');
-        if (! $order->product) {
-            return false;
-        }
-
-        $program = ProductAffiliateProgram::firstOrCreate(
-            ['product_id' => $order->product->id],
-            ['enabled' => false, 'default_commission_percent' => 0, 'manual_approval' => true]
-        );
-
-        return $this->beneficiaryResolver->resolve($order, $order->product, $program) !== [];
-    }
-
-    private function estimateProducerShare(Order $order): float
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function resolveBeneficiaries(Order $order): array
     {
         $order->loadMissing('product');
         $product = $order->product;
         if (! $product) {
-            return 0.0;
+            return [];
         }
 
-        $net = $this->netCalculator->forOrder($order)['net'];
         $program = ProductAffiliateProgram::firstOrCreate(
             ['product_id' => $product->id],
             ['enabled' => false, 'default_commission_percent' => 0, 'manual_approval' => true]
         );
 
-        $beneficiaries = $this->beneficiaryResolver->resolve($order, $product, $program);
+        return $this->beneficiaryResolver->resolve($order, $product, $program);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $beneficiaries
+     */
+    private function estimateProducerShare(Order $order, array $beneficiaries): float
+    {
+        if ($beneficiaries === []) {
+            return round($order->lineItemsTotalAmount(), 2);
+        }
+
+        $net = $this->netCalculator->forOrder($order)['net'];
         $allocated = $this->beneficiaryResolver->allocateAmounts($net, $beneficiaries);
 
         return $this->beneficiaryResolver->producerShare($net, $allocated);

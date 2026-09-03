@@ -18,7 +18,6 @@ return [
         'default' => env('WEBHOOK_RECONFIRM_FAIL_POLICY', 'accept'),
 
         'mercadopago' => env('WEBHOOK_RECONFIRM_FAIL_POLICY_MERCADOPAGO', 'reject'),
-        'spacepag' => env('WEBHOOK_RECONFIRM_FAIL_POLICY_SPACEPAG'),
         'pushinpay' => env('WEBHOOK_RECONFIRM_FAIL_POLICY_PUSHINPAY'),
         'asaas' => env('WEBHOOK_RECONFIRM_FAIL_POLICY_ASAAS'),
         'efi' => env('WEBHOOK_RECONFIRM_FAIL_POLICY_EFI'),

@@ -14,6 +14,7 @@ use App\Models\MemberSection;
 use App\Models\MemberTurma;
 use App\Models\Product;
 use App\Models\User;
+use App\Plugins\PluginExtensionRegistry;
 use App\Models\MemberNotification;
 use App\Models\MemberPushSubscription;
 use App\Rules\StorageOrHttpUrl;
@@ -333,6 +334,8 @@ class MemberBuilderController extends Controller
                 'badge_max_mb' => (int) max(1, floor($badgeKb / 1024)),
                 'pdf_max_mb' => (int) max(1, floor($pdfKb / 1024)),
             ],
+            'plugin_member_builder_tabs' => PluginExtensionRegistry::getMemberBuilderTabs(),
+            'plugin_ui' => PluginExtensionRegistry::inertiaPayload(),
         ]);
     }
 

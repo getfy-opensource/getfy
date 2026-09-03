@@ -145,8 +145,7 @@ class VendasController extends Controller
             $m = strtolower($method);
             if ($m === 'pix') {
                 $query->where(function ($q) {
-                    $q->whereIn('gateway', ['spacepag'])
-                        ->orWhereRaw("LOWER(gateway) LIKE '%pix%'")
+                    $q->whereRaw("LOWER(gateway) LIKE '%pix%'")
                         ->orWhere(function ($q2) {
                             $q2->where('metadata->checkout_payment_method', 'pix')
                                 ->orWhere('metadata->checkout_payment_method', 'pix_auto');
@@ -282,6 +281,7 @@ class VendasController extends Controller
                 $arr['display_amount_is_producer_share'] = $producerAmount['is_producer_share'];
                 $arr['display_amount_is_estimated'] = $producerAmount['is_estimated'];
                 $arr['sale_gross_total'] = $producerAmount['gross_total'];
+                $arr['has_partner_split'] = $producerAmount['has_partner_split'];
                 $financial = $o->financialBreakdown();
                 $arr['gross_amount'] = $financial['gross'];
                 $arr['gateway_fee'] = $financial['fee'];
@@ -337,8 +337,7 @@ class VendasController extends Controller
 
         $vendasPix = (clone $statsQuery)
             ->where(function ($q) {
-                $q->whereIn('gateway', ['spacepag'])
-                    ->orWhereRaw("LOWER(gateway) LIKE '%pix%'")
+                $q->whereRaw("LOWER(gateway) LIKE '%pix%'")
                     ->orWhere(function ($q2) {
                         $q2->where('metadata->checkout_payment_method', 'pix')
                             ->orWhere('metadata->checkout_payment_method', 'pix_auto');

@@ -3,6 +3,7 @@ import { ref, computed, reactive, nextTick, onMounted, watch } from 'vue';
 import axios from 'axios';
 import MemberBuilderPreview from '@/components/member-builder/MemberBuilderPreview.vue';
 import MemberBuilderModulesTab from '@/components/member-builder/MemberBuilderModulesTab.vue';
+import MemberBuilderPluginPanelHost from '@/components/member-builder/MemberBuilderPluginPanelHost.vue';
 import Button from '@/components/ui/Button.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import {
@@ -33,6 +34,7 @@ import {
     Trophy,
     BarChart3,
     Presentation,
+    Bot,
 } from 'lucide-vue-next';
 import {
     communityPageIconComponents,
@@ -53,6 +55,9 @@ const props = defineProps({
         type: Object,
         default: () => ({ image_max_mb: 10, badge_max_mb: 5, pdf_max_mb: 50 }),
     },
+    plugin_member_builder_tabs: { type: Array, default: () => [] },
+    plugin_ui: { type: Object, default: () => ({ plugins: [] }) },
+    vue_bridge_url: { type: String, default: '' },
 });
 
 const uploadLimits = computed(() => ({
@@ -248,6 +253,21 @@ const tabs = [
     { id: 'pwa', label: 'PWA e URL', icon: Smartphone, hasPreview: false },
 ];
 
+const pluginTabs = computed(() => {
+    const panels = Array.isArray(props.plugin_member_builder_tabs) ? props.plugin_member_builder_tabs : [];
+    return panels
+        .filter((p) => p && typeof p === 'object' && p.id && p.label && p.ui_export && p.plugin_slug)
+        .map((p) => ({
+            id: `plugin_${String(p.id)}`,
+            label: String(p.label),
+            icon: Bot,
+            hasPreview: false,
+            pluginPanel: p,
+        }));
+});
+
+const allTabs = computed(() => [...tabs, ...pluginTabs.value]);
+
 const loginAccessMode = computed({
     get() {
         const login = configForm.member_area_config?.login ?? {};
@@ -259,7 +279,8 @@ const loginAccessMode = computed({
     },
 });
 
-const currentTab = computed(() => tabs.find((t) => t.id === activeTab.value));
+const currentTab = computed(() => allTabs.value.find((t) => t.id === activeTab.value));
+const activePluginTab = computed(() => pluginTabs.value.find((t) => t.id === activeTab.value) ?? null);
 const showPreview = computed(() => currentTab.value?.hasPreview ?? false);
 const previewMode = computed(() => currentTab.value?.previewMode ?? 'area');
 
@@ -310,7 +331,7 @@ const previewSections = computed(() =>
     activeTab.value === 'modulos' ? courseStructureSections.value : (props.produto.sections ?? []),
 );
 
-const tabIds = tabs.map((t) => t.id);
+const tabIds = computed(() => allTabs.value.map((t) => t.id));
 
 const totalLessonsProgress = computed(() => Number(props.produto.total_lessons ?? 0));
 const studentProgressRows = computed(() => {
@@ -355,7 +376,7 @@ function rejectComment(commentId) {
 onMounted(() => {
     const p = new URLSearchParams(window.location.search);
     const t = p.get('tab');
-    if (t && tabIds.includes(t)) activeTab.value = t;
+    if (t && tabIds.value.includes(t)) activeTab.value = t;
 });
 watch(activeTab, (id) => {
     const url = new URL(window.location.href);
@@ -368,7 +389,7 @@ onMounted(() => {
         const saved = localStorage.getItem(`member_builder_tab_${props.produto.id}`);
         const p = new URLSearchParams(window.location.search);
         const t = p.get('tab');
-        if (!t && saved && tabIds.includes(saved)) {
+        if (!t && saved && tabIds.value.includes(saved)) {
             activeTab.value = saved;
         }
     } catch (_) {}
@@ -2210,7 +2231,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
         <header class="flex h-14 shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-4 dark:border-zinc-800 dark:bg-zinc-900">
             <nav class="flex flex-1 items-center gap-1 overflow-x-auto">
                 <button
-                    v-for="tab in tabs"
+                    v-for="tab in allTabs"
                     :key="tab.id"
                     type="button"
                     :class="[
@@ -2252,7 +2273,8 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                 :class="[
                     'flex min-h-0 min-w-0 flex-col border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900',
                     'lg:shrink-0',
-                    effectiveShowPreview && activeTab !== 'modulos' ? 'lg:w-80 lg:border-b-0 lg:border-r lg:overflow-y-auto' : 'flex-1 w-full min-w-0 overflow-hidden',
+                    effectiveShowPreview && activeTab !== 'modulos' && !activePluginTab ? 'lg:w-80 lg:border-b-0 lg:border-r lg:overflow-y-auto' : 'flex-1 w-full min-w-0',
+                    activePluginTab ? 'overflow-y-auto' : 'overflow-hidden',
                     activeTab === 'modulos' ? 'flex-1' : '',
                 ]"
             >
@@ -3329,6 +3351,15 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                 <Button type="button" class="w-full" @click="saveConfig" :disabled="processing">Salvar alterações</Button>
                             </div>
                         </div>
+                    </template>
+
+                    <template v-else-if="activePluginTab">
+                        <MemberBuilderPluginPanelHost
+                            :panel="activePluginTab.pluginPanel"
+                            :plugin-ui="plugin_ui"
+                            :vue-bridge-url="vue_bridge_url"
+                            :produto="produto"
+                        />
                     </template>
                 </div>
                 </div>
