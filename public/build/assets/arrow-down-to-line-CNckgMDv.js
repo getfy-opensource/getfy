@@ -1,1 +1,0 @@
-import{c as o}from"./Toggle-BD3dflqy.js";const r=o("arrow-down-to-line",[["path",{d:"M12 17V3",key:"1cwfxf"}],["path",{d:"m6 11 6 6 6-6",key:"12ii2o"}],["path",{d:"M19 21H5",key:"150jfl"}]]);export{r as A};
