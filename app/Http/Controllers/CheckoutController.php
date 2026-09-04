@@ -440,7 +440,18 @@ class CheckoutController extends Controller
             }
         }
 
+        $comboProductIds = $this->comboProductIdSetForCheckout(
+            $product,
+            $resolved['offer'] ?? null,
+            $resolved['plan'] ?? null
+        );
+        $comboLookup = array_fill_keys($comboProductIds, true);
         $orderBumps = $product->orderBumps()->with(['targetProduct', 'targetProductOffer', 'targetSubscriptionPlan'])->get();
+        if ($comboLookup !== []) {
+            $orderBumps = $orderBumps
+                ->reject(fn (ProductOrderBump $b) => isset($comboLookup[(string) $b->target_product_id]))
+                ->values();
+        }
         $payload['order_bumps'] = $orderBumps->map(function (ProductOrderBump $b) use ($product) {
             $target = $b->targetProduct;
             $imageUrl = $target && $target->image
@@ -793,7 +804,12 @@ class CheckoutController extends Controller
             $this->tenantCurrenciesListFor($product->tenant_id)
         );
 
-        $orderBumpIds = array_values(array_filter(array_map('intval', $validated['order_bump_ids'] ?? [])));
+        $orderBumpIds = $this->filterOrderBumpIdsExcludedByCombo(
+            $product,
+            $offer,
+            $plan,
+            array_values(array_filter(array_map('intval', $validated['order_bump_ids'] ?? [])))
+        );
         $selectedBumps = collect();
         if ($orderBumpIds) {
             $selectedBumps = ProductOrderBump::where('product_id', $product->id)->whereIn('id', $orderBumpIds)->get();
@@ -2578,7 +2594,12 @@ class CheckoutController extends Controller
             );
         }
 
-        $orderBumpIds = array_values(array_filter(array_map('intval', $validated['order_bump_ids'] ?? [])));
+        $orderBumpIds = $this->filterOrderBumpIdsExcludedByCombo(
+            $product,
+            $offer,
+            $plan,
+            array_values(array_filter(array_map('intval', $validated['order_bump_ids'] ?? [])))
+        );
         $selectedBumps = collect();
         if ($orderBumpIds) {
             $selectedBumps = ProductOrderBump::where('product_id', $product->id)->whereIn('id', $orderBumpIds)->get();
@@ -2659,7 +2680,12 @@ class CheckoutController extends Controller
         }
         $chargeAmount = (float) ($context['charge_amount'] ?? $order->amount);
         $baseAmount = (float) ($context['base_amount'] ?? $chargeAmount);
-        $bumpIds = array_values(array_filter(array_map('intval', $context['order_bump_ids'] ?? [])));
+        $bumpIds = $this->filterOrderBumpIdsExcludedByCombo(
+            $product,
+            $offer instanceof ProductOffer ? $offer : null,
+            $plan instanceof SubscriptionPlan ? $plan : null,
+            array_values(array_filter(array_map('intval', $context['order_bump_ids'] ?? [])))
+        );
         $tenantId = $product->tenant_id;
         $tenantCurrencies = $this->tenantCurrenciesListFor($tenantId);
 
@@ -2857,7 +2883,12 @@ class CheckoutController extends Controller
             'amount' => $baseAmount,
             'position' => 0,
         ]);
-        $bumpIds = is_array($draft['order_bump_ids'] ?? null) ? $draft['order_bump_ids'] : [];
+        $bumpIds = $this->filterOrderBumpIdsExcludedByCombo(
+            $product,
+            $offer,
+            $plan,
+            is_array($draft['order_bump_ids'] ?? null) ? $draft['order_bump_ids'] : []
+        );
         if ($bumpIds) {
             $bumps = ProductOrderBump::where('product_id', $product->id)->whereIn('id', $bumpIds)->get();
             $pos = 1;
@@ -2944,7 +2975,12 @@ class CheckoutController extends Controller
             $this->tenantCurrenciesListFor($product->tenant_id)
         );
 
-        $orderBumpIds = array_values(array_filter(array_map('intval', $validated['order_bump_ids'] ?? [])));
+        $orderBumpIds = $this->filterOrderBumpIdsExcludedByCombo(
+            $product,
+            $offer,
+            $plan,
+            array_values(array_filter(array_map('intval', $validated['order_bump_ids'] ?? [])))
+        );
         $selectedBumps = collect();
         if ($orderBumpIds) {
             $selectedBumps = ProductOrderBump::where('product_id', $product->id)->whereIn('id', $orderBumpIds)->get();
@@ -3377,6 +3413,68 @@ class CheckoutController extends Controller
             $config['payment_gateways'] ?? [],
             $plan
         );
+    }
+
+    /**
+     * Resolve combo_product_ids for the active checkout context (plan → offer → product).
+     * Same priority as Order::grantPurchasedProductAccessToBuyer().
+     *
+     * @return array<int, string>
+     */
+    private function comboProductIdSetForCheckout(Product $product, ?ProductOffer $offer, ?SubscriptionPlan $plan): array
+    {
+        $ids = [];
+        if ($plan) {
+            $ids = $plan->combo_product_ids ?? [];
+        } elseif ($offer) {
+            $ids = $offer->combo_product_ids ?? [];
+        } else {
+            $ids = $product->combo_product_ids ?? [];
+        }
+
+        if (! is_array($ids)) {
+            return [];
+        }
+
+        return array_values(array_unique(array_filter(array_map(
+            static fn ($id) => trim((string) $id),
+            $ids
+        ), static fn (string $id) => $id !== '')));
+    }
+
+    /**
+     * Drop order bump IDs whose target product is already included in the active combo.
+     *
+     * @param  array<int, mixed>  $orderBumpIds
+     * @return array<int, int>
+     */
+    private function filterOrderBumpIdsExcludedByCombo(
+        Product $product,
+        ?ProductOffer $offer,
+        ?SubscriptionPlan $plan,
+        array $orderBumpIds
+    ): array {
+        $orderBumpIds = array_values(array_filter(array_map('intval', $orderBumpIds)));
+        if ($orderBumpIds === []) {
+            return [];
+        }
+
+        $comboIds = $this->comboProductIdSetForCheckout($product, $offer, $plan);
+        if ($comboIds === []) {
+            return $orderBumpIds;
+        }
+
+        $comboLookup = array_fill_keys($comboIds, true);
+
+        return ProductOrderBump::query()
+            ->where('product_id', $product->id)
+            ->whereIn('id', $orderBumpIds)
+            ->get(['id', 'target_product_id'])
+            ->filter(fn (ProductOrderBump $b) => ! isset($comboLookup[(string) $b->target_product_id]))
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all();
     }
 
     /**

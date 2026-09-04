@@ -1807,7 +1807,10 @@ function submit() {
                 </section>
 
                 <!-- Preço e cobrança -->
-                <section class="panel-table xl:min-h-0">
+                <section
+                    class="panel-table xl:min-h-0"
+                    :class="comboDropdownContext ? '!overflow-visible' : ''"
+                >
                     <div class="border-b border-zinc-200/80 bg-zinc-50/80 px-6 py-4 dark:border-zinc-700/80 dark:bg-zinc-800/50">
                         <h2 class="text-base font-semibold text-zinc-900 dark:text-white">Preço e cobrança</h2>
                         <p class="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">Defina como o produto será cobrado e o valor base.</p>
@@ -1870,7 +1873,7 @@ function submit() {
                                         </button>
                                         <div
                                             v-show="comboDropdownContext === 'main'"
-                                            class="absolute left-0 right-0 z-50 mt-1 max-h-56 space-y-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-600 dark:bg-zinc-900"
+                                            class="absolute left-0 right-0 z-[60] mt-1 max-h-56 space-y-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-600 dark:bg-zinc-900"
                                             role="listbox"
                                             @click.stop
                                         >
@@ -2081,7 +2084,7 @@ function submit() {
                                             </button>
                                             <div
                                                 v-show="comboDropdownContext === 'offer'"
-                                                class="absolute left-0 right-0 z-50 mt-1 max-h-52 space-y-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-600 dark:bg-zinc-900"
+                                                class="absolute left-0 right-0 z-[60] mt-1 max-h-52 space-y-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-600 dark:bg-zinc-900"
                                                 role="listbox"
                                                 @click.stop
                                             >
@@ -2191,7 +2194,7 @@ function submit() {
                                                 </button>
                                                 <div
                                                     v-show="comboDropdownContext === 'plan'"
-                                                    class="absolute left-0 right-0 z-50 mt-1 max-h-52 space-y-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-600 dark:bg-zinc-900"
+                                                    class="absolute left-0 right-0 z-[60] mt-1 max-h-52 space-y-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-600 dark:bg-zinc-900"
                                                     role="listbox"
                                                     @click.stop
                                                 >
