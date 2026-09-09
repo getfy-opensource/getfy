@@ -1,9 +1,0 @@
-{
-  "exports": [
-    "IntegrationsSidebar",
-    "ProductAgentPanel",
-    "FloatingChatWidget",
-    "SettingsPage"
-  ],
-  "entry": "plugin-ui.js"
-}
