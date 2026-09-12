@@ -9,11 +9,18 @@ const props = defineProps({
     primaryColor: { type: String, default: '#7427F1' },
     t: { type: Function, default: (k) => k },
     uiVariant: { type: String, default: 'default' },
+    /** Method ids temporarily disabled (e.g. pix_parcelado while bootstrap loads). */
+    disabledMethodIds: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits(['update:modelValue']);
 
+function isDisabled(methodId) {
+    return (props.disabledMethodIds || []).includes(methodId);
+}
+
 function select(methodId) {
+    if (isDisabled(methodId)) return;
     emit('update:modelValue', methodId);
 }
 
@@ -68,8 +75,10 @@ const methodSpanClass = (index) => {
                 :key="method.id"
                 type="button"
                 :data-payment-method="method.id"
-                class="relative flex min-w-0 cursor-pointer items-center text-left transition focus:outline-none"
+                :disabled="isDisabled(method.id)"
+                class="relative flex min-w-0 items-center text-left transition focus:outline-none"
                 :class="[
+                    isDisabled(method.id) ? 'cursor-wait opacity-60' : 'cursor-pointer',
                     isTicto
                         ? 'gap-2.5 overflow-visible rounded-xl border-2 px-3 py-3.5'
                         : 'gap-3 rounded-xl border p-4 focus:ring-1 focus:ring-inset focus:ring-gray-300',
@@ -84,6 +93,7 @@ const methodSpanClass = (index) => {
                         ? { borderColor: primaryColor, backgroundColor: '#fff' }
                         : { borderColor: primaryColor, backgroundColor: primaryColor + '12' })
                     : {}"
+                :aria-busy="isDisabled(method.id) ? 'true' : undefined"
                 @click="select(method.id)"
             >
                 <component
@@ -94,14 +104,20 @@ const methodSpanClass = (index) => {
                     :compact="isTicto"
                 />
                 <span
-                    v-if="modelValue === method.id && !isTicto"
+                    v-if="isDisabled(method.id)"
+                    class="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl bg-white/50 text-[11px] font-medium text-gray-600"
+                >
+                    …
+                </span>
+                <span
+                    v-if="modelValue === method.id && !isTicto && !isDisabled(method.id)"
                     class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-white"
                     :style="{ backgroundColor: primaryColor }"
                 >
                     <Check class="h-3 w-3" stroke-width="3" />
                 </span>
                 <span
-                    v-if="modelValue === method.id && isTicto"
+                    v-if="modelValue === method.id && isTicto && !isDisabled(method.id)"
                     class="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-[3px] text-white shadow-sm"
                     :style="{ backgroundColor: primaryColor }"
                 >

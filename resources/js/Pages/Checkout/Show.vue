@@ -103,6 +103,10 @@ const props = defineProps({
     cajupay_public_key: { type: String, default: '' },
     parcelado_sdk_options: { type: Object, default: () => ({}) },
     pix_parcelado_rules: { type: Object, default: null },
+    /** true = carregar rules async (fora do TTFB). */
+    pix_parcelado_bootstrap: { type: Boolean, default: false },
+    /** Dados para criar CheckoutSession no ensure-visit async. */
+    checkout_visit: { type: Object, default: null },
     /** Template de plugin resolvido no servidor (null = original). */
     active_checkout_template: { type: Object, default: null },
     plugin_checkout_templates: { type: Array, default: () => [] },
@@ -492,6 +496,65 @@ function persistSessionCountryFromClient() {
     }).catch(() => {});
 }
 
+const liveCajupayPayAccountId = ref(props.cajupay_pay_account_id || '');
+const liveParceladoSdkOptions = ref(props.parcelado_sdk_options || {});
+const pixParceladoReady = ref(
+    Boolean(props.pix_parcelado_rules) || !props.pix_parcelado_bootstrap
+);
+
+function ensureCheckoutVisit() {
+    const token = String(props.checkout_session_token || '').trim();
+    const visit = props.checkout_visit;
+    if (!token || !visit || !visit.product_id) return;
+    const country = String(props.suggested_country_code || '').toUpperCase().trim().slice(0, 2);
+    axios.post('/api/checkout/ensure-visit', {
+        session_token: token,
+        product_id: visit.product_id,
+        product_offer_id: visit.product_offer_id ?? null,
+        subscription_plan_id: visit.subscription_plan_id ?? null,
+        checkout_slug: visit.checkout_slug || props.product?.checkout_slug,
+        utm_source: visit.utm_source ?? null,
+        utm_medium: visit.utm_medium ?? null,
+        utm_campaign: visit.utm_campaign ?? null,
+        tracking_metadata: visit.tracking_metadata ?? null,
+        country_code: country.length === 2 ? country : undefined,
+    }).then((res) => {
+        const code = res?.data?.country_code;
+        if (code && !props.suggested_country_code) {
+            // país resolvido via GeoIP no ensure-visit; track-country já gravou
+        }
+    }).catch(() => {
+        // fallback: se sessão já existir em outro fluxo
+        persistSessionCountryFromClient();
+    });
+}
+
+function loadPixParceladoBootstrap() {
+    if (!props.pix_parcelado_bootstrap) return;
+    const slug = String(props.product?.checkout_slug || '').trim();
+    if (!slug) {
+        pixParceladoReady.value = true;
+        return;
+    }
+    const params = {};
+    if (props.product?.product_offer_id) params.offer_id = props.product.product_offer_id;
+    if (props.product?.subscription_plan_id) params.plan_id = props.product.subscription_plan_id;
+    axios.get(`/c/${encodeURIComponent(slug)}/pix-parcelado-bootstrap`, { params })
+        .then((res) => {
+            const data = res?.data || {};
+            if (data.cajupay_pay_account_id) {
+                liveCajupayPayAccountId.value = data.cajupay_pay_account_id;
+            }
+            if (data.parcelado_sdk_options && typeof data.parcelado_sdk_options === 'object') {
+                liveParceladoSdkOptions.value = data.parcelado_sdk_options;
+            }
+        })
+        .catch(() => {})
+        .finally(() => {
+            pixParceladoReady.value = true;
+        });
+}
+
 onMounted(() => {
     registerPreviewBridge();
     if (isPreviewIframe.value && typeof document !== 'undefined') {
@@ -504,7 +567,8 @@ onMounted(() => {
         stopEmbedResize = startCheckoutEmbedResize(checkoutRootRef.value);
     }
     applyGeoLocaleFromServer();
-    persistSessionCountryFromClient();
+    ensureCheckoutVisit();
+    loadPixParceladoBootstrap();
     registerPluginCheckoutComponents(page.props.plugin_ui, props.available_payment_methods);
 });
 
@@ -655,8 +719,9 @@ const pluginTemplateProps = computed(() => ({
     otherCurrencies: otherCurrencies.value,
     pluginCheckoutExtensions: props.plugin_checkout_extensions,
     productName: props.product.name || '',
-    cajupayPayAccountId: props.cajupay_pay_account_id || '',
-    parceladoSdkOptions: props.parcelado_sdk_options || {},
+    cajupayPayAccountId: liveCajupayPayAccountId.value,
+    parceladoSdkOptions: liveParceladoSdkOptions.value,
+    pixParceladoReady: pixParceladoReady.value,
     locale: locale.value,
     supportedLocales,
     localeLabels,
@@ -1080,8 +1145,9 @@ const hasCustomBodyEnd = computed(() => String(customBodyEndHtml.value).trim() !
                             :other-currencies="otherCurrencies"
                             :plugin-checkout-extensions="plugin_checkout_extensions"
                             :product-name="product.name || ''"
-                            :cajupay-pay-account-id="cajupay_pay_account_id || ''"
-                            :parcelado-sdk-options="parcelado_sdk_options || {}"
+                            :cajupay-pay-account-id="liveCajupayPayAccountId || ''"
+                            :parcelado-sdk-options="liveParceladoSdkOptions || {}"
+                            :pix-parcelado-ready="pixParceladoReady"
                             :price-in-currency="priceInCurrency"
                             @coupon-applied="onCouponApplied"
                             @coupon-cleared="onCouponCleared"

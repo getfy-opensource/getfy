@@ -27,34 +27,78 @@ class PendingPaymentReconcileSchedule
         return (int) max(0, $createdAt->diffInMinutes(now()));
     }
 
-    public static function intervalMinutes(Order $order): int
+    /**
+     * Fixed attempt ages in minutes since order creation (e.g. 5, 10, 15).
+     *
+     * @return list<int>
+     */
+    public static function attemptAgesMinutes(): array
     {
-        if (! static::isPixOrder($order)) {
-            return max(1, (int) config('payment_reconciliation.legacy_interval_minutes', 2));
+        $ages = config('payment_reconciliation.attempt_ages_minutes', [5, 10, 15]);
+        if (! is_array($ages)) {
+            return [5, 10, 15];
         }
 
-        $ageMinutes = static::ageMinutes($order);
-
-        foreach (static::pixTiers() as $tier) {
-            if ($ageMinutes <= (int) $tier['max_age_minutes']) {
-                return max(1, (int) $tier['interval_minutes']);
+        $normalized = [];
+        foreach ($ages as $age) {
+            $minutes = (int) $age;
+            if ($minutes > 0) {
+                $normalized[] = $minutes;
             }
         }
 
-        // PIX older than last tier: slow poll so unpaid orders stay pending and can still settle
-        return max(1, (int) config('payment_reconciliation.pix_stale_interval_minutes', 60));
+        $normalized = array_values(array_unique($normalized));
+        sort($normalized);
+
+        return $normalized !== [] ? $normalized : [5, 10, 15];
+    }
+
+    public static function attemptCount(Order $order): int
+    {
+        $meta = is_array($order->metadata) ? $order->metadata : [];
+        $count = $meta['reconcile_attempt_count'] ?? 0;
+
+        return max(0, (int) $count);
+    }
+
+    public static function isExhausted(Order $order): bool
+    {
+        $meta = is_array($order->metadata) ? $order->metadata : [];
+        if (! empty($meta['reconcile_exhausted_at'])) {
+            return true;
+        }
+
+        return static::attemptCount($order) >= count(static::attemptAgesMinutes());
+    }
+
+    /**
+     * Next attempt index (0-based) that is due for this order age, or null if none.
+     */
+    public static function dueAttemptIndex(Order $order): ?int
+    {
+        if (static::isExhausted($order)) {
+            return null;
+        }
+
+        $ages = static::attemptAgesMinutes();
+        $done = static::attemptCount($order);
+        $ageMinutes = static::ageMinutes($order);
+
+        if ($done >= count($ages)) {
+            return null;
+        }
+
+        $nextAge = $ages[$done];
+        if ($ageMinutes < $nextAge) {
+            return null;
+        }
+
+        return $done;
     }
 
     public static function isDue(Order $order): bool
     {
-        $intervalMinutes = static::intervalMinutes($order);
-        $lastCheckedAt = static::lastCheckedAt($order);
-
-        if ($lastCheckedAt === null) {
-            return static::ageMinutes($order) >= $intervalMinutes;
-        }
-
-        return now()->greaterThanOrEqualTo($lastCheckedAt->copy()->addMinutes($intervalMinutes));
+        return static::dueAttemptIndex($order) !== null;
     }
 
     /**
@@ -93,17 +137,16 @@ class PendingPaymentReconcileSchedule
     public static function markChecked(Order $order): void
     {
         $meta = is_array($order->metadata) ? $order->metadata : [];
+        $ages = static::attemptAgesMinutes();
+        $count = max(0, (int) ($meta['reconcile_attempt_count'] ?? 0)) + 1;
+
         $meta['reconcile_last_checked_at'] = now()->toIso8601String();
+        $meta['reconcile_attempt_count'] = $count;
+
+        if ($count >= count($ages)) {
+            $meta['reconcile_exhausted_at'] = now()->toIso8601String();
+        }
+
         $order->update(['metadata' => $meta]);
-    }
-
-    /**
-     * @return array<int, array{max_age_minutes: int, interval_minutes: int}>
-     */
-    private static function pixTiers(): array
-    {
-        $tiers = config('payment_reconciliation.pix_tiers', []);
-
-        return is_array($tiers) ? $tiers : [];
     }
 }

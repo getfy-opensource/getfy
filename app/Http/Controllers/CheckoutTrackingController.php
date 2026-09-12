@@ -4,11 +4,76 @@ namespace App\Http\Controllers;
 
 use App\Models\CheckoutFieldEvent;
 use App\Models\CheckoutSession;
+use App\Models\Product;
+use App\Services\GeoIp;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class CheckoutTrackingController extends Controller
 {
+    /**
+     * Cria a visita do checkout de forma async (fora do TTFB do GET /c/{slug}).
+     */
+    public function ensureVisit(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'session_token' => ['required', 'string', 'max:64'],
+            'product_id' => ['required', 'integer', 'exists:products,id'],
+            'product_offer_id' => ['nullable', 'integer', 'exists:product_offers,id'],
+            'subscription_plan_id' => ['nullable', 'integer', 'exists:subscription_plans,id'],
+            'checkout_slug' => ['required', 'string', 'max:32'],
+            'utm_source' => ['nullable', 'string', 'max:255'],
+            'utm_medium' => ['nullable', 'string', 'max:255'],
+            'utm_campaign' => ['nullable', 'string', 'max:255'],
+            'tracking_metadata' => ['nullable', 'array'],
+            'country_code' => ['nullable', 'string', 'size:2'],
+        ]);
+
+        $existing = CheckoutSession::where('session_token', $validated['session_token'])->first();
+        if ($existing) {
+            $country = \App\Support\CountryCatalog::normalize($validated['country_code'] ?? null);
+            if ($country !== null && $existing->step !== CheckoutSession::STEP_CONVERTED) {
+                $existing->update(['country_code' => $country]);
+            }
+
+            return response()->json(['success' => true, 'created' => false]);
+        }
+
+        $product = Product::query()->where('id', $validated['product_id'])->where('is_active', true)->first();
+        if (! $product) {
+            return response()->json(['success' => false, 'message' => 'Produto não encontrado.'], 404);
+        }
+
+        $country = \App\Support\CountryCatalog::normalize($validated['country_code'] ?? null);
+        if ($country === null) {
+            $geo = app(GeoIp::class)->getSuggestionsForRequest($request);
+            $raw = $geo['country_code'] ?? null;
+            $country = is_string($raw) && strlen($raw) === 2 ? strtoupper($raw) : null;
+        }
+
+        CheckoutSession::create([
+            'tenant_id' => $product->tenant_id,
+            'product_id' => $product->id,
+            'product_offer_id' => $validated['product_offer_id'] ?? null,
+            'subscription_plan_id' => $validated['subscription_plan_id'] ?? null,
+            'checkout_slug' => $validated['checkout_slug'],
+            'session_token' => $validated['session_token'],
+            'step' => CheckoutSession::STEP_VISIT,
+            'customer_ip' => $request->ip(),
+            'country_code' => $country,
+            'utm_source' => $validated['utm_source'] ?? null,
+            'utm_medium' => $validated['utm_medium'] ?? null,
+            'utm_campaign' => $validated['utm_campaign'] ?? null,
+            'tracking_metadata' => $validated['tracking_metadata'] ?? null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'created' => true,
+            'country_code' => $country,
+        ]);
+    }
+
     public function track(Request $request): JsonResponse
     {
         $validated = $request->validate([

@@ -72,6 +72,30 @@ class GeoIp
     }
 
     /**
+     * Só headers CDN — sem HTTP ao ip-api (para TTFB do checkout).
+     * Sem header: fallback Brasil (locale/moeda), country_code null.
+     *
+     * @return array{country_code: string|null, suggested_locale: string, suggested_currency: string}
+     */
+    public function getSuggestionsFromHeadersOrDefault(Request $request): array
+    {
+        $fromHeader = $this->countryFromTrustedHeaders($request);
+        if ($fromHeader !== null) {
+            return [
+                'country_code' => $fromHeader,
+                'suggested_locale' => $this->localeForCountry($fromHeader),
+                'suggested_currency' => $this->currencyForCountry($fromHeader),
+            ];
+        }
+
+        return [
+            'country_code' => null,
+            'suggested_locale' => self::LOCALE_PT_BR,
+            'suggested_currency' => self::CURRENCY_BRL,
+        ];
+    }
+
+    /**
      * Obtém país (e sugestões de locale/moeda) a partir do IP.
      * Usa cache por IP.
      *

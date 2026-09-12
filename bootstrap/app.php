@@ -167,13 +167,16 @@ return Application::configure(basePath: dirname(__DIR__))
         // Lembretes + PIX no e-mail; command síncrono (job também existe se enfileirado).
         $schedule->command('subscriptions:send-reminders')->dailyAt('09:00');
         $schedule->command('checkout:fire-abandoned-cart-webhooks')->everyTenMinutes();
-        $schedule->command('checkout:send-cart-recovery-emails')->everyMinute();
-        $schedule->command('checkout:send-cart-recovery-sms')->everyMinute();
+        // Recovery e reconcile em ritmos distintos para não empilhar no mesmo tick em VPS compartilhadas.
+        $schedule->command('checkout:send-cart-recovery-emails')->everyFiveMinutes()->withoutOverlapping(4);
+        $schedule->command('checkout:send-cart-recovery-sms')->everyTenMinutes()->withoutOverlapping(9);
         $schedule->command('email-campaign:process')->everyMinute()->withoutOverlapping(5);
-        $schedule->command('payments:reconcile-pending --limit=200 --days=45')->everyMinute();
+        $schedule->command('payments:reconcile-pending --limit=50 --days=45')
+            ->everyFiveMinutes()
+            ->withoutOverlapping(4);
         $schedule->command('orders:cancel-stale-pending')->hourly();
         $schedule->command('commissions:release')->hourly();
-        $schedule->command('payouts:reconcile')->everyMinute();
+        $schedule->command('payouts:reconcile')->everyFiveMinutes()->withoutOverlapping(4);
         $schedule->command('coproducers:expire-invites')->daily();
         $schedule->command('schedule:heartbeat')->everyMinute();
         $schedule->job(new \App\Jobs\QueueHeartbeatJob)->everyMinute();

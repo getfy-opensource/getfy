@@ -12,7 +12,7 @@ use Illuminate\Console\Command;
 class ReconcilePendingPaymentsCommand extends Command
 {
     protected $signature = 'payments:reconcile-pending
-                            {--limit=200 : Máximo de pedidos para checar por execução}
+                            {--limit=50 : Máximo de pedidos para consultar no gateway por execução}
                             {--days=30 : Considerar pedidos criados nos últimos X dias}';
 
     protected $description = 'Reconfirma pagamentos pendentes no gateway e aprova automaticamente quando liquidado.';
@@ -21,6 +21,8 @@ class ReconcilePendingPaymentsCommand extends Command
     {
         $limit = max(1, (int) $this->option('limit'));
         $days = max(1, (int) $this->option('days'));
+        // Varre mais candidatos para não gastar o limit só com pedidos já esgotados (5/10/15).
+        $scanLimit = min(2000, max($limit * 10, $limit));
 
         $orders = Order::query()
             ->where('status', 'pending')
@@ -30,7 +32,7 @@ class ReconcilePendingPaymentsCommand extends Command
             ->where('gateway_id', '!=', '')
             ->where('created_at', '>=', now()->subDays($days))
             ->orderByDesc('updated_at')
-            ->limit($limit)
+            ->limit($scanLimit)
             ->get();
 
         $checked = 0;
@@ -39,6 +41,10 @@ class ReconcilePendingPaymentsCommand extends Command
         $expired = 0;
 
         foreach ($orders as $order) {
+            if ($checked >= $limit) {
+                break;
+            }
+
             if (PendingPaymentReconcileSchedule::shouldExpirePix($order)) {
                 $this->expirePixOrder($order);
                 $expired++;

@@ -8,6 +8,7 @@ use App\Models\GatewayCredential;
 use App\Models\Order;
 use App\Models\Product;
 use App\Support\MoneyMinorUnits;
+use Illuminate\Support\Facades\Cache;
 
 class CajuPayPixParceladoService
 {
@@ -68,6 +69,26 @@ class CajuPayPixParceladoService
     public function resolvePayAccountId(array $credentials): ?string
     {
         return $this->driver()->resolvePayAccountId($credentials);
+    }
+
+    /**
+     * UUID já persistido nas credenciais — sem HTTP.
+     *
+     * @param  array<string, mixed>  $credentials
+     */
+    public function localPayAccountId(array $credentials): ?string
+    {
+        $cached = trim((string) ($credentials['pay_account_id'] ?? ''));
+        if ($cached === '') {
+            return null;
+        }
+
+        $looksLikeUuid = (bool) preg_match(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
+            $cached
+        );
+
+        return $looksLikeUuid ? $cached : null;
     }
 
     public function resolvePayAccountIdForTenant(?int $tenantId): ?string
@@ -139,16 +160,41 @@ class CajuPayPixParceladoService
      * @param  array<string, mixed>  $credentials
      * @return array<string, mixed>
      */
-    public function platformRules(array $credentials): array
+    public function platformRules(array $credentials, ?int $tenantId = null): array
     {
+        $cacheKey = $this->platformRulesCacheKey($credentials, $tenantId);
+
         try {
-            return $this->driver()->getPixParceladoPlatformRules($credentials);
+            /** @var array<string, mixed> $rules */
+            $rules = Cache::remember($cacheKey, 900, function () use ($credentials) {
+                return $this->driver()->getPixParceladoPlatformRules($credentials);
+            });
+
+            return is_array($rules) ? $rules : [
+                'max_down_payment_bps' => 6000,
+                'bands' => [],
+            ];
         } catch (\Throwable) {
             return [
                 'max_down_payment_bps' => 6000,
                 'bands' => [],
             ];
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     */
+    private function platformRulesCacheKey(array $credentials, ?int $tenantId): string
+    {
+        if ($tenantId !== null) {
+            return 'cajupay:pix_parcelado:platform_rules:tenant:'.$tenantId;
+        }
+
+        $fingerprint = trim((string) ($credentials['public_key'] ?? ''))
+            .'|'.substr(trim((string) ($credentials['secret_key'] ?? '')), -8);
+
+        return 'cajupay:pix_parcelado:platform_rules:creds:'.md5($fingerprint);
     }
 
     /**

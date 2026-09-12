@@ -23,6 +23,7 @@ class ReconcilePendingPaymentsTest extends TestCase
         FakeGatewayDriver::$statusCallCount = 0;
         FakeGatewayDriver::$returnStatus = 'paid';
         config(['payment_reconciliation.pix_max_age_minutes' => 0]);
+        config(['payment_reconciliation.attempt_ages_minutes' => [5, 10, 15]]);
 
         GatewayRegistry::register([
             'slug' => 'fake',
@@ -50,7 +51,7 @@ class ReconcilePendingPaymentsTest extends TestCase
 
         $order = $this->createPendingOrder([
             'checkout_payment_method' => 'pix',
-            'created_at' => now()->subMinutes(2),
+            'created_at' => now()->subMinutes(5),
         ]);
 
         $callsBefore = FakeGatewayDriver::$statusCallCount;
@@ -65,14 +66,14 @@ class ReconcilePendingPaymentsTest extends TestCase
         $this->assertGreaterThanOrEqual(1, FakeGatewayDriver::$statusCallCount - $callsBefore);
     }
 
-    public function test_pix_order_younger_than_first_interval_is_not_checked(): void
+    public function test_pix_order_younger_than_first_attempt_is_not_checked(): void
     {
         Event::fake();
         Carbon::setTestNow('2026-06-07 12:00:00');
 
         $this->createPendingOrder([
             'checkout_payment_method' => 'pix',
-            'created_at' => now()->subSeconds(30),
+            'created_at' => now()->subMinutes(4),
         ]);
 
         Artisan::call('payments:reconcile-pending', [
@@ -83,15 +84,16 @@ class ReconcilePendingPaymentsTest extends TestCase
         $this->assertSame(0, FakeGatewayDriver::$statusCallCount);
     }
 
-    public function test_pix_order_skips_when_last_check_was_too_recent(): void
+    public function test_pix_order_skips_second_attempt_until_age_ten(): void
     {
         Event::fake();
         Carbon::setTestNow('2026-06-07 12:00:00');
 
         $this->createPendingOrder([
             'checkout_payment_method' => 'pix',
-            'created_at' => now()->subMinutes(5),
-            'reconcile_last_checked_at' => now()->subSeconds(30)->toIso8601String(),
+            'created_at' => now()->subMinutes(7),
+            'reconcile_attempt_count' => 1,
+            'reconcile_last_checked_at' => now()->subMinutes(2)->toIso8601String(),
         ]);
 
         Artisan::call('payments:reconcile-pending', [
@@ -102,15 +104,16 @@ class ReconcilePendingPaymentsTest extends TestCase
         $this->assertSame(0, FakeGatewayDriver::$statusCallCount);
     }
 
-    public function test_pix_order_in_second_tier_is_checked_after_five_minutes(): void
+    public function test_pix_order_second_attempt_at_ten_minutes(): void
     {
         Event::fake();
         Carbon::setTestNow('2026-06-07 12:00:00');
 
         $order = $this->createPendingOrder([
             'checkout_payment_method' => 'pix',
-            'created_at' => now()->subMinutes(12),
-            'reconcile_last_checked_at' => now()->subMinutes(6)->toIso8601String(),
+            'created_at' => now()->subMinutes(10),
+            'reconcile_attempt_count' => 1,
+            'reconcile_last_checked_at' => now()->subMinutes(5)->toIso8601String(),
         ]);
 
         $callsBefore = FakeGatewayDriver::$statusCallCount;
@@ -123,9 +126,10 @@ class ReconcilePendingPaymentsTest extends TestCase
         $order->refresh();
         $this->assertSame('completed', $order->status);
         $this->assertGreaterThanOrEqual(1, FakeGatewayDriver::$statusCallCount - $callsBefore);
+        $this->assertSame(2, (int) ($order->metadata['reconcile_attempt_count'] ?? 0));
     }
 
-    public function test_pix_order_older_than_120_minutes_stays_pending_and_still_reconciles(): void
+    public function test_pix_order_exhausted_after_three_attempts_is_not_checked(): void
     {
         Event::fake();
         Carbon::setTestNow('2026-06-07 12:00:00');
@@ -133,10 +137,11 @@ class ReconcilePendingPaymentsTest extends TestCase
 
         $order = $this->createPendingOrder([
             'checkout_payment_method' => 'pix',
-            'created_at' => now()->subMinutes(121),
+            'created_at' => now()->subMinutes(20),
+            'reconcile_attempt_count' => 3,
+            'reconcile_exhausted_at' => now()->subMinutes(5)->toIso8601String(),
+            'reconcile_last_checked_at' => now()->subMinutes(5)->toIso8601String(),
         ]);
-
-        $callsBefore = FakeGatewayDriver::$statusCallCount;
 
         Artisan::call('payments:reconcile-pending', [
             '--limit' => 10,
@@ -145,9 +150,32 @@ class ReconcilePendingPaymentsTest extends TestCase
 
         $order->refresh();
         $this->assertSame('pending', $order->status);
-        $this->assertNull($order->metadata['cancelled_reason'] ?? null);
-        $this->assertGreaterThanOrEqual(1, FakeGatewayDriver::$statusCallCount - $callsBefore);
-        $this->assertNotEmpty($order->metadata['reconcile_last_checked_at'] ?? null);
+        $this->assertSame(0, FakeGatewayDriver::$statusCallCount);
+    }
+
+    public function test_third_attempt_marks_order_exhausted(): void
+    {
+        Event::fake();
+        Carbon::setTestNow('2026-06-07 12:00:00');
+        FakeGatewayDriver::$returnStatus = 'pending';
+
+        $order = $this->createPendingOrder([
+            'checkout_payment_method' => 'pix',
+            'created_at' => now()->subMinutes(15),
+            'reconcile_attempt_count' => 2,
+            'reconcile_last_checked_at' => now()->subMinutes(5)->toIso8601String(),
+        ]);
+
+        Artisan::call('payments:reconcile-pending', [
+            '--limit' => 10,
+            '--days' => 30,
+        ]);
+
+        $order->refresh();
+        $this->assertSame('pending', $order->status);
+        $this->assertSame(3, (int) ($order->metadata['reconcile_attempt_count'] ?? 0));
+        $this->assertNotEmpty($order->metadata['reconcile_exhausted_at'] ?? null);
+        $this->assertSame(1, FakeGatewayDriver::$statusCallCount);
     }
 
     public function test_pix_order_expires_when_max_age_config_is_enabled(): void
@@ -172,14 +200,14 @@ class ReconcilePendingPaymentsTest extends TestCase
         $this->assertSame(0, FakeGatewayDriver::$statusCallCount);
     }
 
-    public function test_boleto_order_skips_before_legacy_interval(): void
+    public function test_boleto_order_skips_before_first_attempt(): void
     {
         Event::fake();
         Carbon::setTestNow('2026-06-07 12:00:00');
 
         $this->createPendingOrder([
             'checkout_payment_method' => 'boleto',
-            'created_at' => now()->subMinute(),
+            'created_at' => now()->subMinutes(3),
         ]);
 
         Artisan::call('payments:reconcile-pending', [
@@ -190,14 +218,14 @@ class ReconcilePendingPaymentsTest extends TestCase
         $this->assertSame(0, FakeGatewayDriver::$statusCallCount);
     }
 
-    public function test_boleto_order_is_checked_after_legacy_interval(): void
+    public function test_boleto_order_is_checked_at_five_minutes(): void
     {
         Event::fake();
         Carbon::setTestNow('2026-06-07 12:00:00');
 
         $order = $this->createPendingOrder([
             'checkout_payment_method' => 'boleto',
-            'created_at' => now()->subMinutes(3),
+            'created_at' => now()->subMinutes(5),
         ]);
 
         $callsBefore = FakeGatewayDriver::$statusCallCount;
@@ -243,6 +271,12 @@ class ReconcilePendingPaymentsTest extends TestCase
         }
         if (isset($overrides['reconcile_last_checked_at'])) {
             $metadata['reconcile_last_checked_at'] = $overrides['reconcile_last_checked_at'];
+        }
+        if (isset($overrides['reconcile_attempt_count'])) {
+            $metadata['reconcile_attempt_count'] = $overrides['reconcile_attempt_count'];
+        }
+        if (isset($overrides['reconcile_exhausted_at'])) {
+            $metadata['reconcile_exhausted_at'] = $overrides['reconcile_exhausted_at'];
         }
 
         $createdAt = $overrides['created_at'] ?? now();

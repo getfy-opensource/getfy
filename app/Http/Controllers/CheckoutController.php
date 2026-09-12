@@ -244,7 +244,8 @@ class CheckoutController extends Controller
         }
 
         $geo = new GeoIp;
-        $suggestions = $geo->getSuggestionsForRequest($request);
+        // Sem HTTP externo no TTFB: só headers CDN; GeoIP por IP fica no ensure-visit async.
+        $suggestions = $geo->getSuggestionsFromHeadersOrDefault($request);
         $payload['suggested_locale'] = $suggestions['suggested_locale'];
         $payload['suggested_currency'] = $suggestions['suggested_currency'];
         $payload['suggested_country_code'] = $suggestions['country_code'] ?? null;
@@ -289,8 +290,14 @@ class CheckoutController extends Controller
         $paymentMethodsPlan = ($product->billing_type ?? Product::BILLING_ONE_TIME) === Product::BILLING_SUBSCRIPTION
             ? ($resolved['plan'] ?? null)
             : null;
+        $credentialBySlug = CheckoutPaymentMethodsBuilder::connectedCredentialsBySlug($product->tenant_id);
         $payload['available_payment_methods'] = CheckoutPaymentMethodOrder::applyForCountry(
-            CheckoutPaymentMethodsBuilder::build($product->tenant_id, $config['payment_gateways'] ?? [], $paymentMethodsPlan),
+            CheckoutPaymentMethodsBuilder::build(
+                $product->tenant_id,
+                $config['payment_gateways'] ?? [],
+                $paymentMethodsPlan,
+                $credentialBySlug
+            ),
             $paymentOrderCountry
         );
         $payload['product']['custom_display_prices_by_currency'] = $this->customDisplayPricesMap($product);
@@ -318,7 +325,7 @@ class CheckoutController extends Controller
         $payload['card_paypal_checkout_mode'] = 'auto';
         foreach ($payload['available_payment_methods'] as $m) {
             if (($m['id'] ?? '') === 'card' && ($m['gateway_slug'] ?? '') === 'efi') {
-                $cred = GatewayCredential::forTenant($product->tenant_id)->where('gateway_slug', 'efi')->first();
+                $cred = $credentialBySlug->get('efi');
                 if ($cred) {
                     $creds = $cred->getDecryptedCredentials();
                     $payload['card_payee_code'] = (string) ($creds['payee_code'] ?? '');
@@ -329,7 +336,7 @@ class CheckoutController extends Controller
         }
         foreach ($payload['available_payment_methods'] as $m) {
             if (($m['id'] ?? '') === 'card' && ($m['gateway_slug'] ?? '') === 'stripe') {
-                $cred = GatewayCredential::forTenant($product->tenant_id)->where('gateway_slug', 'stripe')->first();
+                $cred = $credentialBySlug->get('stripe');
                 if ($cred) {
                     $creds = $cred->getDecryptedCredentials();
                     $payload['card_stripe_publishable_key'] = (string) ($creds['publishable_key'] ?? '');
@@ -343,7 +350,7 @@ class CheckoutController extends Controller
         }
         foreach ($payload['available_payment_methods'] as $m) {
             if (($m['id'] ?? '') === 'card' && ($m['gateway_slug'] ?? '') === 'mercadopago') {
-                $cred = GatewayCredential::forTenant($product->tenant_id)->where('gateway_slug', 'mercadopago')->first();
+                $cred = $credentialBySlug->get('mercadopago');
                 if ($cred) {
                     $creds = $cred->getDecryptedCredentials();
                     $payload['card_mercadopago_public_key'] = (string) ($creds['public_key'] ?? '');
@@ -361,7 +368,7 @@ class CheckoutController extends Controller
             if ($methodId !== 'card' && $methodId !== 'paypal') {
                 continue;
             }
-            $cred = GatewayCredential::forTenant($product->tenant_id)->where('gateway_slug', 'paypal')->first();
+            $cred = $credentialBySlug->get('paypal');
             if ($cred) {
                 $creds = $cred->getDecryptedCredentials();
                 $payload['card_paypal_client_id'] = (string) ($creds['client_id'] ?? '');
@@ -387,7 +394,7 @@ class CheckoutController extends Controller
             if (! is_array($keys) || $keys === []) {
                 continue;
             }
-            $cred = GatewayCredential::forTenant($product->tenant_id)->where('gateway_slug', $slug)->where('is_connected', true)->first();
+            $cred = $credentialBySlug->get($slug);
             if (! $cred) {
                 continue;
             }
@@ -413,6 +420,7 @@ class CheckoutController extends Controller
         $payload['cajupay_public_key'] = '';
         $payload['pix_parcelado_rules'] = null;
         $payload['parcelado_sdk_options'] = [];
+        $payload['pix_parcelado_bootstrap'] = false;
         $hasPixParcelado = false;
         foreach ($payload['available_payment_methods'] as $m) {
             if (($m['id'] ?? '') === 'pix_parcelado') {
@@ -420,23 +428,15 @@ class CheckoutController extends Controller
                 break;
             }
         }
+        // Sem HTTP CajuPay no show: só dados locais; rules via bootstrap async.
         if ($hasPixParcelado && ($product->billing_type ?? Product::BILLING_ONE_TIME) === Product::BILLING_ONE_TIME) {
             $parceladoService = app(CajuPayPixParceladoService::class);
-            $creds = $parceladoService->credentialsForTenant($product->tenant_id);
-            if ($creds) {
+            $cajupayCred = $credentialBySlug->get('cajupay');
+            $creds = $cajupayCred ? $cajupayCred->getDecryptedCredentials() : null;
+            if (is_array($creds) && $creds !== []) {
                 $payload['cajupay_public_key'] = (string) ($creds['public_key'] ?? '');
-                $payAccountId = $parceladoService->resolvePayAccountIdForTenant($product->tenant_id);
-                $payload['cajupay_pay_account_id'] = $payAccountId;
-                $productRules = $parceladoService->productRulesFromConfig($config);
-                $priceBrl = (float) $product->price;
-                if ($resolved['offer'] ?? null) {
-                    $priceBrl = (float) $resolved['offer']->price;
-                }
-                $platformRules = $parceladoService->platformRules($creds);
-                $totalCents = MoneyMinorUnits::toMinorUnits($priceBrl, 'BRL');
-                $merged = $parceladoService->mergeProductRulesWithPlatform($totalCents, $productRules, $platformRules);
-                $payload['pix_parcelado_rules'] = $merged;
-                $payload['parcelado_sdk_options'] = $parceladoService->sdkOptionsFromRules($merged);
+                $payload['cajupay_pay_account_id'] = $parceladoService->localPayAccountId($creds);
+                $payload['pix_parcelado_bootstrap'] = true;
             }
         }
 
@@ -510,28 +510,19 @@ class CheckoutController extends Controller
         $affiliateRef = \App\Support\AffiliateAttribution::refFromRequest($request);
         $trackingMeta = \App\Support\AffiliateAttribution::mergeIntoTrackingMetadata($trackingMeta, $affiliateRef);
 
-        $geoSuggestions = app(\App\Services\GeoIp::class)->getSuggestionsForRequest($request);
-        $sessionCountryCode = $geoSuggestions['country_code'] ?? null;
-
-        CheckoutSession::create([
-            'tenant_id' => $product->tenant_id,
+        // CheckoutSession é criada no ensure-visit async (não bloqueia TTFB).
+        $payload['checkout_session_token'] = $sessionToken;
+        $payload['affiliate_ref'] = $affiliateRef;
+        $payload['checkout_visit'] = [
             'product_id' => $product->id,
             'product_offer_id' => $resolved['offer']?->id,
             'subscription_plan_id' => $resolved['plan']?->id,
             'checkout_slug' => $resolved['checkout_slug'],
-            'session_token' => $sessionToken,
-            'step' => CheckoutSession::STEP_VISIT,
-            'customer_ip' => $request->ip(),
-            'country_code' => is_string($sessionCountryCode) && strlen($sessionCountryCode) === 2
-                ? strtoupper($sessionCountryCode)
-                : null,
             'utm_source' => $utmSource,
             'utm_medium' => $utmMedium,
             'utm_campaign' => $utmCampaign,
             'tracking_metadata' => $trackingMeta === [] ? null : $trackingMeta,
-        ]);
-        $payload['checkout_session_token'] = $sessionToken;
-        $payload['affiliate_ref'] = $affiliateRef;
+        ];
 
         /** Preview ao vivo no Builder (iframe): o front confia neste flag, não só na query (Inertia pode alterar URL). */
         $payload['checkout_builder_preview'] = $request->query('preview') === '1';
@@ -573,6 +564,80 @@ class CheckoutController extends Controller
             ->withViewData([
                 'openGraph' => \App\Support\CheckoutOpenGraph::forProduct($product, $config, $request),
             ]);
+    }
+
+    /**
+     * Bootstrap async do PIX Parcelado (rules + pay_account_id) — fora do TTFB do show.
+     */
+    public function pixParceladoBootstrap(Request $request, string $slug): JsonResponse
+    {
+        $resolved = $this->resolveCheckoutBySlug($slug);
+        $product = $resolved['product'];
+
+        if (($product->billing_type ?? Product::BILLING_ONE_TIME) !== Product::BILLING_ONE_TIME) {
+            return response()->json(['message' => 'PIX Parcelado disponível apenas para pagamento único.'], 422);
+        }
+
+        if ($resolved['offer'] === null && $resolved['plan'] === null && $product->checkout_slug === $slug) {
+            $offer = CheckoutQueryResolver::resolveOffer($product, $request);
+            $plan = CheckoutQueryResolver::resolvePlan($product, $request);
+            if ($offer) {
+                $resolved['offer'] = $offer;
+            } elseif ($plan) {
+                $resolved['plan'] = $plan;
+            }
+        }
+
+        $defaults = Product::defaultCheckoutConfig();
+        $productConfig = $product->checkout_config ?? [];
+        $config = array_replace_recursive($defaults, $productConfig);
+        $config['pix_parcelado'] = array_replace_recursive(
+            $defaults['pix_parcelado'] ?? [],
+            is_array($productConfig['pix_parcelado'] ?? null) ? $productConfig['pix_parcelado'] : []
+        );
+        $config['payment_gateways'] = array_replace_recursive(
+            $defaults['payment_gateways'] ?? [],
+            is_array($productConfig['payment_gateways'] ?? null) ? $productConfig['payment_gateways'] : []
+        );
+
+        $methods = CheckoutPaymentMethodsBuilder::build(
+            $product->tenant_id,
+            $config['payment_gateways'] ?? [],
+            null
+        );
+        $hasPixParcelado = false;
+        foreach ($methods as $m) {
+            if (($m['id'] ?? '') === 'pix_parcelado') {
+                $hasPixParcelado = true;
+                break;
+            }
+        }
+        if (! $hasPixParcelado) {
+            return response()->json(['message' => 'PIX Parcelado não disponível neste checkout.'], 404);
+        }
+
+        $parceladoService = app(CajuPayPixParceladoService::class);
+        $creds = $parceladoService->credentialsForTenant($product->tenant_id);
+        if (! $creds) {
+            return response()->json(['message' => 'Credenciais CajuPay indisponíveis.'], 422);
+        }
+
+        $payAccountId = $parceladoService->resolvePayAccountIdForTenant($product->tenant_id);
+        $productRules = $parceladoService->productRulesFromConfig($config);
+        $priceBrl = (float) $product->price;
+        if ($resolved['offer'] ?? null) {
+            $priceBrl = (float) $resolved['offer']->price;
+        }
+        $platformRules = $parceladoService->platformRules($creds, $product->tenant_id);
+        $totalCents = MoneyMinorUnits::toMinorUnits($priceBrl, 'BRL');
+        $merged = $parceladoService->mergeProductRulesWithPlatform($totalCents, $productRules, $platformRules);
+
+        return response()->json([
+            'cajupay_public_key' => (string) ($creds['public_key'] ?? ''),
+            'cajupay_pay_account_id' => $payAccountId,
+            'pix_parcelado_rules' => $merged,
+            'parcelado_sdk_options' => $parceladoService->sdkOptionsFromRules($merged),
+        ]);
     }
 
     public function validateCoupon(Request $request): JsonResponse
@@ -3931,7 +3996,7 @@ class CheckoutController extends Controller
         }
 
         $productRules = $parceladoService->productRulesFromConfig($product->checkout_config ?? []);
-        $platformRules = $parceladoService->platformRules($creds);
+        $platformRules = $parceladoService->platformRules($creds, $product->tenant_id);
         $merged = $parceladoService->mergeProductRulesWithPlatform($amountCents, $productRules, $platformRules);
         $sdkOptions = $parceladoService->sdkOptionsFromRules($merged);
 

@@ -166,6 +166,10 @@ Route::get('/c/{slug}', [\App\Http\Controllers\CheckoutController::class, 'show'
     ->name('checkout.show')
     ->where('slug', '[a-z0-9]{6,16}')
     ->middleware('throttle:checkout-show');
+Route::get('/c/{slug}/pix-parcelado-bootstrap', [\App\Http\Controllers\CheckoutController::class, 'pixParceladoBootstrap'])
+    ->name('checkout.pix-parcelado-bootstrap')
+    ->where('slug', '[a-z0-9]{6,16}')
+    ->middleware('throttle:60,1');
 Route::get('/checkout/pix', [\App\Http\Controllers\CheckoutController::class, 'pixPage'])->name('checkout.pix');
 Route::get('/checkout/boleto', [\App\Http\Controllers\CheckoutController::class, 'boletoPage'])->name('checkout.boleto');
 Route::get('/checkout/order-status', [\App\Http\Controllers\CheckoutController::class, 'orderStatus'])->name('checkout.order-status')->middleware('throttle:30,1');
@@ -209,6 +213,7 @@ Route::post('/checkout/cajupay/webhook', [\App\Http\Controllers\Webhooks\CajuPay
 Route::post('/checkout/pagarme-tokenize-sink', fn () => response()->noContent())
     ->name('checkout.pagarme-tokenize-sink')
     ->middleware('throttle:120,1');
+Route::post('/api/checkout/ensure-visit', [\App\Http\Controllers\CheckoutTrackingController::class, 'ensureVisit'])->name('checkout.ensure-visit')->middleware('throttle:120,1');
 Route::post('/api/checkout/track', [\App\Http\Controllers\CheckoutTrackingController::class, 'track'])->name('checkout.track')->middleware('throttle:60,1');
 Route::post('/api/checkout/track-field', [\App\Http\Controllers\CheckoutTrackingController::class, 'trackField'])->name('checkout.track-field')->middleware('throttle:120,1');
 Route::post('/api/checkout/track-country', [\App\Http\Controllers\CheckoutTrackingController::class, 'trackCountry'])->name('checkout.track-country')->middleware('throttle:120,1');

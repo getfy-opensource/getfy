@@ -889,7 +889,7 @@ class ProdutosController extends Controller
             if ($pgwPixParcelado === 'cajupay' && is_array($pixParceladoRules)) {
                 $parceladoService = app(CajuPayPixParceladoService::class);
                 $creds = $parceladoService->credentialsForTenant($produto->tenant_id);
-                $platformRules = $creds ? $parceladoService->platformRules($creds) : [];
+                $platformRules = $creds ? $parceladoService->platformRules($creds, $produto->tenant_id) : [];
                 $ruleErrors = $parceladoService->validateProductRules(
                     $pixParceladoRules,
                     $platformRules,
@@ -1635,7 +1635,7 @@ class ProdutosController extends Controller
             return response()->json(['message' => 'CajuPay não está conectado.'], 422);
         }
 
-        $platformRules = $parceladoService->platformRules($creds);
+        $platformRules = $parceladoService->platformRules($creds, $produto->tenant_id);
         $productRules = $parceladoService->productRulesFromConfig($produto->checkout_config);
         $priceBrl = (float) $produto->price;
         $totalCents = MoneyMinorUnits::toMinorUnits($priceBrl, 'BRL');

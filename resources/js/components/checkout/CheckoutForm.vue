@@ -310,6 +310,8 @@ const props = defineProps({
     productName: { type: String, default: '' },
     cajupayPayAccountId: { type: String, default: '' },
     parceladoSdkOptions: { type: Object, default: () => ({}) },
+    /** false enquanto bootstrap async do PIX Parcelado carrega. */
+    pixParceladoReady: { type: Boolean, default: true },
     uiVariant: { type: String, default: 'default' },
 });
 
@@ -703,11 +705,27 @@ watch(
     checkoutPaymentMethods,
     (list) => {
         const methods = Array.isArray(list) ? list : [];
-        if (methods.length > 0 && (!form.payment_method || !methods.some((m) => m.id === form.payment_method))) {
-            form.payment_method = methods[0].id;
+        const disabled = !props.pixParceladoReady ? new Set(['pix_parcelado']) : new Set();
+        const selectable = methods.filter((m) => !disabled.has(m.id));
+        if (selectable.length > 0 && (!form.payment_method || !selectable.some((m) => m.id === form.payment_method))) {
+            form.payment_method = selectable[0].id;
         }
     },
     { immediate: true }
+);
+
+watch(
+    () => props.pixParceladoReady,
+    (ready) => {
+        if (!ready && form.payment_method === 'pix_parcelado') {
+            const other = checkoutPaymentMethods.value.find((m) => m.id !== 'pix_parcelado');
+            if (other) form.payment_method = other.id;
+        }
+    }
+);
+
+const disabledPaymentMethodIds = computed(() =>
+    props.pixParceladoReady ? [] : ['pix_parcelado']
 );
 
 function applyPagarmeCompanyAddressPrefill() {
@@ -910,8 +928,13 @@ onMounted(() => {
     // Não forçar showEditForm = true aqui: o watch em form.payment_method já abre o form quando o usuário escolhe PIX/Boleto.
     // Se forçássemos aqui, ao carregar com draft salvo + primeiro método = boleto/pix, os dados "fixos" e o botão Editar dados nunca apareceriam.
 
-    // Prefetch do script CajuPay + sessão de cartão em background (mesmo com PIX selecionado).
-    warmupCajuPaySdk();
+    // Warmup CajuPay só após idle (não compete com a interatividade inicial).
+    if (hasAnyCajuPaySdkMethod.value || hasCajuPayCardMethod.value) {
+        setTimeout(() => {
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+            warmupCajuPaySdk();
+        }, 2500);
+    }
     persistCheckoutCountry();
 });
 
@@ -4264,6 +4287,7 @@ function submit() {
             <CheckoutPaymentMethods
                 v-model="form.payment_method"
                 :available-payment-methods="localizedPaymentMethods"
+                :disabled-method-ids="disabledPaymentMethodIds"
                 :primary-color="primaryColor"
                 :t="t"
                 :ui-variant="uiVariant"

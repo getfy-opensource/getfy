@@ -55,14 +55,17 @@ class HandleInertiaRequests extends Middleware
         $tenantId = $user?->tenant_id;
 
         $path = $request->path();
-        $isMemberArea = str_starts_with($path, 'm/')
-            || $request->attributes->get('member_area_slug')
-            || $request->attributes->get('member_area_product')
-            || app(MemberAreaResolver::class)->resolve($request) !== null;
         $isCheckout = str_starts_with($path, 'c/')
             || str_starts_with($path, 'checkout')
             || str_starts_with($path, 'api-checkout')
             || str_starts_with($path, 'commerce/checkout');
+        // Checkout: não resolve domínio de membros (evita query extra no caminho crítico).
+        $isMemberArea = ! $isCheckout && (
+            str_starts_with($path, 'm/')
+            || $request->attributes->get('member_area_slug')
+            || $request->attributes->get('member_area_product')
+            || app(MemberAreaResolver::class)->resolve($request) !== null
+        );
         $skipPanelPwa = $isMemberArea || $isCheckout;
         $isPanelContext = $user && $user->canAccessPanel() && ! $isMemberArea && ! $isCheckout;
 

@@ -10,10 +10,29 @@ use App\Models\SubscriptionPlan;
 class CheckoutPaymentMethodsBuilder
 {
     /**
+     * Credenciais conectadas do tenant, indexadas por gateway_slug (uma query).
+     *
+     * @return \Illuminate\Support\Collection<string, GatewayCredential>
+     */
+    public static function connectedCredentialsBySlug(?int $tenantId): \Illuminate\Support\Collection
+    {
+        return GatewayCredential::forTenant($tenantId)
+            ->where('is_connected', true)
+            ->get()
+            ->keyBy('gateway_slug');
+    }
+
+    /**
      * @param  array<string, mixed>  $paymentGateways
+     * @param  \Illuminate\Support\Collection<string, GatewayCredential>|null  $credentialBySlug
      * @return array<int, array{id: string, label: string, gateway_name?: string, gateway_slug?: string}>
      */
-    public static function build(?int $tenantId, array $paymentGateways, ?SubscriptionPlan $plan = null): array
+    public static function build(
+        ?int $tenantId,
+        array $paymentGateways,
+        ?SubscriptionPlan $plan = null,
+        ?\Illuminate\Support\Collection $credentialBySlug = null
+    ): array
     {
         $pg = is_array($paymentGateways) ? $paymentGateways : [];
         $orderRaw = Setting::get('gateway_order', null, $tenantId);
@@ -42,10 +61,7 @@ class CheckoutPaymentMethodsBuilder
             'pix_parcelado' => $order['pix_parcelado'] ?? $defaultOrder['pix_parcelado'] ?? [],
         ];
 
-        $credentialBySlug = GatewayCredential::forTenant($tenantId)
-            ->where('is_connected', true)
-            ->get()
-            ->keyBy('gateway_slug');
+        $credentialBySlug = $credentialBySlug ?? self::connectedCredentialsBySlug($tenantId);
 
         $methods = [];
         $methodConfig = [
