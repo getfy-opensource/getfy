@@ -39,9 +39,11 @@ export function prefetchCajuPaySdk(options = {}) {
         ensureLink('preconnect', 'https://api.cajupay.com.br', { crossorigin: 'anonymous' });
         // Formulário Cartão Brasil (Rinne) carregado pelo SDK após mount/confirm.
         ensureLink('preconnect', 'https://pkgs.rinne.com.br', { crossorigin: 'anonymous' });
+        ensureLink('preconnect', 'https://js.evervault.com', { crossorigin: 'anonymous' });
         ensureLink('dns-prefetch', 'https://cdn.cajupay.com.br');
         ensureLink('dns-prefetch', 'https://api.cajupay.com.br');
         ensureLink('dns-prefetch', 'https://pkgs.rinne.com.br');
+        ensureLink('dns-prefetch', 'https://js.evervault.com');
         if (!document.querySelector('link[data-cajupay-preload]')) {
             const link = document.createElement('link');
             link.rel = 'preload';

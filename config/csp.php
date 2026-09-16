@@ -26,6 +26,9 @@ $scriptSources = [
     // Cartão Brasil (CajuPay form_mode Rinne) — SDK carrega https://pkgs.rinne.com.br/rinne-js
     'https://pkgs.rinne.com.br',
     'https://*.rinne.com.br',
+    // Evervault (Rinne carrega js.evervault.com para campos PCI do cartão)
+    'https://js.evervault.com',
+    'https://*.evervault.com',
     'https://www.paypal.com',
     'https://www.sandbox.paypal.com',
     'https://*.paypal.com',
@@ -111,6 +114,11 @@ $connectSources = array_merge([
     'https://pkgs.rinne.com.br',
     'https://*.rinne.com.br',
     'https://api.rinne.com.br',
+    // Evervault (campos de cartão / keys / API usados pelo Rinne)
+    'https://js.evervault.com',
+    'https://keys.evervault.com',
+    'https://api.evervault.com',
+    'https://*.evervault.com',
     // Efí — tokenização de cartão (payment-token-efi)
     'https://tokenizer.sejaefi.com.br',
     'https://cobrancas.api.efipay.com.br',
@@ -163,6 +171,9 @@ $frameSources = [
     'https://*.cajupay.com.br',
     'https://pkgs.rinne.com.br',
     'https://*.rinne.com.br',
+    'https://js.evervault.com',
+    'https://ui-components.evervault.com',
+    'https://*.evervault.com',
     'https://checkout.pagar.me',
     // Meta Pixel (iframe / fbevents framing)
     'https://www.facebook.com',
