@@ -8,8 +8,8 @@
 
 const SDK_URL = 'https://cdn.cajupay.com.br/sdk/v1/cajupay-sdk.min.js';
 const SDK_BASE_URL = 'https://api.cajupay.com.br';
-/** Bump ao exigir APIs novas do CDN (formulário seguro/3DS, Apple/Google Pay, probeWallet). */
-const SDK_SCRIPT_VERSION = '20260916-card-wallets';
+/** Bump ao exigir APIs novas do CDN (layout stacked, formulário seguro/3DS, wallets). */
+const SDK_SCRIPT_VERSION = '20260916-card-layout-stacked';
 
 let sdkPromise = null;
 
@@ -184,6 +184,9 @@ export async function mountCajuPayCheckout(containerSelector, opts) {
         token: opts.token,
         defaultMethod: opts.defaultMethod || 'card',
         embeddedOnly: true,
+        // Cartão Brasil (Rinne): campos empilhados (nº → validade → CVV → titular).
+        // "inline" = nº|validade|CVV numa linha. Doc módulo 06.
+        cardElementLayout: opts.cardElementLayout || 'stacked',
         // O host controla o priming (1ª confirm) em CajuPaySdkMount — evita corrida em
         // que o SDK monta o botão Google Pay antes de confirm-order no Getfy.
         preparePaymentUIOnMount: false,
