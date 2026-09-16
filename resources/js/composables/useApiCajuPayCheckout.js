@@ -316,6 +316,19 @@ export function useApiCajuPayCheckout(options) {
             }
         } catch (e) {
             const msg = e?.response?.data?.message || e?.message || 'Falha ao processar pagamento.';
+            const code = String(e?.code || e?.error || e?.response?.data?.code || '').toLowerCase();
+            const soft = msg.toLowerCase();
+            if (
+                code === 'authentication_required'
+                || soft.includes('authentication_required')
+                || soft.includes('awaiting_authentication')
+                || soft.includes('requires_action')
+            ) {
+                if (!cajupayPolling.value && cajupayPollingToken.value) {
+                    startCajuPayPolling(cajupayPollingToken.value);
+                }
+                return;
+            }
             cajupayError.value = msg;
             onError({ payment: [msg] });
         } finally {

@@ -3359,6 +3359,21 @@ async function submitCajuPaySdkFlow(paymentMethod) {
         }
     } catch (e) {
         const msg = e?.response?.data?.message || e?.message || 'Falha ao processar pagamento.';
+        const code = String(e?.code || e?.error || e?.response?.data?.code || '').toLowerCase();
+        const soft = msg.toLowerCase();
+        // Doc Caju módulo 06: authentication_required / challenge 3DS é do SDK
+        // (modal do banco + reconfirm). Não tratar como recusa no host.
+        if (
+            code === 'authentication_required'
+            || soft.includes('authentication_required')
+            || soft.includes('awaiting_authentication')
+            || soft.includes('requires_action')
+        ) {
+            if (!cajupayPolling.value) {
+                startCajuPayPolling(cajupayPollingToken.value);
+            }
+            return;
+        }
         cajupayError.value = msg;
         cardFormError.value = msg;
         showCardRefusedModal.value = true;
