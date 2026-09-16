@@ -50,6 +50,31 @@ const needsPriming = computed(() => ['card', 'apple_pay', 'google_pay'].includes
 const isCardMethod = computed(() => props.paymentMethod === 'card');
 const isWalletMethod = computed(() => props.paymentMethod === 'apple_pay' || props.paymentMethod === 'google_pay');
 
+const showWalletPreparing = computed(() => {
+    if (!isWalletMethod.value || !props.sessionToken) {
+        return false;
+    }
+    if (cardFieldReady.value) {
+        return false;
+    }
+    // Spinner durante mount/priming mesmo se ainda há hint antigo de “preencha os dados”.
+    if (loading.value || cardPrimingInFlight.value) {
+        return true;
+    }
+    // Sem erro e ainda sem botão = painel vazio; cobre o gap.
+    return !error.value;
+});
+
+const walletPreparingLabel = computed(() => {
+    if (props.paymentMethod === 'apple_pay') {
+        return 'Carregando Apple Pay…';
+    }
+    if (props.paymentMethod === 'google_pay') {
+        return 'Carregando Google Pay…';
+    }
+    return 'Carregando pagamento…';
+});
+
 function payerForSync() {
     const sync = props.syncPayer && typeof props.syncPayer === 'object' ? props.syncPayer : null;
     const initial = props.initialPayer && typeof props.initialPayer === 'object' ? props.initialPayer : {};
@@ -136,6 +161,7 @@ async function primeCardField() {
     }
 
     cardPrimingInFlight.value = true;
+    error.value = '';
 
     // Sincroniza o payer ANTES da cobrança ser criada no PSP. Sem isso, a 1ª
     // confirm pode falhar com payer_name_required dependendo da config da sessão.
@@ -268,14 +294,29 @@ defineExpose({
 <template>
     <div class="relative w-full min-w-0">
         <!--
-            Container do SDK. Sem min-height (altura vem do widget). Sem texto
-            "Carregando…" — só um pulso discreto enquanto o iframe sobe.
+            Overlay enquanto o botão nativo sobe. O host fica montado com tamanho
+            real por baixo (sem display:none/sr-only) pra o priming do SDK não travar.
         -->
+        <div
+            v-if="showWalletPreparing"
+            class="absolute inset-x-0 top-0 z-10 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600 shadow-sm"
+            role="status"
+            aria-live="polite"
+        >
+            <svg class="h-4 w-4 shrink-0 animate-spin text-gray-500" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" />
+                <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z" />
+            </svg>
+            <span>{{ walletPreparingLabel }}</span>
+        </div>
         <div
             :id="containerId"
             class="cajupay-sdk-host w-full min-w-0 [&_iframe]:max-w-full"
-            :class="{ 'min-h-[8rem] animate-pulse rounded-lg bg-gray-50/80': loading && !error }"
-            :aria-busy="loading"
+            :class="{
+                'min-h-[8rem] animate-pulse rounded-lg bg-gray-50/80': loading && !error && !isWalletMethod,
+                'min-h-[52px]': showWalletPreparing,
+            }"
+            :aria-busy="loading || showWalletPreparing"
         />
         <p v-if="error" class="mt-2 text-sm text-red-600" role="alert">{{ error }}</p>
     </div>
