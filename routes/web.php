@@ -26,6 +26,17 @@ Route::get('/brand/favicon.png', fn () => BrandFavicon::serve())->name('brand.fa
 
 Route::get('/favicon.ico', fn () => BrandFavicon::serve());
 
+// Apple Pay (CajuPay): associação de domínio — público, sem auth/redirect HTML
+Route::get('/.well-known/apple-developer-merchantid-domain-association', function () {
+    $path = public_path('.well-known/apple-developer-merchantid-domain-association');
+    abort_unless(is_readable($path), 404);
+
+    return response()->file($path, [
+        'Content-Type' => 'application/octet-stream',
+        'Cache-Control' => 'public, max-age=86400',
+    ]);
+})->name('well-known.apple-pay');
+
 // PWA Painel: manifest e service worker
 Route::get('/manifest.json', [\App\Http\Controllers\PanelPwaController::class, 'manifest'])->name('panel.pwa.manifest');
 Route::get('/painel-sw.js', function () {

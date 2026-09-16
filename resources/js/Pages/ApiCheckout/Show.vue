@@ -6,7 +6,6 @@ import ConversionPixels from '@/components/checkout/ConversionPixels.vue';
 import CajuPaySdkMount from '@/components/checkout/CajuPaySdkMount.vue';
 import { getMethodCardComponent } from '@/components/checkout/gateways/registry.js';
 import { useApiCajuPayCheckout } from '@/composables/useApiCajuPayCheckout.js';
-import { isIosDevice } from '@/utils/isIosDevice.js';
 import {
     API_CHECKOUT_PAGARME_TOKENIZE_FORM_ID,
     PAGARME_TOKENIZE_FORM_ACTION,
@@ -213,11 +212,8 @@ const visiblePaymentMethods = computed(() => {
     const list = Array.isArray(props.checkout_payment_methods) && props.checkout_payment_methods.length > 0
         ? props.checkout_payment_methods
         : (props.available_methods || []).map((id) => ({ id, label: id, gateway_slug: props.card_gateway_slug }));
-    return list.filter((m) => {
-        if (m.id === 'apple_pay' && !isIosDevice()) return false;
-        if (m.id === 'google_pay' && isIosDevice()) return false;
-        return true;
-    });
+    // Doc Caju 07/09: não filtrar Apple/Google Pay por dispositivo — o botão nativo decide.
+    return list;
 });
 
 const currentMethodEntry = computed(() =>

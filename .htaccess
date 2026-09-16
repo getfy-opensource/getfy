@@ -44,6 +44,9 @@
     # Raiz (/) – redireciona diretamente para /login (evita 404)
     RewriteRule ^/?$ /login [R=302,L]
 
+    # Apple Pay / ACME: servir public/.well-known quando document root é a raiz do projeto
+    RewriteRule ^\.well-known/(.*)$ public/.well-known/$1 [L]
+
     # /storage/* – arquivo local via symlink, se existir
     RewriteCond %{DOCUMENT_ROOT}/public/storage/$1 -f
     RewriteRule ^storage/(.*)$ public/storage/$1 [L]
