@@ -4319,7 +4319,7 @@ function submit() {
                  invisível com largura real pra montar/primar em background. -->
             <div
                 v-if="cajupayPanelKeepAlive || isCajuPaySdkFlow"
-                class="space-y-3 rounded-xl border border-gray-200 bg-white p-3 sm:space-y-4 sm:border-2 sm:border-gray-100 sm:bg-gray-50/50 sm:p-4"
+                class="space-y-2 rounded-xl border border-gray-200 bg-white p-3 sm:space-y-3 sm:border-2 sm:border-gray-100 sm:bg-gray-50/50 sm:p-4"
                 :class="isCajuPaySdkFlow
                     ? 'relative'
                     : 'pointer-events-none fixed left-0 top-0 z-[-1] w-[min(100vw,26rem)] -translate-x-[110%] opacity-0'"

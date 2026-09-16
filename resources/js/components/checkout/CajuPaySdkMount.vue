@@ -273,10 +273,35 @@ defineExpose({
         -->
         <div
             :id="containerId"
-            class="w-full min-w-0 [&_iframe]:max-w-full"
+            class="cajupay-sdk-host w-full min-w-0 [&_iframe]:max-w-full"
             :class="{ 'min-h-[8rem] animate-pulse rounded-lg bg-gray-50/80': loading && !error }"
             :aria-busy="loading"
         />
         <p v-if="error" class="mt-2 text-sm text-red-600" role="alert">{{ error }}</p>
     </div>
 </template>
+
+<style scoped>
+/*
+ * Cartão Brasil (Rinne/Evervault): o SDK injeta min-height:96px no slot/iframe,
+ * maior que a linha número+validade+CVV — sobra um buraco antes do "Nome do Titular".
+ */
+.cajupay-sdk-host :deep(.cjp-rinne) {
+    margin-top: 0;
+}
+.cajupay-sdk-host :deep(.cjp-rinne-slot) {
+    min-height: 0 !important;
+    height: auto !important;
+    padding-top: 0 !important;
+    line-height: 0;
+}
+.cajupay-sdk-host :deep(.cjp-rinne-slot iframe) {
+    /* iframe HTML default = 150px; SDK só seta min-height:96px → buraco enorme */
+    min-height: 0 !important;
+    height: 76px !important;
+    vertical-align: top;
+}
+.cajupay-sdk-host :deep(.cjp-rinne-name) {
+    margin-top: 0.5rem !important;
+}
+</style>
