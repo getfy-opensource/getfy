@@ -15,7 +15,9 @@ class ApplePayWellKnownTest extends TestCase
         $response = $this->get('/.well-known/apple-developer-merchantid-domain-association');
 
         $response->assertOk();
-        $response->assertHeader('Content-Type', 'application/octet-stream');
-        $this->assertMatchesRegularExpression('/^[0-9a-fA-F]+$/', trim((string) file_get_contents($path)));
+        $response->assertHeader('Content-Type', 'text/plain; charset=utf-8');
+        $raw = trim((string) file_get_contents($path));
+        $this->assertMatchesRegularExpression('/^[0-9a-fA-F]+$/', $raw);
+        $this->assertSame($raw, trim($response->getContent()));
     }
 }

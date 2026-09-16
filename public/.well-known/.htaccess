@@ -1,12 +1,13 @@
-# Apple Pay domain association (CajuPay) — Content-Type sem extensão.
+# Apple Pay domain association (CajuPay) — text/plain para abrir no navegador (sem download).
 <IfModule mod_mime.c>
     <Files "apple-developer-merchantid-domain-association">
-        ForceType application/octet-stream
+        ForceType text/plain
     </Files>
 </IfModule>
 <IfModule mod_headers.c>
     <Files "apple-developer-merchantid-domain-association">
-        Header set Content-Type "application/octet-stream"
+        Header set Content-Type "text/plain; charset=utf-8"
         Header set Cache-Control "public, max-age=86400"
+        Header unset Content-Disposition
     </Files>
 </IfModule>

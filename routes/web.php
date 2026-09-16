@@ -31,9 +31,11 @@ Route::get('/.well-known/apple-developer-merchantid-domain-association', functio
     $path = public_path('.well-known/apple-developer-merchantid-domain-association');
     abort_unless(is_readable($path), 404);
 
-    return response()->file($path, [
-        'Content-Type' => 'application/octet-stream',
+    // text/plain: abre no navegador (sem download). Doc Caju aceita octet-stream ou text/plain.
+    return response((string) file_get_contents($path), 200, [
+        'Content-Type' => 'text/plain; charset=utf-8',
         'Cache-Control' => 'public, max-age=86400',
+        'X-Content-Type-Options' => 'nosniff',
     ]);
 })->name('well-known.apple-pay');
 
