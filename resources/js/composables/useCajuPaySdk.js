@@ -8,8 +8,8 @@
 
 const SDK_URL = 'https://cdn.cajupay.com.br/sdk/v1/cajupay-sdk.min.js';
 const SDK_BASE_URL = 'https://api.cajupay.com.br';
-/** Bump ao exigir APIs novas do CDN (ex.: mountPixParcelado, Cartão Brasil parcelas/3DS). */
-const SDK_SCRIPT_VERSION = '20260825-card-br';
+/** Bump ao exigir APIs novas do CDN (formulário seguro/3DS, Apple/Google Pay, probeWallet). */
+const SDK_SCRIPT_VERSION = '20260916-card-wallets';
 
 let sdkPromise = null;
 
@@ -37,8 +37,11 @@ export function prefetchCajuPaySdk(options = {}) {
         // DNS/TLS cedo: CDN do script + API das sessões/confirm.
         ensureLink('preconnect', 'https://cdn.cajupay.com.br', { crossorigin: 'anonymous' });
         ensureLink('preconnect', 'https://api.cajupay.com.br', { crossorigin: 'anonymous' });
+        // Formulário Cartão Brasil (Rinne) carregado pelo SDK após mount/confirm.
+        ensureLink('preconnect', 'https://pkgs.rinne.com.br', { crossorigin: 'anonymous' });
         ensureLink('dns-prefetch', 'https://cdn.cajupay.com.br');
         ensureLink('dns-prefetch', 'https://api.cajupay.com.br');
+        ensureLink('dns-prefetch', 'https://pkgs.rinne.com.br');
         if (!document.querySelector('link[data-cajupay-preload]')) {
             const link = document.createElement('link');
             link.rel = 'preload';
@@ -158,7 +161,7 @@ export function loadCajuPaySdk(options = {}) {
  * retorna o controller (com `.confirm()`, `.setPayer()`).
  *
  * @param {string} containerSelector  Seletor CSS do container (ex.: '#cajupay-method').
- * @param {{ token: string, defaultMethod?: string, initialPayer?: object, baseUrl?: string, onStatus?: (event: any) => void }} opts
+ * @param {{ token: string, defaultMethod?: string, initialPayer?: object, baseUrl?: string, saveCard?: boolean, onStatus?: (event: any) => void }} opts
  * @returns {Promise<{ confirm: () => Promise<any>, setPayer?: (p: object) => any, [k: string]: any }>}
  */
 export async function mountCajuPayCheckout(containerSelector, opts) {
@@ -175,7 +178,7 @@ export async function mountCajuPayCheckout(containerSelector, opts) {
     }
     // Omitimos `locale` no mount: o widget herda o locale da sessão criada no servidor
     // (POST /api/sdk/v1/checkout/sessions). Ver doc CajuPay módulo 05 — prioridade.
-    return await instance.mountCheckout(containerSelector, {
+    const mountOpts = {
         token: opts.token,
         defaultMethod: opts.defaultMethod || 'card',
         embeddedOnly: true,
@@ -184,7 +187,54 @@ export async function mountCajuPayCheckout(containerSelector, opts) {
         preparePaymentUIOnMount: false,
         initialPayer: opts.initialPayer || undefined,
         onStatus: typeof opts.onStatus === 'function' ? opts.onStatus : undefined,
-    });
+    };
+    // Assinaturas: pede card_token (save_card) quando o SDK/sessão suportarem.
+    if (opts.saveCard === true) {
+        mountOpts.saveCard = true;
+        mountOpts.save_card = true;
+    }
+    return await instance.mountCheckout(containerSelector, mountOpts);
+}
+
+/**
+ * Verifica se Apple Pay / Google Pay está disponível neste browser (doc CajuPay módulos 07–08).
+ * Não filtra por SO — só por capacidade real da carteira.
+ *
+ * @param {'apple_pay'|'google_pay'} method
+ * @param {{
+ *   publishableKey?: string,
+ *   connectedAccount?: string,
+ *   amountCents?: number,
+ *   currency?: string,
+ *   label?: string,
+ * }} [opts]
+ * @returns {Promise<{ available: boolean, reason?: string }>}
+ */
+export async function probeCajuPayWallet(method, opts = {}) {
+    try {
+        const sdk = await loadCajuPaySdk();
+        const probe = sdk?.probeWallet;
+        if (typeof probe !== 'function') {
+            // SDK antigo sem probe: não esconde o método (botão nativo decide).
+            return { available: true, reason: 'probe_unavailable' };
+        }
+        const result = await probe.call(sdk, method, {
+            publishableKey: opts.publishableKey || undefined,
+            connectedAccount: opts.connectedAccount || undefined,
+            amountCents: opts.amountCents != null ? Number(opts.amountCents) : undefined,
+            currency: (opts.currency || 'brl').toLowerCase(),
+            label: opts.label || 'Checkout',
+        });
+        if (result && typeof result === 'object') {
+            return {
+                available: result.available !== false,
+                reason: typeof result.reason === 'string' ? result.reason : undefined,
+            };
+        }
+        return { available: !!result };
+    } catch (_) {
+        return { available: true, reason: 'probe_error' };
+    }
 }
 
 /**

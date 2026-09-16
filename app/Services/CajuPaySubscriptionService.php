@@ -138,6 +138,244 @@ class CajuPaySubscriptionService
     }
 
     /**
+     * Assinatura cartão CajuPay (módulo 26 — method: card + card_token).
+     *
+     * @param  array{name: string, email: string, document?: string, phone?: string}  $consumer
+     * @return array{subscription_id: string, correlation_id: string, status: string, card_brand: ?string, card_last4: ?string, raw: array<string, mixed>}
+     */
+    public function createCard(
+        Order $order,
+        SubscriptionPlan $plan,
+        array $consumer,
+        float $amount,
+        string $cardToken,
+        ?string $cardBrand = null,
+        ?string $securityCode = null,
+        ?string $subscriptionName = null,
+        string $currency = 'BRL',
+    ): array {
+        $credentials = $this->credentialsForTenant($order->tenant_id);
+        if (! $credentials) {
+            throw new \RuntimeException('CajuPay não configurada para este tenant.');
+        }
+
+        $cardToken = trim($cardToken);
+        if ($cardToken === '') {
+            throw new \RuntimeException('CajuPay: card_token obrigatório para assinatura com cartão.');
+        }
+
+        $frequency = self::mapFrequency((string) $plan->interval);
+        $name = trim((string) ($subscriptionName ?: ($plan->name ?: 'Assinatura')));
+        if ($name === '') {
+            $name = 'Assinatura';
+        }
+        $name = mb_substr($name, 0, 120);
+        $correlationId = 'order-'.$order->id;
+        $idempotencyKey = 'getfy-sub-'.$order->id.'-card';
+
+        $body = [
+            'method' => 'card',
+            'name' => $name,
+            'value_cents' => MoneyMinorUnits::toMinorUnits($amount, $currency),
+            'frequency' => $frequency,
+            'correlation_id' => $correlationId,
+            'card_token' => $cardToken,
+            'customer' => array_filter([
+                'name' => trim((string) ($consumer['name'] ?? 'Cliente')),
+                'tax_id' => preg_replace('/\D/', '', (string) ($consumer['document'] ?? '')) ?: null,
+                'email' => trim((string) ($consumer['email'] ?? '')),
+                'phone' => $this->normalizePhone((string) ($consumer['phone'] ?? '')),
+            ], static fn ($v) => $v !== null && $v !== ''),
+        ];
+        if (is_string($cardBrand) && trim($cardBrand) !== '') {
+            $body['card_brand'] = trim($cardBrand);
+        }
+        if (is_string($securityCode) && trim($securityCode) !== '') {
+            $body['security_code'] = trim($securityCode);
+        }
+
+        $data = $this->driver()->createSubscription($credentials, $body, $idempotencyKey);
+
+        $subscriptionId = (string) ($data['subscription_id'] ?? $data['id'] ?? '');
+        if ($subscriptionId === '') {
+            throw new \RuntimeException('CajuPay: subscription_id ausente na resposta (cartão).');
+        }
+
+        return [
+            'subscription_id' => $subscriptionId,
+            'correlation_id' => (string) ($data['correlation_id'] ?? $correlationId),
+            'status' => (string) ($data['status'] ?? 'active'),
+            'card_brand' => isset($data['card_brand']) ? (string) $data['card_brand'] : null,
+            'card_last4' => isset($data['card_last4']) ? (string) $data['card_last4'] : null,
+            'raw' => $data,
+        ];
+    }
+
+    /**
+     * Extrai card_token / brand / last4 de payload de webhook ou sessão.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{card_token: ?string, card_brand: ?string, card_last4: ?string}
+     */
+    public static function extractCardTokenPayload(array $payload): array
+    {
+        $candidates = [$payload];
+        foreach (['object', 'data', 'charge', 'payment', 'session'] as $key) {
+            if (isset($payload[$key]) && is_array($payload[$key])) {
+                $candidates[] = $payload[$key];
+            }
+        }
+
+        $token = null;
+        $brand = null;
+        $last4 = null;
+        foreach ($candidates as $row) {
+            foreach (['card_token', 'payment_method_token', 'saved_card_token'] as $tk) {
+                $v = $row[$tk] ?? null;
+                if (is_string($v) && trim($v) !== '') {
+                    $token = trim($v);
+                    break 2;
+                }
+            }
+        }
+        foreach ($candidates as $row) {
+            if ($brand === null) {
+                $b = $row['card_brand'] ?? ($row['brand'] ?? null);
+                if (is_string($b) && trim($b) !== '') {
+                    $brand = trim($b);
+                }
+            }
+            if ($last4 === null) {
+                $l = $row['card_last4'] ?? ($row['last4'] ?? ($row['last_four'] ?? null));
+                if (is_string($l) && trim($l) !== '') {
+                    $last4 = substr(preg_replace('/\D/', '', $l) ?: trim($l), -4);
+                } elseif (is_int($l)) {
+                    $last4 = substr((string) $l, -4);
+                }
+            }
+        }
+
+        return [
+            'card_token' => $token,
+            'card_brand' => $brand,
+            'card_last4' => $last4,
+        ];
+    }
+
+    /**
+     * Persiste card_token no pedido + SavedPaymentMethod e tenta registrar assinatura remota method:card.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public function persistCardTokenAndMaybeCreateRemote(Order $order, array $payload): void
+    {
+        $extracted = self::extractCardTokenPayload($payload);
+        $cardToken = $extracted['card_token'];
+        if ($cardToken === null) {
+            $meta = is_array($order->metadata) ? $order->metadata : [];
+            $fromMeta = trim((string) ($meta['cajupay_card_token'] ?? ''));
+            $cardToken = $fromMeta !== '' ? $fromMeta : null;
+        }
+        if ($cardToken === null) {
+            return;
+        }
+
+        $meta = is_array($order->metadata) ? $order->metadata : [];
+        $meta['cajupay_card_token'] = $cardToken;
+        if ($extracted['card_brand']) {
+            $meta['cajupay_card_brand'] = $extracted['card_brand'];
+        }
+        if ($extracted['card_last4']) {
+            $meta['cajupay_card_last4'] = $extracted['card_last4'];
+        }
+        $order->update(['metadata' => $meta]);
+
+        $saved = null;
+        if ($order->user_id) {
+            $saved = \App\Models\SavedPaymentMethod::query()->firstOrCreate(
+                [
+                    'tenant_id' => $order->tenant_id,
+                    'user_id' => $order->user_id,
+                    'gateway' => 'cajupay',
+                    'gateway_payment_method_id' => $cardToken,
+                ],
+                [
+                    'last_four' => $extracted['card_last4'] ?? ($meta['cajupay_card_last4'] ?? null),
+                    'brand' => $extracted['card_brand'] ?? ($meta['cajupay_card_brand'] ?? null),
+                    'type' => 'card',
+                ]
+            );
+        }
+
+        if (! $order->subscription_plan_id || ! $order->user_id) {
+            return;
+        }
+
+        $plan = $order->subscriptionPlan;
+        if (! $plan || ! self::supportsPlanInterval((string) $plan->interval)) {
+            return;
+        }
+
+        $paymentMethod = strtolower((string) ($meta['checkout_payment_method'] ?? ''));
+        if ($paymentMethod !== '' && ! in_array($paymentMethod, ['card', 'apple_pay', 'google_pay'], true)) {
+            return;
+        }
+
+        // Já tem assinatura remota CajuPay vinculada.
+        $existingSub = Subscription::query()
+            ->where('user_id', $order->user_id)
+            ->where('product_id', $order->product_id)
+            ->where('subscription_plan_id', $plan->id)
+            ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PAST_DUE])
+            ->orderByDesc('id')
+            ->first();
+        if ($existingSub && trim((string) $existingSub->gateway_subscription_id) !== '') {
+            if ($saved && empty($existingSub->saved_payment_method_id)) {
+                $existingSub->update(['saved_payment_method_id' => $saved->id]);
+            }
+
+            return;
+        }
+
+        try {
+            $user = $order->user;
+            $result = $this->createCard(
+                $order,
+                $plan,
+                [
+                    'name' => (string) ($user?->name ?? 'Cliente'),
+                    'email' => (string) ($user?->email ?? ''),
+                    'document' => (string) ($meta['customer_document'] ?? ''),
+                    'phone' => (string) ($meta['customer_phone'] ?? ''),
+                ],
+                (float) $order->amount,
+                $cardToken,
+                $extracted['card_brand'] ?? ($meta['cajupay_card_brand'] ?? null),
+                null,
+                $plan->name,
+                $order->getCurrencyOrDefault()
+            );
+
+            $meta['cajupay_subscription_id'] = $result['subscription_id'];
+            $meta['cajupay_subscription_status'] = $result['status'];
+            $meta['cajupay_subscription_correlation_id'] = $result['correlation_id'];
+            $order->update(['metadata' => $meta]);
+
+            if ($existingSub) {
+                $existingSub->update([
+                    'gateway_subscription_id' => $result['subscription_id'],
+                    'saved_payment_method_id' => $saved?->id ?? $existingSub->saved_payment_method_id,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('CajuPaySubscriptionService: falha ao criar assinatura cartão remota', [
+                'order_id' => $order->id,
+                'message' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function cancelRemote(Subscription $subscription): array

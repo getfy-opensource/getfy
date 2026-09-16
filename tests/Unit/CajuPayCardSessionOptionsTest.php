@@ -71,12 +71,26 @@ class CajuPayCardSessionOptionsTest extends TestCase
             'allow_card_installments' => true,
             'card_max_installments' => 12,
             'require_card_threeds' => true,
+            'save_card' => true,
         ]);
 
         $this->assertSame([
             'allow_card_installments' => true,
             'card_max_installments' => 12,
             'require_card_threeds' => true,
+            'save_card' => true,
         ], $snapshot);
+    }
+
+    #[Test]
+    public function includes_save_card_when_requested(): void
+    {
+        $options = CajuPayCardSessionOptions::fromCheckoutConfig(
+            Product::defaultCheckoutConfig(),
+            'card',
+            true
+        );
+
+        $this->assertTrue($options['save_card']);
     }
 }

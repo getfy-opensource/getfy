@@ -16,10 +16,11 @@ final class CajuPayCardSessionOptions
      * @return array{
      *     allow_card_installments?: bool,
      *     card_max_installments?: int,
-     *     require_card_threeds?: bool
+     *     require_card_threeds?: bool,
+     *     save_card?: bool
      * }
      */
-    public static function fromCheckoutConfig(?array $checkoutConfig, string $paymentMethod): array
+    public static function fromCheckoutConfig(?array $checkoutConfig, string $paymentMethod, bool $saveCard = false): array
     {
         if ($paymentMethod !== 'card') {
             return [];
@@ -47,6 +48,10 @@ final class CajuPayCardSessionOptions
             $options['require_card_threeds'] = true;
         }
 
+        if ($saveCard) {
+            $options['save_card'] = true;
+        }
+
         return $options;
     }
 
@@ -57,7 +62,8 @@ final class CajuPayCardSessionOptions
      * @return array{
      *     allow_card_installments: bool,
      *     card_max_installments: int|null,
-     *     require_card_threeds: bool
+     *     require_card_threeds: bool,
+     *     save_card: bool
      * }
      */
     public static function draftSnapshot(array $cardOptions): array
@@ -68,6 +74,7 @@ final class CajuPayCardSessionOptions
                 ? min(12, max(1, (int) ($cardOptions['card_max_installments'] ?? 1)))
                 : null,
             'require_card_threeds' => ! empty($cardOptions['require_card_threeds']),
+            'save_card' => ! empty($cardOptions['save_card']),
         ];
     }
 }

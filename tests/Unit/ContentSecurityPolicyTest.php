@@ -15,11 +15,14 @@ class ContentSecurityPolicyTest extends TestCase
         $connectSrc = implode(' ', config('csp.connect_src', []));
 
         $this->assertStringContainsString('https://cdn.cajupay.com.br', $scriptSrc);
+        $this->assertStringContainsString('https://pkgs.rinne.com.br', $scriptSrc);
+        $this->assertStringContainsString('https://*.rinne.com.br', $scriptSrc);
         $this->assertStringContainsString('https://cdn.utmify.com.br', $scriptSrc);
         $this->assertStringContainsString('https://challenges.cloudflare.com', $scriptSrc);
         $this->assertStringContainsString('https://www.googleadservices.com', $scriptSrc);
 
         $this->assertStringContainsString('https://api.cajupay.com.br', $connectSrc);
+        $this->assertStringContainsString('https://*.rinne.com.br', $connectSrc);
         $this->assertStringContainsString('https://tokenizer.sejaefi.com.br', $connectSrc);
         $this->assertStringContainsString('https://www.google-analytics.com', $connectSrc);
         $this->assertStringContainsString('https://www.googleadservices.com', $connectSrc);
@@ -51,6 +54,7 @@ class ContentSecurityPolicyTest extends TestCase
         $this->assertStringContainsString("frame-ancestors 'self'", $csp);
         $this->assertStringContainsString('https://cdn.cajupay.com.br', $csp);
         $this->assertStringContainsString('https://api.cajupay.com.br', $csp);
+        $this->assertStringContainsString('https://pkgs.rinne.com.br', $csp);
         $this->assertStringContainsString('https://www.google-analytics.com', $csp);
         $this->assertStringContainsString('https://*.ecs.us-west-2.on.aws', $csp);
         $this->assertStringContainsString('https://www.facebook.com', $csp);

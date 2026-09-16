@@ -22,7 +22,6 @@ import {
     requestPagarmeTokenFromForm,
     resetPagarmeTokenizeScriptState,
 } from '@/composables/usePagarmeTokenizecard.js';
-import { isIosDevice } from '@/utils/isIosDevice.js';
 import { localizePaymentMethods, paymentMethodLabel } from '@/lib/checkoutPaymentMethodLabels';
 import PluginRenderZone from '@/components/plugins/PluginRenderZone.vue';
 
@@ -414,13 +413,12 @@ const showFooterCustom = computed(
     () => footerEnabled.value && (footerLogoUrl.value !== '' || footerText.value !== '' || footerSupportEmail.value !== '')
 );
 
-/** Lista efetiva no checkout: Apple Pay só em iOS; Google Pay só fora de iOS (Android / desktop). */
+/** Lista efetiva no checkout: Apple/Google Pay aparecem juntos quando habilitados no produto.
+ *  Não filtrar por SO nem por probeWallet na lista — a doc CajuPay pede mostrar a opção
+ *  e deixar o botão nativo decidir; probe exige publishableKey/connectedAccount (só após next_action).
+ */
 const checkoutPaymentMethods = computed(() => {
-    const list = Array.isArray(props.availablePaymentMethods) ? props.availablePaymentMethods : [];
-    if (isIosDevice()) {
-        return list.filter((m) => m.id !== 'google_pay');
-    }
-    return list.filter((m) => m.id !== 'apple_pay');
+    return Array.isArray(props.availablePaymentMethods) ? props.availablePaymentMethods : [];
 });
 
 /** Labels dos métodos conforme idioma ativo (checkout_translations). */
@@ -4353,6 +4351,7 @@ function submit() {
                         :sync-payer="cajupaySyncPayer"
                         :before-wallet-prime="beforeCajuPayWalletPrime"
                         :payer-ready-for-prime="cajupayPayerReadyForPrime"
+                        :save-card="Boolean(subscriptionPlanId)"
                         container-id="cajupay-method"
                         @wallet-payment-completed="onCajuPayWalletPaymentCompleted"
                     />

@@ -25,6 +25,6 @@ defineProps({
     </span>
     <div class="min-w-0 flex-1">
         <span class="block font-medium text-gray-900" :class="compact ? 'text-[13px] leading-tight sm:text-sm' : ''">{{ method.label }}</span>
-        <span v-if="!compact" class="block text-xs text-gray-500">Crédito/Débito</span>
+        <span v-if="!compact" class="block text-xs text-gray-500">Crédito</span>
     </div>
 </template>

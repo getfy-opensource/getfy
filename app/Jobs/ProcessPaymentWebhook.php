@@ -13,6 +13,7 @@ use App\Models\GatewayCredential;
 use App\Models\Order;
 use App\Models\Subscription;
 use App\Services\EfiPixRecorrenteService;
+use App\Services\CajuPaySubscriptionService;
 use App\Support\MoneyMinorUnits;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -159,6 +160,36 @@ class ProcessPaymentWebhook implements ShouldQueue
                         } elseif ($this->gatewaySlug === 'cajupay' && ! empty($order->gateway_id) && ($metadata['checkout_payment_method'] ?? '') === 'pix_auto') {
                             $idRec = $order->gateway_id;
                         }
+
+                        if ($this->gatewaySlug === 'cajupay') {
+                            try {
+                                app(CajuPaySubscriptionService::class)->persistCardTokenAndMaybeCreateRemote(
+                                    $order,
+                                    is_array($this->payload) ? $this->payload : []
+                                );
+                                $order->refresh();
+                                $metadata = $order->metadata ?? [];
+                                if (isset($metadata['cajupay_subscription_id']) && is_string($metadata['cajupay_subscription_id'])) {
+                                    $idRec = $metadata['cajupay_subscription_id'];
+                                }
+                            } catch (\Throwable $e) {
+                                Log::debug('ProcessPaymentWebhook: cajupay card_token', [
+                                    'order_id' => $order->id,
+                                    'message' => $e->getMessage(),
+                                ]);
+                            }
+                        }
+
+                        $savedMethodId = null;
+                        if ($this->gatewaySlug === 'cajupay' && ! empty($metadata['cajupay_card_token']) && $order->user_id) {
+                            $saved = \App\Models\SavedPaymentMethod::query()
+                                ->where('user_id', $order->user_id)
+                                ->where('gateway', 'cajupay')
+                                ->where('gateway_payment_method_id', $metadata['cajupay_card_token'])
+                                ->first();
+                            $savedMethodId = $saved?->id;
+                        }
+
                         $subscription = Subscription::create([
                             'tenant_id' => $order->tenant_id,
                             'user_id' => $order->user_id,
@@ -168,6 +199,7 @@ class ProcessPaymentWebhook implements ShouldQueue
                             'current_period_start' => $periodStart,
                             'current_period_end' => $periodEnd,
                             'gateway_subscription_id' => $idRec,
+                            'saved_payment_method_id' => $savedMethodId,
                         ]);
                         event(new SubscriptionCreated($subscription));
 

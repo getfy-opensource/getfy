@@ -89,7 +89,11 @@ class CajuPayApiCheckoutService
                 $productConfig = is_array($offer->product->checkout_config) ? $offer->product->checkout_config : [];
             }
         }
-        $cardOptions = CajuPayCardSessionOptions::fromCheckoutConfig($productConfig, $paymentMethod);
+        $cardOptions = CajuPayCardSessionOptions::fromCheckoutConfig(
+            $productConfig,
+            $paymentMethod,
+            $paymentMethod === 'card' && ! empty($session->subscription_plan_id)
+        );
 
         $driver = GatewayRegistry::driver('cajupay');
         if (! $driver) {

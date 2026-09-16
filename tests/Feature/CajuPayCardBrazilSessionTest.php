@@ -230,6 +230,63 @@ class CajuPayCardBrazilSessionTest extends TestCase
         $this->assertSame('required', $order->metadata['threeds_mode'] ?? null);
     }
 
+    public function test_cajupay_session_sends_save_card_for_subscription_plan(): void
+    {
+        Http::fake([
+            '*/api/sdk/v1/checkout/sessions' => Http::response([
+                'token' => 'tok_save_card',
+                'checkout_session_id' => 'sess-save-card',
+                'methods_available' => ['card'],
+            ], 201),
+            '*/api/sdk/public/checkout/sessions/*' => Http::response([
+                'methods_available' => ['card'],
+            ], 200),
+        ]);
+
+        User::factory()->create([
+            'role' => User::ROLE_INFOPRODUTOR,
+            'tenant_id' => 1,
+        ]);
+
+        $product = $this->createTestProduct([
+            'price' => 99,
+            'billing_type' => Product::BILLING_SUBSCRIPTION,
+            'checkout_config' => array_replace_recursive(Product::defaultCheckoutConfig(), [
+                'payment_gateways' => ['card' => 'cajupay'],
+            ]),
+        ]);
+
+        $plan = \App\Models\SubscriptionPlan::query()->create([
+            'product_id' => $product->id,
+            'name' => 'Mensal',
+            'price' => 99,
+            'interval' => \App\Models\SubscriptionPlan::INTERVAL_MONTHLY,
+            'checkout_slug' => 'plano-save-card-'.uniqid(),
+        ]);
+
+        $this->createCajupayCredential(1);
+
+        $response = $this->postJson(route('checkout.cajupay.session'), [
+            'product_id' => $product->id,
+            'subscription_plan_id' => $plan->id,
+            'payment_method' => 'card',
+            'display_currency' => 'BRL',
+            'billing_country' => 'BR',
+        ]);
+
+        $response->assertOk();
+
+        Http::assertSent(function ($request) {
+            if (! str_contains($request->url(), '/api/sdk/v1/checkout/sessions')) {
+                return false;
+            }
+            $body = $request->data();
+
+            return ($body['allow_card'] ?? null) === true
+                && ($body['save_card'] ?? null) === true;
+        });
+    }
+
     private function createCajupayCredential(int $tenantId): void
     {
         $cred = GatewayCredential::create([

@@ -1,5 +1,5 @@
 # CajuPay — Documentação completa para LLMs
-> Gerado em 2026-08-02T14:14:01.243Z. Não edite à mão — rode `npm run build:llm-docs` no frontend.
+> Gerado em 2026-09-11T12:09:50.438Z. Não edite à mão — rode `npm run build:llm-docs` no frontend.
 > Pacote modular: https://cajupay.com.br/docs/llm/
 ---
 
@@ -18,7 +18,7 @@
 4. **Cartão e wallets exigem HTTPS** na página do checkout em produção; HTTP local costuma falhar (PSP / formulário embed).
 5. **PCI:** PAN/CVV não passam pelo backend do integrador — use o SDK CajuPay (`embeddedOnly`) ou API server-side PIX.
 6. **Rotas tipo `/checkout/cajupay/*` não existem na CajuPay** — o integrador implementa wrappers no próprio backend; a API nativa é `/api/sdk/v1/...` e `/api/payments/pix`.
-7. **Wallets:** filtrar Apple Pay (iOS) vs Google Pay (Android/desktop); passar `defaultMethod` igual ao botão clicado; ocultar botão "Pagar" do host quando wallet estiver selecionada.
+7. **Wallets:** mostrar Apple Pay e Google Pay juntos em qualquer dispositivo quando o link/sessão tiver os dois flags; passar `defaultMethod` igual ao botão clicado; ocultar botão "Pagar" do host quando wallet estiver selecionada.
 8. Ao gerar código, inclua tratamento de `methods_available`, webhooks HMAC e materialização de pedido **antes** do webhook de pagamento aprovado.
 9. **PIX:** webhook outbound + job de reconciliação em background (`GET /api/payments` no servidor, ~1–2 min) — módulo **21**.
 10. **Telefone em PIX:** inclua `consumer.phone` (E.164) por padrão em `POST /api/payments/pix` — necessário para SMS de Recovery/Acesso; alias `payer_phone` na raiz.
@@ -95,8 +95,9 @@ Não use rotas fictícias; mapeie session-first no meu backend.
 
 1. Adote **session-first**: criar sessão CajuPay antes de persistir pedido no DB do integrador.
 2. O integrador implementa **draft + confirm-order** no próprio backend — não são rotas da CajuPay.
-3. Guarde `checkout_session_id` como `gateway_id` do pedido **antes** do pagamento concluir.
-4. Separe trilha PIX (API) de trilha SDK (cartão/wallets).
+3. Guarde `checkout_session_id` como `gateway_id` do pedido **antes** do pagamento concluir — e **não** troque depois pelo `charge_id`.
+4. Trate a corrida webhook×confirm-order: **buffer** de `checkout.payment.paid` se o pedido ainda não existir (módulo 11).
+5. Separe trilha PIX (API) de trilha SDK (cartão/wallets).
 
 ## Quando usar este módulo
 
@@ -752,10 +753,140 @@ Valide `methods_available` via `GET .../sessions/{token}` **antes** do mount.
 1. Fluxo: sessão → mount → priming → materializar pedido → `setPayer` → 2ª `confirm()` no botão do host.
 2. HTTPS obrigatório em produção.
 3. Mantenha **Cartão** visível como fallback quando wallets estiverem na mesma página.
+4. **Nunca** mencione nomes de adquirentes/processadores internos (marque branca). Fale em “Cartão Brasil”, “formulário seguro CajuPay” ou “token de cartão”.
+5. **Uma integração.** O admin define o processador de cartão de cada seller. O integrador usa sempre o SDK oficial (`mountCheckout`). Não ramifique por `form_mode`, não monte formulário próprio e não implemente 3DS. O mesmo código funciona para qualquer seller.
+6. Cartão Brasil no embed: **só crédito**; **não** invente seletor débito nem toggle de 3DS no comprador. 3DS é aberto pelo SDK quando a política ou o banco exige. Parcelamento de cartão ≠ Pix Parcelado.
 
 ## Quando usar este módulo
 
 Pagamento com cartão digitado no checkout embutido do parceiro.
+
+Há dois trilhos públicos (não misturar no mesmo botão):
+
+| Método na sessão | Uso |
+|------------------|-----|
+| `allow_card` / `defaultMethod: "card"` | **Cartão Brasil** — BRL, formulário seguro CajuPay (tokenização no browser). Liquidação na rede BR. |
+| `allow_stripe_card` / wallets | Cartão/wallets via chaves do lojista (Caju Global) — ver também módulos de Apple/Google Pay. |
+
+**Cartão Brasil (fase atual):**
+
+- Sempre **crédito** no checkout embutido (`payment_type: "credit"`). Não há seletor crédito/débito para o comprador (cartões BR dual não permitem auto-detect confiável).
+- À vista ou **parcelado sem juros ao comprador** (ver seção Parcelamento).
+- `save_card` gera `card_token` para cobranças futuras (assinaturas).
+- **EMV 3DS** é política de plataforma + lojista no link — o comprador **nunca** liga/desliga 3DS (ver seção 3DS). O SDK abre o challenge; o integrador não coleta CAVV/ECI.
+- Em produção **não** envie número de cartão (PAN) à API — só `payment_token` do formulário seguro (SDK) ou `card_token` salvo.
+- **Não escolha o processador.** Quem define se o seller usa um processador ou outro é o admin. Integre uma vez com o SDK.
+
+Não confundir com **Pix Parcelado** (`product_ref=pix_parcelado` / módulo `24-pix-parcelado`) — produto distinto.
+
+## Parcelamento (Cartão Brasil)
+
+Sem juros ao comprador: o total é dividido em N parcelas iguais. Taxa extra do lojista (`instalment_fee_bps`) quando `N > 1` (fees da conta).
+
+| Camada | Campos / regras |
+|--------|-----------------|
+| **Admin plataforma** | Habilita parcelamento; `max_installments`; `min_installment_amount_cents` (piso por parcela, default R$ 5,00). |
+| **Link de pagamento** | `allow_card_installments`, `card_max_installments` (teto deste link ≤ plataforma). |
+| **Checkout / confirm** | Seletor no SDK quando há ≥2 opções; envie `installments` (1..N). |
+
+**API:**
+
+- Create charge pode devolver `installment_options: [{ installments, installment_amount_cents, label }, ...]`.
+- `GET /v1/card/installment-options?amount_cents=9900` (+ opcional `max_installments` do link).
+- `N = min(max plataforma, max do link se houver)` e `amount/N >= min_installment_amount_cents`.
+- Erro `invalid_installments` (422) se N fora das opções.
+- Sempre crédito: parcelamento só no trilho credit; não existe “débito parcelado” no checkout atual.
+
+**Criar link (exemplo):**
+
+```json
+{
+  "amount_cents": 9900,
+  "currency": "BRL",
+  "allow_card": true,
+  "allow_card_installments": true,
+  "card_max_installments": 6
+}
+```
+
+## 3DS (EMV) — Cartão Brasil
+
+Política em duas camadas. O checkout só recebe modo efetivo `off` ou `required` (nunca `optional` no browser).
+
+| Admin plataforma `threeds_mode` | Efeito |
+|---------------------------------|--------|
+| `off` | Nenhum checkout **força** 3DS na 1ª tentativa. O SDK ainda pode fazer **step-up** após soft decline. |
+| `optional` | O **seller** escolhe por link com `require_card_threeds: true`. Sem o flag, efetivo = `off` (com step-up possível). |
+| `required` | Todos os checkouts de cartão exigem 3DS na 1ª tentativa (ignora o flag do link). |
+
+| Quem | O que faz |
+|------|-----------|
+| Plataforma (admin) | Define o processador do seller e `threeds_mode`. |
+| Seller (link / wizard) | Se plataforma = `optional`, marca `require_card_threeds` no link. |
+| Comprador | **Não** vê toggle de 3DS. Se o banco exigir, o SDK abre o challenge em modal. |
+| Integrador | **Não** implementa 3DS. Não envie `external_authentication`. Não monte iframe de autenticação. |
+
+Resposta pública / next_action inclui `threeds_mode: "off" | "required"`. O SDK decide quando autenticar e reenvia o confirm. Sem autenticação quando exigida → `authentication_required` (o SDK trata; não invente UI).
+
+### Challenge vs step-up
+
+1. **Pré-auth (`required`)**: o SDK autentica **antes** do 1º `confirm-card` e abre o challenge do banco em modal quando necessário.
+2. **Step-up (pós-decline)**: se a 1ª tentativa puder ser recuperada (`authentication_required` ou soft decline), o SDK pede a autenticação **uma vez** e confirma de novo. `PaymentToken` é de uso único — o SDK cuida disso.
+3. Cartão não elegível / falha de challenge → erro white-label (sem nome de processador); sem loop infinito.
+
+```json
+{
+  "allow_card": true,
+  "require_card_threeds": true
+}
+```
+
+**Não faça DIY de 3DS nem de formulário de cartão.** Formulário próprio e autenticação manual só cobrem parte das contas e quebram quando o admin troca o processador do seller. O caminho suportado — que funciona para qualquer seller — é o SDK oficial.
+
+**Bundle:** após alterar o SDK, rebuild (`bun build` do `cdn-entry` + alias) e publique `cajupay-sdk.min.js` no CDN versionado.
+
+## Sandbox / chaves de teste (Cartão Brasil)
+
+Para testar no **HTTPS de produção do seller** (ou HTTP em staging) sem liquidar saldo real:
+
+1. Crie uma API Key de teste no painel (`livemode: false`) → prefixos `gpk_test_` / `gsk_test_`.
+2. Use essas chaves em `X-API-Key` / `X-API-Secret` ao criar sessão SDK ou payment link.
+3. O checkout devolve `livemode: false`, `form_environment: "sandbox"` e o SDK mostra banner de teste.
+4. **HTTP:** chave de teste permite cartão digitado em `http://` (CORS público do SDK também reflete origins HTTP). Chave **live** exige HTTPS no confirm (`insecure_origin`). Wallets continuam exigindo HTTPS. Turnstile no confirm de cartão está **desligado** por enquanto.
+5. **Nunca** libere pedido/produto real sem `livemode: true` no webhook/resposta.
+6. Chave **live** (`gpk_` / `gsk_`) **não** pode forçar sandbox via body — rejeitado.
+
+### Cartões de teste (sandbox)
+
+Use **somente** com chave de teste (`gpk_test_` / `gsk_test_`) / `form_environment: "sandbox"` / banner “Pagamento de teste” no SDK.
+
+No sandbox o meio é o **Simulado**: o resultado depende do **último dígito** do PAN (não de “limite real”).
+
+| Final do número | Resultado típico |
+|-----------------|------------------|
+| **0, 1 ou 4** | Aprovado |
+| **2, 3, 5, 6, 7, 8** | Recusado (proposital) |
+| **9** | Aleatório |
+
+Exemplos:
+
+| Número | Uso típico |
+|--------|------------|
+| `4000000000002701` | Autorização aprovada (termina em **1**) |
+| `4000000000000010` | Também termina em **0** → tende a aprovar no Simulado |
+| PAN que termina em **2** (ex. muitos cartões “Stripe-like”) | Recusa — **não** use para teste feliz |
+
+CVV e validade: qualquer futuro válido (ex. `123`, `12/30` ou `12/2030`). Nome do titular: letras (o SDK normaliza acentos).
+
+Os números de sandbox acima valem para contas no simulador por último dígito. Em outras contas de teste o admin pode exigir PANs específicos de 3DS (ex. `4242 4242 4242 4242` para challenge e `4111 1101 1663 8870` para frictionless; valor terminando em `00` tende a aprovar). **Não ramifique o código** — use o SDK; só o cartão de teste muda conforme a conta.
+
+**Validade no SDK:** digite `MM/AA`; o SDK expande para `MM/AAAA` na tokenização.
+
+Não confundir sandbox de cartão com Pix Parcelado.
+
+### Webhook × pedido (não perder o paid)
+
+O `checkout.payment.paid` pode chegar **antes** do seu `confirm-order` criar o pedido. Se o host responder 200 sem bufferizar, a CajuPay não reenvia e o pedido fica `pending`. Padrão obrigatório: **buffer + apply no confirm-order + retry** — detalhes no módulo **11**.
 
 ## Fluxo completo (sequência)
 
@@ -768,7 +899,7 @@ Pagamento com cartão digitado no checkout embutido do parceiro.
 6. Pagador clica "Pagar com cartão" (botão DO HOST — visível)
 7. POST seu-backend/cajupay/confirm-order → pedido pending, gateway_id = checkout_session_id
 8. setPayer({ name, email, document })
-9. 2ª confirm() → cobrança
+9. 2ª confirm() → cobrança (formulário seguro + anti-bot se habilitado)
 10. Webhook checkout.payment.paid + polling fallback
 11. Redirecionar obrigado / liberar produto
 ```
@@ -817,6 +948,7 @@ document.getElementById("btn-pay-card").addEventListener("click", async () => {
 
 ## Sessão — body servidor
 
+Para **Cartão Brasil**, use `currency: "BRL"` e `allow_card: true`.
 Para vendas internacionais, envie `currency` ISO 4217 (`USD`, `EUR`, …) na moeda de vitrine. Lojistas BR: a cobrança é liquidada em BRL (conversão automática via PTAX BCB); API/webhook retornam vitrine + `settlement_*`. Ver módulo `20-multi-currency`. Conversão no checkout hospedado (roadmap) exige fluxo diferente — hoje o formulário embutido usa conversão no servidor.
 
 ```json
@@ -867,9 +999,11 @@ A vitrine coincide com a moeda de liquidação na conta conectada (ex.: `MZN` di
 
 | Ambiente | Resultado esperado |
 |----------|-------------------|
-| `http://localhost` | Formulário embed do SDK frequentemente **falha** |
+| `http://localhost` | OK (contexto seguro do browser) |
+| `http://staging…` + chave **teste** (`gpk_test_`) | Cartão digitado permitido (como Stripe test); wallets não |
+| `http://…` + chave **live** | Bloqueado (`https_required` / `insecure_origin`) |
 | ngrok / Cloudflare Tunnel HTTPS | Comportamento próximo de produção |
-| Produção `https://checkout.loja.com` | Obrigatório |
+| Produção `https://checkout.loja.com` | Obrigatório para live |
 
 ## onStatus — fases úteis
 
@@ -896,6 +1030,155 @@ A vitrine coincide com a moeda de liquidação na conta conectada (ex.: `MZN` di
 - [ ] Pedido materializado antes da 2ª `confirm`
 - [ ] HTTPS em produção
 - [ ] Webhook `checkout.payment.paid` (módulo 11)
+- [ ] Cartão Brasil: apenas BRL; sem PAN na API em produção
+- [ ] Parcelamento: respeitar `installment_options` / caps do link
+- [ ] 3DS: não inventar UI de toggle/challenge próprio; o SDK abre o modal do banco; não envie `external_authentication`
+- [ ] Não ramificar por `form_mode` nem por processador; o admin escolhe o processador do seller
+
+## API merchant — tokenização sem SDK (Cartão Brasil)
+
+Use este caminho quando o parceiro **não** quiser o `CajuPaySDK` completo, mas ainda precisa de checkout com cartão.
+
+**Regras:**
+
+- Em **produção** a API **rejeita PAN cru** (`raw_card_not_allowed`). Só `payment_token` (formulário seguro) ou `card_token` (cartão já salvo).
+- O número do cartão **nunca** deve passar pelo servidor do parceiro.
+- Autenticação: `X-API-Key` + `X-API-Secret` + header `Idempotency-Key` (UUID único por tentativa de create).
+- Base: `https://api.cajupay.com.br` (rotas `/v1/card/...`). Conta precisa estar habilitada para Cartão Brasil (`can_charge`).
+
+### Sequência
+
+```
+1. Servidor: POST /v1/card/charges          → status requires_payment_method + form_access_token
+2. Browser:  formulário seguro + access token → payment_token (+ card_token se save)
+3. Servidor: POST /v1/card/charges/{id}/confirm  { payment_token, save_card? }
+4. Status terminal: succeeded | authorized | failed | …
+5. (Opcional) cobranças futuras: POST /v1/card/charges já com card_token
+```
+
+### 1) Criar cobrança (servidor)
+
+```http
+POST /v1/card/charges
+X-API-Key: pk_...
+X-API-Secret: sk_...
+Idempotency-Key: 8f3c2a1b-....
+Content-Type: application/json
+```
+
+```json
+{
+  "amount": 9900,
+  "currency": "BRL",
+  "payment_type": "credit",
+  "installments": 1,
+  "description": "Pedido #123",
+  "customer": {
+    "name": "Cliente Exemplo",
+    "email": "cliente@loja.com",
+    "document": "11144477735"
+  },
+  "metadata": { "order_id": "123" }
+}
+```
+
+Resposta típica (sem método de pagamento ainda):
+
+```json
+{
+  "id": "charge_uuid",
+  "status": "requires_payment_method",
+  "amount_cents": 9900,
+  "currency": "brl",
+  "payment_type": "credit",
+  "requires_action": "collect_payment_method",
+  "form_mode": "secure",
+  "form_access_token": "<token_curto>",
+  "form_environment": "production",
+  "card_form_token": "<mesmo_token>",
+  "client_secret": "charge_uuid",
+  "installment_options": [
+    { "installments": 1, "installment_amount_cents": 9900, "label": "1x à vista" },
+    { "installments": 2, "installment_amount_cents": 4950, "label": "2x de R$ 49.50" },
+    { "installments": 3, "installment_amount_cents": 3300, "label": "3x de R$ 33.00" }
+  ]
+}
+```
+
+| Campo | Uso |
+|-------|-----|
+| `id` | ID da cobrança (`confirm` / `GET`) |
+| `form_access_token` | Token do formulário seguro no browser (expira; não logar em claro) |
+| `form_environment` | `sandbox` ou `production` — escolhe o script do formulário |
+| `form_mode` | Campo **interno do SDK**. Ignore. Não ramifique. Valores opacos (`secure`, `sop`, `stripe`). |
+| `installment_options` | Opções de parcelamento (sem juros); omitido se só 1x |
+| `threeds_mode` | Em fluxos de link/sessão: `off` ou `required` (efetivo). O SDK autentica quando necessário. |
+
+**Consultar opções:** `GET /v1/card/installment-options?amount_cents=9900` (auth merchant). Checkout é sempre crédito. No confirm envie `installments` (1..N); erro `invalid_installments` se inválido.
+
+Token avulso (sem criar charge): `POST /v1/card/form/access-token` → `{ "form_access_token", "environment", "expires_in?" }`. No fluxo normal o create já devolve o token.
+
+### 2) Tokenizar no browser (só via SDK)
+
+**Caminho suportado:** `CajuPaySDK.mountCheckout` com `embeddedOnly: true`. O SDK lê `form_mode` internamente e monta o formulário certo daquela conta. Você não carrega script de cartão, não desenha os campos de PAN/CVV e não implementa 3DS.
+
+O create da cobrança devolve `payment_token` / `form_access_token` para o SDK. Não logue esses valores. O `PaymentToken` resultante é de **uso único**. Não armazene PAN; no máximo guarde `card_token` depois do confirm com `save_card`.
+
+Não monte um formulário próprio. Isso só cobre parte das contas e quebra quando o admin muda o processador do seller.
+
+### 3) Confirmar cobrança (servidor)
+
+```http
+POST /v1/card/charges/{id}/confirm
+X-API-Key: pk_...
+X-API-Secret: sk_...
+Content-Type: application/json
+```
+
+```json
+{
+  "payment_token": "<PaymentToken do browser>",
+  "installments": 3,
+  "save_card": true,
+  "brand": "Visa",
+  "customer": {
+    "name": "Cliente Exemplo",
+    "email": "cliente@loja.com",
+    "document": "11144477735"
+  }
+}
+```
+
+Sucesso típico: `status` = `succeeded` (captura automática) ou `authorized` (se `capture: false` no create). Com `save_card: true`, a resposta pode incluir `card_token` para recorrência. Parcelamento sem juros: o total é dividido; `installments` deve estar em `installment_options` / `GET /v1/card/installment-options`. **Não envie `external_authentication`.** O SDK trata o 3DS e reconfirma sozinho.
+
+### 4) Cobrança com cartão já salvo
+
+```json
+POST /v1/card/charges
+{
+  "amount": 9900,
+  "currency": "BRL",
+  "payment_type": "credit",
+  "card_token": "<card_token_salvo>",
+  "customer": { "name": "...", "email": "...", "document": "..." }
+}
+```
+
+Se a cobrança já autorizar no create (token presente), o confirm pode ser desnecessário. Caso venha `requires_payment_method`, confirme como acima.
+
+### Consulta e erros
+
+- `GET /v1/card/charges/{id}` — status / `failure_code` / `failure_message`
+- Códigos públicos frequentes: `card_declined`, `raw_card_not_allowed`, `form_token_unavailable`, `payment_method_required`, `authentication_required`, `card_provider_unavailable`
+
+### Checklist API sem SDK
+
+- [ ] Create **sem** PAN; só dados do pedido + customer
+- [ ] Tokenização **só no browser** com `form_access_token`
+- [ ] Confirm com `payment_token` (produção)
+- [ ] `save_card` / `card_token` para assinaturas
+- [ ] HTTPS + não logar `form_access_token` / `payment_token`
+- [ ] Idempotency-Key único no create
 
 ---
 
@@ -906,29 +1189,24 @@ A vitrine coincide com a moeda de liquidação na conta conectada (ex.: `MZN` di
 
 ## INSTRUÇÕES PARA O MODELO
 
-1. Mostrar Apple Pay **somente** em dispositivos iOS (iPhone/iPad) — ver módulo 09.
+1. Mostrar Apple Pay em qualquer dispositivo quando `allow_apple_pay` estiver ligado. Não filtrar por iPhone.
 2. **Oculte** o botão "Pagar" do host — o SDK renderiza o botão nativo Apple Pay.
 3. Materialize o pedido no host **antes** da 1ª `confirm()` (priming).
 4. `defaultMethod: "apple_pay"` — slug com underscore.
-5. HTTPS + domínio do checkout registrado na conta conectada.
+5. HTTPS na página de checkout. O botão nativo só aparece quando o aparelho e o domínio suportam Apple Pay; caso contrário, ofereça cartão.
 
 ## Quando usar este módulo
 
 Checkout embed com Apple Pay em ecossistema Apple.
 
-## Dispositivos suportados (UX)
+## Visibilidade
 
-| Mostrar Apple Pay | Ocultar |
-|-------------------|---------|
-| iPhone, iPad, iPod | Google Pay |
-| iPadOS 13+ com UA desktop (`MacIntel` + `maxTouchPoints > 1`) | Google Pay |
-
-**Nota:** Apple Pay no Mac Safari com Wallet configurado pode funcionar tecnicamente, mas o padrão recomendado do host é **não** tratar Mac como iOS — ofereça Cartão ou Google Pay no desktop.
+Mostre Apple Pay junto com Google Pay e Cartão em qualquer aparelho, se o seller ligou esses métodos. O botão nativo só conclui o pagamento quando o navegador e a carteira suportam; não esconda a opção por user-agent.
 
 ## Fluxo wallet
 
 ```
-1. Pagador seleciona Apple Pay (botão já filtrado por isIosDevice)
+1. Pagador seleciona Apple Pay (a opção aparece em qualquer dispositivo)
 2. POST seu-backend/cajupay/session (allow_card: true, allow_apple_pay: true)
 3. Validar methods_available inclui apple_pay
 4. mountCheckout(..., defaultMethod: "apple_pay")
@@ -978,7 +1256,9 @@ await controller.confirm(); // priming — botão Apple Pay aparece
 
 O botão nativo Apple Pay e mensagens do SDK no slot seguem o mesmo `locale` do embed (cartão + wallet compartilham configuração — módulo 05). Não existe locale separado para wallet.
 
-Wallets implicam `allow_card: true` na CajuPay mesmo que você envie só Apple Pay — necessário para fallback se a wallet falhar.
+Uma integração só. Apple Pay é um meio próprio: envie `allow_apple_pay: true` na sessão ou no link. Não depende de `allow_card` nem de um segundo endpoint. O admin libera o cartão para a conta poder cobrar Apple Pay. A taxa é a da conta (`apple_pay`; se não houver, a do cartão) — global e por seller. Challenge 3DS, quando ocorrer, é o mesmo do cartão.
+
+Wallets implicam `allow_card: true` — necessário para fallback se a wallet falhar.
 
 ## probeWallet (opcional, recomendado)
 
@@ -995,9 +1275,9 @@ if (!probe.available) hideApplePayButton(probe.reason);
 
 Razões: `insecure_context`, `no_wallet_in_browser`, `wallet_not_in_can_make_payment`, `dom_unavailable`.
 
-## Domínio do checkout
+## HTTPS
 
-O SDK envia `X-CajuPay-Checkout-Host` (hostname da página). A API registra o domínio na conta conectada do processador para Payment Request. Sem verificação, `canMakePayment` pode falhar.
+A página precisa ser HTTPS. Se o botão nativo não aparecer, caia para cartão. Não implemente associação de domínio no integrador.
 
 ## Erros comuns
 
@@ -1005,16 +1285,17 @@ O SDK envia `X-CajuPay-Checkout-Host` (hostname da página). A API registra o do
 |----------|----------|
 | Dois botões de pagar | Ocultar submit do host |
 | Formulário de cartão em vez de Apple Pay | `defaultMethod: "apple_pay"` |
-| Apple Pay no Android | Filtrar com `isIosDevice()` |
+| Apple Pay escondido no Android | Não filtrar por dispositivo; mostre a opção e deixe o botão nativo decidir |
 | Webhook sem pedido | confirm-order antes do priming |
 
 ## Checklist
 
-- [ ] Só exibir em iOS (módulo 09)
+- [ ] Exibir em qualquer dispositivo quando `allow_apple_pay` estiver ligado
 - [ ] Botão Pagar do host **oculto**
 - [ ] `defaultMethod: "apple_pay"`
 - [ ] Pedido antes do priming
-- [ ] HTTPS + domínio verificado
+- [ ] HTTPS
+- [ ] Não criar integração extra de wallet; o SDK oficial monta o botão
 
 ---
 
@@ -1025,7 +1306,7 @@ O SDK envia `X-CajuPay-Checkout-Host` (hostname da página). A API registra o do
 
 ## INSTRUÇÕES PARA O MODELO
 
-1. Mostrar Google Pay em **Android** e **desktop** (Chrome, Edge) — **não** em iOS.
+1. Mostrar Google Pay em qualquer dispositivo quando `allow_google_pay` estiver ligado. Não filtrar por Android.
 2. **Oculte** o botão "Pagar" do host quando Google Pay estiver selecionado.
 3. `defaultMethod: "google_pay"` (com underscore).
 4. Use `probeWallet` antes de exibir o botão na UI.
@@ -1035,19 +1316,14 @@ O SDK envia `X-CajuPay-Checkout-Host` (hostname da página). A API registra o do
 
 Checkout embed com Google Pay fora do ecossistema iOS.
 
-## Dispositivos suportados (UX)
+## Visibilidade
 
-| Mostrar Google Pay | Ocultar |
-|--------------------|---------|
-| Android | Apple Pay |
-| Windows / Mac / Linux — Chrome, Edge, Chromium | Apple Pay |
-
-Safari no Mac **não** é o alvo principal do Google Pay neste padrão — ofereça Cartão.
+Mostre Google Pay junto com Apple Pay e Cartão em qualquer aparelho, se o seller ligou esses métodos. Não esconda a opção no iPhone. O botão nativo só conclui quando o navegador suporta.
 
 ## Fluxo (igual Apple Pay, método diferente)
 
 ```
-1. Pagador seleciona Google Pay (lista já filtrada — sem iOS)
+1. Pagador seleciona Google Pay (a opção aparece em qualquer dispositivo)
 2. POST session com allow_google_pay: true, allow_card: true
 3. Validar "google_pay" em methods_available
 4. mountCheckout(..., defaultMethod: "google_pay")
@@ -1096,6 +1372,10 @@ async function shouldShowGooglePay(nextAction) {
 
 Obtenha `publishableKey` e `connectedAccount` após primeiro `confirm` ou de `next_action` da sessão pública.
 
+## Disponibilidade e taxa
+
+Uma integração só. Google Pay é um meio próprio: envie `allow_google_pay: true` na sessão ou no link. Não depende de `allow_card`. O admin libera o cartão para a conta poder cobrar Google Pay. A taxa é a da conta (`google_pay`; se não houver, a do cartão), global e por seller. Cartão salvo no Google pode pedir o mesmo challenge 3DS do cartão.
+
 ## Sessão servidor
 
 ```json
@@ -1129,12 +1409,12 @@ Google Pay não está disponível para esta conta no momento. Use Cartão.
 | Problema | Correção |
 |----------|----------|
 | Clicou Google Pay, viu cartão | `defaultMethod: "google_pay"` |
-| `method_not_available` no confirm | Conta sem wallet / taxas / KYC cartão |
-| Google Pay no iPhone | Filtrar com `isIosDevice()` |
+| `method_not_available` no confirm | Cartão ainda não liberado para a conta |
+| Google Pay escondido no iPhone | Não filtrar por dispositivo; mostre a opção e deixe o botão nativo decidir |
 
 ## Checklist
 
-- [ ] Ocultar em iOS
+- [ ] Exibir em qualquer dispositivo quando `allow_google_pay` estiver ligado
 - [ ] `probeWallet` antes do botão na lista de métodos
 - [ ] Botão Pagar do host oculto
 - [ ] confirm-order antes do priming
@@ -1145,111 +1425,49 @@ Google Pay não está disponível para esta conta no momento. Use Cartão.
 <!-- module: 09-wallets-device-detection -->
 
 
-# Detecção de dispositivo (Apple Pay vs Google Pay)
+# Apple Pay e Google Pay em qualquer dispositivo
 
 ## INSTRUÇÕES PARA O MODELO
 
-1. **Nunca** mostre Apple Pay e Google Pay ao mesmo tempo na lista de métodos.
-2. iOS → só Apple Pay (+ Cartão). Não-iOS → só Google Pay (+ Cartão).
-3. Combine detecção de UA com `probeWallet` antes de exibir o botão.
+1. **Não** filtre Apple Pay por iPhone nem Google Pay por Android.
+2. Se o link ou a sessão tiver os dois flags, mostre as duas opções em qualquer aparelho, junto com Cartão quando estiver ligado.
+3. O botão nativo decide se a carteira está disponível. Se não estiver, ofereça Cartão. Não esconda a opção pelo user-agent.
 
 ## Quando usar este módulo
 
-Qualquer checkout que ofereça ambas as wallets.
+Qualquer checkout que ofereça Apple Pay e/ou Google Pay.
 
 ## Regra de visibilidade
 
-| Ambiente | Mostrar | Ocultar |
-|----------|---------|---------|
-| iPhone / iPad / iPod / iPadOS desktop UA | **Apple Pay** | Google Pay |
-| Android, Windows, Mac, Linux (Chrome, etc.) | **Google Pay** | Apple Pay |
-| Todos | **Cartão** (fallback) | — |
+| Método ligado no link | O que mostrar |
+|-----------------------|---------------|
+| `allow_apple_pay` | Apple Pay em iPhone, Android, desktop e tablet |
+| `allow_google_pay` | Google Pay em iPhone, Android, desktop e tablet |
+| `allow_card` | Cartão, independente das wallets |
 
-## isIosDevice() — copiar
+Não use `isIosDevice()` para esconder uma wallet da outra.
 
-```javascript
-export function isIosDevice() {
-  const ua = navigator.userAgent || "";
-  if (/iPhone|iPod|iPad/i.test(ua)) return true;
-  // iPadOS 13+ "Request Desktop Website"
-  if (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) return true;
-  return false; // Mac Safari com Apple Pay NÃO entra nesta regra por padrão
-}
-```
-
-## Filtrar métodos no checkout
+## Fluxo
 
 ```javascript
-function filterPaymentMethodsForDevice(allMethods) {
-  // allMethods: [{ id: "card" }, { id: "apple_pay" }, { id: "google_pay" }, ...]
-  if (isIosDevice()) {
-    return allMethods.filter((m) => m.id !== "google_pay");
-  }
-  return allMethods.filter((m) => m.id !== "apple_pay");
+function visibleWalletMethods(methodsAvailable) {
+  // methods_available já vem filtrado pelo que o seller ligou.
+  // Não remova apple_pay no Android nem google_pay no iPhone.
+  return methodsAvailable.filter((m) => m !== "stripe");
 }
 ```
 
-## Fluxo recomendado na UI
+## Quando o botão nativo não abre
 
-```mermaid
-flowchart TD
-  start[ListaMetodosConta] --> filter[filterPaymentMethodsForDevice]
-  filter --> ios{iOS?}
-  ios -->|sim| showAP[Mostrar ApplePay + Card]
-  ios -->|nao| showGP[Mostrar GooglePay + Card]
-  showAP --> probeAP[probeWallet apple_pay]
-  showGP --> probeGP[probeWallet google_pay]
-  probeAP --> uiAP[Botao Apple Pay se available]
-  probeGP --> uiGP[Botao Google Pay se available]
-```
-
-## Botão Pagar do host
-
-```javascript
-function isWalletSdkMethod(method) {
-  return method === "apple_pay" || method === "google_pay";
-}
-
-function onMethodSelected(method) {
-  document.getElementById("btn-pay-host").style.display =
-    isWalletSdkMethod(method) ? "none" : "block";
-}
-```
-
-## methods_available da API
-
-Mesmo com filtro de UI, valide a resposta pública:
-
-```javascript
-const session = await fetch(
-  `https://api.cajupay.com.br/api/sdk/public/checkout/sessions/${token}`
-).then((r) => r.json());
-
-if (!session.methods_available?.includes(chosenMethod)) {
-  alert("Método indisponível para esta conta. Escolha Cartão.");
-  return;
-}
-```
-
-## Mac Safari + Apple Pay (opcional avançado)
-
-Integradores podem **estender** a regra para detectar Safari no Mac com Apple Pay — não faz parte do padrão mínimo. O padrão mínimo evita prometer Apple Pay em Chrome no Mac.
+Isso não é motivo para omitir o método da lista. Mantenha a opção e, se a carteira não estiver no aparelho, o pagador usa Cartão.
 
 ## Erros comuns
 
-| Anti-pattern | Correção |
-|--------------|----------|
-| Apple Pay no Android | `isIosDevice()` |
-| Google Pay no iPhone | Filtrar `apple_pay` fora de iOS |
-| Dois botões pagar com wallet | Ocultar submit do host |
-| Lista fixa sem probe | `probeWallet` + `methods_available` |
-
-## Checklist
-
-- [ ] Mutuamente exclusivo Apple Pay / Google Pay na UI
-- [ ] Cartão sempre como fallback
-- [ ] `probeWallet` antes de renderizar botão wallet
-- [ ] Botão Pagar do host oculto para wallets
+| Problema | Correção |
+|----------|----------|
+| Apple Pay só no iPhone | Remover filtro de user-agent |
+| Google Pay só no Android | Mostrar em todos os dispositivos |
+| Stripe na lista sem ter sido selecionado | Não tratar wallet como Stripe; `allow_stripe_card` não entra no checkout |
 
 ---
 
@@ -1425,7 +1643,7 @@ Toda criação de cobrança via API exige `amount_cents` **≥ 200** (R$ 2,00 em
 2. Valide **HMAC** em todo POST recebido — rejeite sem assinatura válida.
 3. Guarde `signing_secret` (`cwhsec_...`) **uma vez** na criação — não vem de novo na listagem.
 4. Worker `integrator-webhook-worker` + RabbitMQ devem estar rodando — senão CRUD não entrega eventos.
-5. Pedido interno deve existir com `gateway_id = checkout_session_id` **antes** do `paid`.
+5. Pedido interno deve usar `gateway_id = checkout_session_id`. Trate corrida webhook×confirm-order com **buffer de paid** (seção abaixo) — não basta “criar pedido cedo”.
 
 ## Quando usar este módulo
 
@@ -1546,17 +1764,41 @@ Ver módulo `20-multi-currency` para regras PIX vs Caju Global.
 ## Encontrar o pedido (ordem)
 
 1. `data.object.checkout_session_id` → `orders.gateway_id` ou `metadata.cajupay_checkout_session_id`
-2. Fallback `cajupay_charge_id` / `charge_id` / `payment_id`
-3. Ao receber `charge_id`, **atualizar** `gateway_id` se ainda for só `checkout_session_id`
+2. Fallback: `cajupay_charge_id` / `charge_id` em coluna/metadata **separada** (não substitua o `gateway_id` da sessão)
+3. **Não** sobrescreva `gateway_id` (sessão) com `payment_id`/`charge_id` — isso quebra o lookup do próximo webhook/poll
+
+## Corrida webhook × confirm-order (falha intermitente clássica)
+
+Sintoma: **às vezes** o cartão paga na CajuPay e o webhook chega, mas o pedido no host fica `pending` para sempre.
+
+Causa típica:
+
+1. Cartão aprova → CajuPay envia `checkout.payment.paid`
+2. Webhook chega **antes** do `confirm-order` criar o pedido
+3. Host responde `200 {"received":true}` sem achar pedido → CajuPay **não reenvia**
+4. Depois o pedido nasce `pending` e nunca recebe o `paid`
+
+**Obrigatório no host (não confie só em “criar pedido antes”):**
+
+| Prática | Por quê |
+|---------|---------|
+| **Buffer** do `paid` por `checkout_session_id` e/ou `cajupay_charge_id` quando ainda não há pedido | Webhook precoce não se perde |
+| No **confirm-order**, se já houver `paid` bufferizado → completar/`paid` na hora | Fecha a corrida |
+| Job de **retry** (ex. 8s, 15s, 30s…) se o pedido demorar a nascer | Rede lenta / retry do usuário |
+| Lock por `order_id` no handler | Dois webhooks não se anulam |
+| Poll/reconcile **confiam** no `paid` já confirmado | Não abortar na 2ª consulta |
+
+Ideal: materializar o pedido o mais cedo possível **e** manter o buffer — os dois juntos.
 
 ## Resposta HTTP do host
 
 | Caso | Status | Body |
 |------|--------|------|
-| Processado ou pedido inexistente | 200 | `{"received": true}` |
+| Processado (pedido marcado pago) | 200 | `{"received": true}` |
+| Pedido ainda inexistente, mas **bufferizou** o evento | 200 | `{"received": true}` |
 | Assinatura inválida / timestamp | 401 | — |
 
-Retornar 200 mesmo se pedido não existir — evita retentativas infinitas.
+Retornar 200 após bufferizar (mesmo sem pedido) evita loops infinitos de entrega **e** não perde o `paid`. Não responda 200 “vazio” sem gravar o buffer.
 
 ## Confiança pós-HMAC (recomendado)
 
@@ -1574,9 +1816,10 @@ Após validar HMAC, processe `paid` para liberar produto mesmo se consulta à AP
 
 ```json
 {
-  "checkout_payment_method": "google_pay",
+  "checkout_payment_method": "card",
   "cajupay_session_token": "tok_...",
-  "cajupay_checkout_session_id": "uuid-sessao"
+  "cajupay_checkout_session_id": "uuid-sessao",
+  "cajupay_charge_id": "uuid-cobranca"
 }
 ```
 
@@ -1585,7 +1828,8 @@ Após validar HMAC, processe `paid` para liberar produto mesmo se consulta à AP
 | Erro | Correção |
 |------|----------|
 | Webhook nunca chega | Subir integrator-webhook-worker + RabbitMQ |
-| Pedido não encontrado | confirm-order antes do paid |
+| Pedido fica pending com venda paga na CajuPay | Buffer + apply no confirm-order + retry (seção corrida) |
+| Pedido não encontrado no webhook | `gateway_id = checkout_session_id`; não sobrescrever com charge_id |
 | HMAC falha | Body bruto, não JSON re-serializado |
 | Só charge_id no pedido | Guardar também checkout_session_id |
 
@@ -1595,8 +1839,10 @@ Após validar HMAC, processe `paid` para liberar produto mesmo se consulta à AP
 - [ ] `signing_secret` persistido no host
 - [ ] Validação HMAC + janela 5 min
 - [ ] Tratar `checkout.payment.paid`
+- [ ] Buffer de `paid` se pedido ainda não existe
+- [ ] confirm-order aplica paid bufferizado
 - [ ] Worker de entrega em produção
-- [ ] Pedido com `gateway_id` antes do pagamento
+- [ ] `gateway_id` = `checkout_session_id` (nunca trocar pelo charge_id)
 
 ---
 
@@ -1635,7 +1881,9 @@ No painel `/api?tab=webhooks` ou:
 }
 ```
 
-Atalho: `pix.payment.*` (wildcard).
+Atalho: `pix.payment.*` (wildcard). Lista vazia de `event_types` = todos os eventos. Se a lista for **explícita** e não incluir `pix.payment.refunded` nem `pix.payment.*`, o worker **não entrega** o reembolso (`no_matching_event_type_or_dedup`).
+
+`pix.payment.refunded` só nasce quando o pedido de reembolso entra em `devolvido` (webhook PSP classificado como estorno, ou conclusão manual no admin). `POST /pix-refund` com HTTP 200 e `status: submitted` **não** dispara o webhook.
 
 ## Entrega HTTP
 
@@ -1825,14 +2073,33 @@ Eventos `subscription.*` e `boleto.*` — módulos **26** e **27**. Mesmo HMAC o
 ## INSTRUÇÕES PARA O MODELO
 
 1. Split divide o **líquido após taxa de venda** — não substitui taxas da plataforma.
-2. Passe `split_id` (UUID) no PIX ou na sessão SDK — taxas vêm do perfil split, não do body da cobrança.
-3. Comissão PIX → carteira `main`; cartão/wallets → carteira de cartão.
+2. **Um** perfil → campo `split_id`. **Vários** (2, 5, … até **10**) → array `splits`. Nunca `split_id` + `splits` no mesmo body (`conflicting_split`).
+3. Em `splits[]`, cada item é um destinatário: `{ "split_id": "…" }` (taxa do perfil) ou inline com `pay_account_id` + taxas.
+4. Limite = **10** itens no array (`too_many_splits` se passar). Não é limitado a 2.
+5. Comissão PIX → carteira `main`; cartão/wallets → carteira de cartão.
 
 ## Quando usar este módulo
 
-Marketplaces, checkouts white-label que cobram comissão de sub-merchants.
+Marketplaces / white-label com **uma ou várias** comissões no mesmo pagamento (até 10).
 
-## CRUD split
+## Como colocar VÁRIOS splits (2, 5, até 10)
+
+1. Crie (ou receba) N perfis no painel `/api` → Split → copie cada `split_id`.
+2. Na cobrança PIX ou sessão SDK, **não** use `"split_id": "..."`. Use o array (ex. 5):
+
+```json
+"splits": [
+  { "split_id": "SPLIT_ID_1" },
+  { "split_id": "SPLIT_ID_2" },
+  { "split_id": "SPLIT_ID_3" },
+  { "split_id": "SPLIT_ID_4" },
+  { "split_id": "SPLIT_ID_5" }
+]
+```
+
+Cada perfil já tem a própria taxa (% + fixo). O merchant que processa fica com o resto do líquido. O mesmo padrão vale para 2, 3, … 10 itens.
+
+## CRUD split (perfil = 1 comissão do dono)
 
 | Método | Rota | Escopo |
 |--------|------|--------|
@@ -1842,7 +2109,7 @@ Marketplaces, checkouts white-label que cobram comissão de sub-merchants.
 | PATCH | `/api/splits/{id}` | `{ "status": "inactive" }` |
 | GET | `/api/splits/earnings?limit=50` | comissões recebidas |
 
-Criar:
+Criar perfil:
 
 ```json
 {
@@ -1856,7 +2123,7 @@ Criar:
 
 ## Uso na cobrança
 
-**PIX:**
+**Um perfil (legado):**
 
 ```json
 {
@@ -1866,25 +2133,31 @@ Criar:
 }
 ```
 
-**SDK sessão:**
+**Vários perfis (ex. 3 — até 10):**
 
 ```json
 {
   "amount_cents": 10000,
-  "description": "Pedido",
-  "split_id": "550e8400-e29b-41d4-a716-446655440000"
+  "splits": [
+    { "split_id": "550e8400-e29b-41d4-a716-446655440000" },
+    { "split_id": "660e8400-e29b-41d4-a716-446655440001" },
+    { "split_id": "770e8400-e29b-41d4-a716-446655440002" }
+  ],
+  "consumer": { "name": "...", "email": "...", "document": "...", "phone": "+5511999999999" }
 }
 ```
 
+**SDK sessão:** mesmos campos em `POST /api/sdk/v1/checkout/sessions`.
+
 ## Erros
 
-`split_not_found`, `split_inactive`, `split_exceeds_net`, `split_name_exists`, `invalid_percent_bps`.
+`split_not_found`, `split_inactive`, `split_exceeds_net`, `split_name_exists`, `invalid_percent_bps`, `conflicting_split`, `too_many_splits`, `invalid_split_entry`, `duplicate_split_participant`, `invalid_pay_account_id`.
 
 ## Checklist
 
-- [ ] Split criado no painel `/api` → Split
-- [ ] `split_id` repassado aos sub-integradores
-- [ ] Tratamento de `split_exceeds_net` no host
+- [ ] N `split_id` obtidos no painel (N ≤ 10)
+- [ ] Cobrança com `splits: [{ "split_id": "…" }, …]` — sem `split_id` no topo
+- [ ] Tratamento de `split_exceeds_net` / `conflicting_split` / `too_many_splits`
 
 ---
 
@@ -1904,7 +2177,10 @@ Criar:
 ```http
 GET https://api.cajupay.com.br/api/wallet/balance?kind=main
 GET https://api.cajupay.com.br/api/wallet/entries?kind=main&limit=50
+GET https://api.cajupay.com.br/api/wallet/entries?kind=main&limit=50&offset=0
 ```
+
+Com `offset` em entries/payouts, a resposta é `{ "data", "total", "limit", "offset" }`. Sem `offset`, array JSON (legado).
 
 Escopo: `wallet.read`. Valores em centavos.
 
@@ -1950,7 +2226,12 @@ Saque inline (sem `pix_key_id`):
 | `cpf`, `cnpj` | Dígitos da própria chave |
 | `email`, `phone`, `evp` | **Obrigatório** — titular real no DICT |
 
-Listar: `GET /api/payouts?limit=50` (`payouts.write`).
+```http
+GET https://api.cajupay.com.br/api/payouts?limit=50
+GET https://api.cajupay.com.br/api/payouts?limit=50&offset=0
+```
+
+Com `offset`, a resposta é `{ "data", "total", "limit", "offset" }`. Sem `offset`, array JSON (legado).
 
 Erro KYC: `403` + `payouts_blocked_pending_kyc`.
 
@@ -2004,8 +2285,8 @@ Após `POST /api/payouts`, aguarde `payout.paid` ou `payout.failed` (cadastro em
 | ID | Origem | Uso |
 |----|--------|-----|
 | `token` | Resposta criar sessão | `mountCheckout`, GET público sessão |
-| `checkout_session_id` | Resposta criar sessão | `gateway_id` inicial do pedido host |
-| `charge_id` / `cajupay_charge_id` | Após cobrança / webhook | Atualizar `gateway_id`; lookup fallback |
+| `checkout_session_id` | Resposta criar sessão | `gateway_id` **permanente** do pedido host (lookup do webhook) |
+| `charge_id` / `cajupay_charge_id` | Após cobrança / webhook | Coluna/metadata **à parte** — **não** substituir `gateway_id` |
 | `polling_token` | Host (random ~32 chars) | Cache draft + UI polling — **não** é token SDK |
 | `payment_id` | PIX create | `gateway_id` em pedidos PIX |
 
@@ -2015,11 +2296,16 @@ Após `POST /api/payouts`, aguarde `payout.paid` ou `payout.failed` (cadastro em
 {
   "checkout_payment_method": "google_pay",
   "cajupay_session_token": "tok_...",
-  "cajupay_checkout_session_id": "uuid-sessao"
+  "cajupay_checkout_session_id": "uuid-sessao",
+  "cajupay_charge_id": "uuid-cobranca"
 }
 ```
 
-**Erro clássico:** só `charge_id` no pedido — webhook `paid` chega primeiro com `checkout_session_id` e o pedido não é encontrado.
+**Erro clássico 1:** só `charge_id` no pedido — webhook `paid` chega primeiro com `checkout_session_id` e o pedido não é encontrado.
+
+**Erro clássico 2:** sobrescrever `gateway_id` (sessão) com `charge_id` — o próximo webhook/poll não acha o pedido pela sessão.
+
+**Erro clássico 3 (corrida):** webhook `paid` chega antes do `confirm-order` → host responde 200 sem buffer → pedido nasce `pending` para sempre. Ver módulo **11** (buffer + apply + retry).
 
 ## Polling no host (padrão do integrador)
 
@@ -2080,10 +2366,10 @@ Ver módulo [21-dev-tips-pix-reconciliation-security.md](21-dev-tips-pix-reconci
 
 ## Checklist
 
-- [ ] `checkout_session_id` em `gateway_id` desde `pending`
-- [ ] Metadata com `cajupay_session_token`
-- [ ] Polling com idempotência no processamento
-- [ ] Atualizar `gateway_id` quando `charge_id` chegar
+- [ ] `checkout_session_id` em `gateway_id` desde `pending` (não trocar pelo charge_id)
+- [ ] Metadata com `cajupay_session_token` + `cajupay_charge_id` quando souber
+- [ ] Polling com idempotência no processamento (respeita paid já confirmado)
+- [ ] Buffer de `checkout.payment.paid` se o pedido ainda não existir (módulo 11)
 - [ ] **PIX:** job servidor com `GET /api/payments` (não só poll na tela do QR)
 
 ---
@@ -2102,14 +2388,16 @@ Revise o código gerado contra esta lista antes de considerar a integração com
 | # | Anti-pattern | Correção |
 |---|--------------|----------|
 | 1 | Remontar SDK quando usuário digita e-mail | `setPayer()` |
-| 2 | Criar pedido só no webhook | Materializar pedido antes do `paid` |
+| 2 | Criar pedido só no webhook / ignorar paid precoce | Materializar cedo **e** bufferizar `paid` (módulo 11) |
+| 2b | Responder 200 no webhook sem gravar nada se pedido não existe | Buffer por `checkout_session_id` / `charge_id`; apply no confirm-order + retry |
+| 2c | Sobrescrever `gateway_id` (sessão) com `charge_id`/`payment_id` | Manter sessão em `gateway_id`; charge em metadata/coluna à parte |
 | 3 | `defaultMethod` errado ou omitido | Igual ao botão UI (`card` / `apple_pay` / `google_pay`) |
 | 4 | `min-height` no `#cajupay-method` | Faixa branca — remover |
 | 5 | Sem webhook em produção (cartão) | Cadastrar + worker RabbitMQ |
-| 6 | Apple Pay no Android / Google Pay no iPhone | `isIosDevice()` + filtro |
+| 6 | Esconder Apple Pay no Android ou Google Pay no iPhone | Mostrar as duas wallets em qualquer dispositivo |
 | 7 | Dois botões pagar com wallet | Ocultar submit do host |
 | 8 | `initial_payer` com dados fake | Só dados reais ou omitir |
-| 9 | Wallets sem `allow_card` na sessão | API promove — manter true no body |
+| 9 | Tratar Apple Pay/Google Pay como Stripe | Wallets são flags próprias (`allow_apple_pay` / `allow_google_pay`); Stripe não entra no checkout |
 | 10 | Ignorar `methods_available` | Validar antes do mount |
 | 11 | Tratar `awaiting_card_details` como erro na 1ª confirm | É sucesso / priming |
 | 12 | Confundir `token` SDK com `polling_token` | IDs separados |
@@ -2121,6 +2409,8 @@ Revise o código gerado contra esta lista antes de considerar a integração com
 | 18 | Omitir `partner_checkout_url` em produção | Enviar URL HTTPS do checkout no site do parceiro (compliance) |
 | 19 | Omitir `consumer.phone` em PIX | Incluir telefone E.164 na criação (`consumer.phone` ou `payer_phone`) — Recovery/Acesso SMS |
 | 20 | Cobrança abaixo de R$ 2,00 | `amount_cents` ≥ 200 em toda criação via API (PIX, links, sessão SDK) |
+| 21 | Ramificar checkout por `form_mode` ou por processador | Sempre `mountCheckout`; o admin escolhe o processador do seller |
+| 22 | Formulário de cartão próprio ou 3DS/MPI no código do parceiro | O SDK monta o formulário e o challenge |
 
 ## Checklist de produção — SDK embed
 
@@ -2136,11 +2426,13 @@ Revise o código gerado contra esta lista antes de considerar a integração com
 - [ ] `setPayer()` antes de confirms; sem remount por e-mail
 - [ ] confirm-order antes do priming (**wallets**)
 - [ ] confirm-order antes da 2ª confirm (**cartão**)
-- [ ] `gateway_id = checkout_session_id` + metadata token
+- [ ] `gateway_id = checkout_session_id` + metadata token / charge_id à parte
 - [ ] Webhook HTTPS + HMAC + 5 min skew
-- [ ] Eventos `checkout.payment.paid` e `card.payment.succeeded`
-- [ ] Atualizar `gateway_id` para `charge_id` quando webhook trouxer
-- [ ] Polling fallback ~3 s
+- [ ] Eventos `checkout.payment.paid` (e falha/reembolso se aplicável)
+- [ ] Buffer de `paid` se confirm-order ainda não criou o pedido
+- [ ] confirm-order aplica paid bufferizado; job de retry
+- [ ] **Não** trocar `gateway_id` da sessão pelo charge_id
+- [ ] Polling fallback ~3 s (respeita paid já confirmado)
 - [ ] Apple Pay só iOS; Google Pay fora de iOS
 - [ ] Botão Pagar host oculto com wallet
 - [ ] `methods_available` validado antes do mount
@@ -2321,7 +2613,9 @@ X-API-Secret: gsk_...
 | `submitted` | Enviado ao provedor; aguardar confirmação |
 | `devolvido` | Reembolso confirmado (terminal sucesso) |
 | `failed` | Falha — ver `last_error`; pode usar retry |
-| `cancelled` | Cancelado pelo merchant (DELETE) |
+| `cancelled` | Cancelado pelo merchant (DELETE); o registro permanece para auditoria |
+
+Campos extras no GET (compatíveis, opcionais): `channel` (`api`|`panel`|`admin`|`psp`), `created_by_email`, `events` (timeline `requested`/`submitted`/`failed`/`devolvido`/`cancelled`/`retry`).
 
 `psp_status` reflete status bruto do provedor quando disponível.
 
@@ -2352,20 +2646,20 @@ Sem body. Reutiliza o registro existente. Útil após `failed` ou `pending_balan
 DELETE https://api.cajupay.com.br/api/payments/{payment_id}/pix-refund
 ```
 
-- `204` — cancelado.
+- `204` — cancelado (status `cancelled`; o pedido não é apagado).
 - `409` + `{ "error": "nothing_to_cancel" }` — não há pedido em `pending_balance` para cancelar.
 
 ## Regras de elegibilidade
 
 | Regra | Detalhe |
 |-------|---------|
-| Provedor | **Somente pagamentos OnlyUp** (`psp_provider = onlyup`). SpacePag e outros PSPs retornam `refund_only_onlyup` |
+| Provedor | Pagamentos PIX nativos **OnlyUp, Woovi e Versell**. SpacePag e outros retornam `refund_provider_unsupported` |
 | Pagamento | Deve estar `paid` |
 | Valor | Reembolso **integral** (`amount_cents` = valor do pagamento) |
 | Janela | **30 dias** após criação do pagamento (`refund_window_expired`) |
 | MED | Disputa MED **aberta** bloqueia (`med_blocks_refund`) |
-| Conta OnlyUp | Pagamento deve ter `onlyup_account_id` resolvível (`onlyup_account_missing`) |
-| E2E | Pode exigir `pix_end_to_end_id` resolvível (`missing_pix_end_to_end_id`) |
+| Conta da adquirente | Pagamento deve ter a conta do PSP resolvível (`psp_account_missing`) |
+| E2E | OnlyUp/Woovi podem exigir `pix_end_to_end_id` resolvível (`missing_pix_end_to_end_id`). Versell usa `psp_reference` (idTransaction). |
 
 ## Respostas HTTP 200 com estado interno
 
@@ -2373,7 +2667,7 @@ POST e retry retornam **HTTP 200** mesmo quando o pedido não foi enviado ao PSP
 
 | `status` na resposta | Significado |
 |---------------------|-------------|
-| `submitted` | Enviado ao OnlyUp; aguardar webhook ou polling GET |
+| `submitted` | Enviado à adquirente; aguardar webhook ou polling GET |
 | `pending_balance` | Saldo insuficiente na carteira; creditar e usar retry |
 | `failed` | Falha no envio; ver `last_error` e usar retry |
 
@@ -2394,8 +2688,8 @@ Isso **não** é erro HTTP — só indica que o fluxo ainda não concluiu.
 | 400 | `med_blocks_refund` | Resolver MED antes |
 | 400 | `invalid_client_refund_id` | Formato do ID |
 | 400 | `missing_pix_end_to_end_id` | Falta identificador PIX no PSP |
-| 400 | `refund_only_onlyup` | Pagamento não OnlyUp (ex.: SpacePag) |
-| 400 | `onlyup_account_missing` | Conta OnlyUp não vinculada ao pagamento |
+| 400 | `refund_provider_unsupported` | Pagamento não é PIX nativo elegível (ex.: SpacePag) |
+| 400 | `psp_account_missing` | Conta da adquirente não vinculada ao pagamento |
 | 409 | `refund_cancelled` / `refund_not_eligible:*` | Estado terminal ou inelegível |
 | 409 | `nothing_to_cancel` | DELETE sem pending_balance |
 | 400 | `refund_failed` | Erro interno não mapeado — contactar suporte CajuPay |
@@ -2422,7 +2716,7 @@ sequenceDiagram
 1. Guardar `payment_id` CajuPay no pedido desde a cobrança PIX.
 2. `POST /pix-refund` com `client_refund_id` = id interno do reembolso.
 3. Polling `GET .../pix-refund` a cada 3–10 s até `devolvido` ou `failed`.
-4. Paralelamente, tratar webhook `pix.payment.refunded` (módulo 12) com mesma idempotência.
+4. Paralelamente, tratar webhook `pix.payment.refunded` (módulo 12) com mesma idempotência. Cadastre o tipo no endpoint — o webhook só chega em `devolvido`, não em `submitted`.
 5. Em `failed`, exibir `last_error` e oferecer **Retry**.
 
 ## Exemplo Node (servidor)
@@ -2461,7 +2755,7 @@ Não existe `POST /api/payments/{id}/card-refund` público equivalente ao PIX ne
 - [ ] `payment_id` CajuPay persistido no pedido
 - [ ] Escopo `payments.write`
 - [ ] Tratar `med_blocks_refund` na UI
-- [ ] Webhook `pix.payment.refunded` cadastrado (módulo 12)
+- [ ] Webhook `pix.payment.refunded` cadastrado no `event_types` (ou `pix.payment.*` / lista vazia) — módulo 12
 - [ ] Idempotência no handler do parceiro (event `id` estável)
 
 ---
@@ -3143,6 +3437,7 @@ Correlacionar pelo `cajupay_payout_id` retornado em `POST /api/payouts`.
 4. Comprador: **CPF, e-mail e telefone E.164** obrigatórios na criação do plano.
 5. Lojista precisa **aderir** (`POST /api/pix-parcelado/enroll/accept`) antes de criar planos.
 6. Envie **`Idempotency-Key`** em `POST /plans` e regeneração de PIX.
+7. **Não confundir** com parcelamento de **Cartão Brasil** (`allow_card_installments` / módulo `06-card-embedded`) — produtos e APIs distintos.
 
 ## Fluxo de integração recomendado (API-first)
 
@@ -4051,9 +4346,9 @@ curl -X POST "https://api.cajupay.com.br/api/antifraud/cases/CASE_UUID/defense" 
 <!-- module: 26-subscriptions -->
 
 
-# Assinaturas (PIX Automático + boleto recorrente)
+# Assinaturas (PIX Automático + boleto + cartão)
 
-Produto CajuPay de assinaturas. PIX à vista continua em `POST /api/payments/pix`.
+Produto CajuPay de assinaturas. PIX à vista continua em `POST /api/payments/pix`. Cartão avulso em `POST /api/card/charges`.
 
 ## Escopos
 
@@ -4071,15 +4366,15 @@ Base: `https://api.cajupay.com.br`
 | Método | Rota | Notas |
 |--------|------|-------|
 | `GET` | `/api/subscriptions/summary` | Totais + MRR mensal estimado |
-| `POST` | `/api/subscriptions` | Header **`Idempotency-Key` obrigatório** |
+| `POST` | `/api/subscriptions` | Header **`Idempotency-Key` obrigatório**; `method: pix_automatic\|boleto\|card` |
 | `GET` | `/api/subscriptions` | Query: `status`, `method`, `q`, `limit`, `offset` |
 | `GET` | `/api/subscriptions/{id}` | |
 | `POST` | `/api/subscriptions/{id}/cancel` | Cancela na adquirente e localmente; cancela cobranças/payments pendentes |
 | `PATCH` | `/api/subscriptions/{id}` | Body `{ "value_cents": N }` |
-| `GET` | `/api/subscriptions/{id}/charges` | Parcelas / CobR (também tenta sync se webhook atrasou) |
-| `POST` | `/api/subscriptions/{id}/sync` | Consulta status na adquirente e liquida CobRs pagas (fallback sem webhook) |
-| `POST` | `/api/subscriptions/{id}/charges/{chargeID}/retry` | Retry CobR |
-| `POST` | `/api/subscriptions/{id}/charges/{chargeID}/refund` | Reembolso da parcela paga. Estorna ledger e marca payment `refunded`. |
+| `GET` | `/api/subscriptions/{id}/charges` | Parcelas / CobR / ciclos de cartão |
+| `POST` | `/api/subscriptions/{id}/sync` | PIX/boleto: liquida CobRs; cartão: espelha cobranças do card-service |
+| `POST` | `/api/subscriptions/{id}/charges/{chargeID}/retry` | Retry CobR (PIX/boleto) |
+| `POST` | `/api/subscriptions/{id}/charges/{chargeID}/refund` | Reembolso da parcela paga (PIX/boleto) |
 
 ## Criar — PIX Automático
 
@@ -4155,13 +4450,55 @@ Rate limit da adquirente: HTTP **429**, `error: "rate_limited"`, header `Retry-A
 
 `BIMONTHLY` permitido só em boleto recorrente. Também exige `Idempotency-Key`.
 
+## Criar — cartão (Cielo RecurrentPayment)
+
+Usa o mesmo contrato `/api/subscriptions` com `method: "card"`. A 1ª cobrança é autorizada/capturada na hora; ciclos seguintes são agendados pela Cielo e ingeridos no ledger via webhook/poll do card-service.
+
+Pré-requisito: `card_token` de um cartão já tokenizado (`save_card` em cobrança anterior no checkout).
+
+```http
+Idempotency-Key: pedido-12345-card-sub
+```
+
+```json
+{
+  "method": "card",
+  "name": "Plano Pro Cartão",
+  "value_cents": 9900,
+  "frequency": "MONTHLY",
+  "correlation_id": "pedido-12345",
+  "card_token": "abc123token",
+  "card_brand": "Visa",
+  "security_code": "123",
+  "customer": {
+    "name": "Maria Silva",
+    "tax_id": "12345678909",
+    "email": "maria@exemplo.com",
+    "phone": "5511999999999"
+  }
+}
+```
+
+| Campo | Obrigatório | Notas |
+|-------|-------------|-------|
+| `card_token` | sim | Token Cielo / MIT |
+| `card_brand` | não | Visa, Master, Elo… |
+| `security_code` | não | CVV quando a adquirente exigir |
+| `frequency` | sim | `WEEKLY`, `MONTHLY`, `BIMONTHLY`, `QUARTERLY`, `SEMIANNUALLY`, `ANNUALLY` (`WEEKLY` → intervalo diário 7 na Cielo) |
+
+Resposta inclui `provider: "cielo"`, `card_recurrence_id`, `card_recurrent_payment_id`, `card_brand`, `card_last4`. Status típico: `active` se a 1ª cobrança `succeeded`; caso contrário `pending_approval` / `cancelled`.
+
+`GET /api/subscriptions/{id}/charges` lista os ciclos (1ª + seguintes) com `card_charge_id`. Cancelar desativa o RecurrentPayment na Cielo. `PATCH` valor atualiza o valor dos ciclos futuros.
+
+**Não** use `POST /api/card/recurrences` como contrato público de Assinaturas — prefira `/api/subscriptions` com `method: "card"` (mesmos escopos, webhooks e painel `/assinaturas`).
+
 ## Webhooks outbound
 
 | Evento | Quando |
 |--------|--------|
-| `subscription.approved` | Pagador autorizou PIX Automático **ou** 1ª CobR paga curou adesão (`pending_approval` → `active`) |
+| `subscription.approved` | Pagador autorizou PIX Automático **ou** 1ª CobR paga curou adesão **ou** 1ª cobrança de cartão ativa |
 | `subscription.rejected` | Recusa / revogação |
-| `subscription.charge.created` | CobR / parcela criada |
+| `subscription.charge.created` | CobR / parcela / ciclo criado |
 | `subscription.charge.paid` | Parcela paga (+ settlement ledger) |
 | `subscription.charge.failed` | Parcela rejeitada |
 | `subscription.charge.refunded` | Reembolso |
@@ -4190,11 +4527,13 @@ Cobranças **PIX Automático** pagas:
 
 Boleto (avulso ou recorrente) **não** usa hold antifraude nem o hold de 4h na v1.
 
+Ciclos de **cartão** seguem o settlement do card-service (agenda de parcelas / hold de plataforma conforme conta).
+
 `GET /api/wallet/balance?kind=main` inclui `pending_release_cents` (hold de 4h) e `held_cents` (antifraude).
 
 ## Painel
 
-Seller: `/assinaturas` — listagem, detalhe, QR/EMV, sync, cancelar, reembolso de parcela.
+Seller: `/assinaturas` — listagem unificada (PIX + cartão), detalhe, QR/EMV (PIX), cancelar, alterar valor, histórico de cobranças. **Criação** só via link de pagamento ou `POST /api/subscriptions` (não há “Nova assinatura” no painel).
 
 ---
 

@@ -23,6 +23,9 @@ $scriptSources = [
     'https://*.mlstatic.com',
     'https://checkout.pagar.me',
     'https://cdn.cajupay.com.br',
+    // Cartão Brasil (CajuPay form_mode Rinne) — SDK carrega https://pkgs.rinne.com.br/rinne-js
+    'https://pkgs.rinne.com.br',
+    'https://*.rinne.com.br',
     'https://www.paypal.com',
     'https://www.sandbox.paypal.com',
     'https://*.paypal.com',
@@ -104,6 +107,10 @@ $connectSources = array_merge([
     // CajuPay
     'https://api.cajupay.com.br',
     'https://*.cajupay.com.br',
+    // Rinne (formulário seguro / 3DS do Cartão Brasil via CajuPay SDK)
+    'https://pkgs.rinne.com.br',
+    'https://*.rinne.com.br',
+    'https://api.rinne.com.br',
     // Efí — tokenização de cartão (payment-token-efi)
     'https://tokenizer.sejaefi.com.br',
     'https://cobrancas.api.efipay.com.br',
@@ -154,6 +161,8 @@ $frameSources = [
     'https://youtube.com',
     'https://challenges.cloudflare.com',
     'https://*.cajupay.com.br',
+    'https://pkgs.rinne.com.br',
+    'https://*.rinne.com.br',
     'https://checkout.pagar.me',
     // Meta Pixel (iframe / fbevents framing)
     'https://www.facebook.com',

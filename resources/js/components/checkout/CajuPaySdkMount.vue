@@ -20,6 +20,8 @@ const props = defineProps({
     beforeWalletPrime: { type: Function, default: null },
     /** Espelha validateCajuPayCustomerFields no host — bloqueia priming da wallet sem pedido. */
     payerReadyForPrime: { type: Boolean, default: false },
+    /** Assinatura: pede persistência de cartão (card_token) no SDK/sessão. */
+    saveCard: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['wallet-payment-completed']);
@@ -87,6 +89,7 @@ async function tryMount() {
             token: props.sessionToken,
             defaultMethod: cajupayDefaultMethodFor(props.paymentMethod),
             initialPayer: props.initialPayer,
+            saveCard: props.saveCard === true,
             // Captura o evento que indica que o input do cartão está pronto. A doc da
             // CajuPay garante a phase "awaiting_card_details" para isso.
             onStatus: (event) => {

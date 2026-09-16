@@ -449,8 +449,9 @@ class CajuPayDriver implements GatewayDriver
      * @param  array{
      *     allow_card_installments?: bool,
      *     card_max_installments?: int,
-     *     require_card_threeds?: bool
-     * }  $cardOptions  Cartão Brasil: parcelamento / 3DS (só aplicados com allow_card).
+     *     require_card_threeds?: bool,
+     *     save_card?: bool
+     * }  $cardOptions  Cartão Brasil: parcelamento / 3DS / save_card (só aplicados com allow_card).
      * @return array{token: string, checkout_session_id: string, raw: array<string, mixed>}
      */
     public function createSdkCheckoutSession(
@@ -510,6 +511,9 @@ class CajuPayDriver implements GatewayDriver
         }
         if ($allowCard && ! empty($cardOptions['require_card_threeds'])) {
             $body['require_card_threeds'] = true;
+        }
+        if ($allowCard && ! empty($cardOptions['save_card'])) {
+            $body['save_card'] = true;
         }
 
         // initial_payer só é enviado quando temos dados REAIS do cliente. A CajuPay
@@ -1917,5 +1921,182 @@ class CajuPayDriver implements GatewayDriver
         }
 
         return $msg;
+    }
+
+    /**
+     * Merchant Card API (Cartão Brasil) — paths documentados em /v1/card/*
+     * com fallback para /api/card/* se a conta responder 404 no prefixo v1.
+     *
+     * @param  array<string, mixed>  $credentials
+     * @param  array<string, mixed>  $body
+     * @return array<string, mixed>
+     */
+    public function createCardCharge(array $credentials, array $body, string $idempotencyKey): array
+    {
+        return $this->cardApiRequest($credentials, 'POST', '/charges', $body, $idempotencyKey);
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @param  array<string, mixed>  $body
+     * @return array<string, mixed>
+     */
+    public function confirmCardCharge(array $credentials, string $chargeId, array $body): array
+    {
+        $chargeId = trim($chargeId);
+        if ($chargeId === '') {
+            throw new \RuntimeException('CajuPay cartão: charge id ausente.');
+        }
+
+        return $this->cardApiRequest($credentials, 'POST', '/charges/'.rawurlencode($chargeId).'/confirm', $body);
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array<string, mixed>
+     */
+    public function getCardCharge(array $credentials, string $chargeId): array
+    {
+        $chargeId = trim($chargeId);
+        if ($chargeId === '') {
+            throw new \RuntimeException('CajuPay cartão: charge id ausente.');
+        }
+
+        return $this->cardApiRequest($credentials, 'GET', '/charges/'.rawurlencode($chargeId));
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array{options: list<array<string, mixed>>, raw: array<string, mixed>}
+     */
+    public function getCardInstallmentOptions(array $credentials, int $amountCents, ?int $maxInstallments = null): array
+    {
+        if ($amountCents < 1) {
+            throw new \RuntimeException('CajuPay cartão: amount_cents inválido.');
+        }
+
+        $query = ['amount_cents' => $amountCents];
+        if ($maxInstallments !== null && $maxInstallments >= 1) {
+            $query['max_installments'] = min(12, $maxInstallments);
+        }
+
+        $data = $this->cardApiRequest($credentials, 'GET', '/installment-options', $query);
+        $options = $data['installment_options'] ?? ($data['options'] ?? $data);
+        if (! is_array($options)) {
+            $options = [];
+        }
+
+        return [
+            'options' => array_values(array_filter($options, static fn ($row) => is_array($row))),
+            'raw' => $data,
+        ];
+    }
+
+    /**
+     * Cobrança com cartão já salvo (card_token).
+     *
+     * @param  array<string, mixed>  $credentials
+     * @param  array<string, mixed>  $customer
+     * @return array<string, mixed>
+     */
+    public function createCardChargeWithToken(
+        array $credentials,
+        int $amountCents,
+        string $currency,
+        string $cardToken,
+        array $customer,
+        string $idempotencyKey,
+        int $installments = 1,
+        ?string $description = null,
+    ): array {
+        $cardToken = trim($cardToken);
+        if ($cardToken === '') {
+            throw new \RuntimeException('CajuPay cartão: card_token ausente.');
+        }
+
+        $body = [
+            'amount' => $amountCents,
+            'currency' => MoneyMinorUnits::normalizeCurrencyCode($currency),
+            'payment_type' => 'credit',
+            'installments' => max(1, min(12, $installments)),
+            'card_token' => $cardToken,
+            'customer' => array_filter([
+                'name' => trim((string) ($customer['name'] ?? '')),
+                'email' => trim((string) ($customer['email'] ?? '')),
+                'document' => preg_replace('/\D/', '', (string) ($customer['document'] ?? '')) ?: null,
+            ], static fn ($v) => $v !== null && $v !== ''),
+        ];
+        if (is_string($description) && trim($description) !== '') {
+            $body['description'] = trim($description);
+        }
+
+        return $this->createCardCharge($credentials, $body, $idempotencyKey);
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @param  array<string, mixed>|null  $bodyOrQuery
+     * @return array<string, mixed>
+     */
+    private function cardApiRequest(
+        array $credentials,
+        string $method,
+        string $pathSuffix,
+        ?array $bodyOrQuery = null,
+        ?string $idempotencyKey = null,
+    ): array {
+        if (! $this->hasApiKeys($credentials)) {
+            throw new \RuntimeException('CajuPay: configure a chave pública e a chave secreta da API (painel CajuPay → API / Chaves).');
+        }
+
+        $prefixes = ['/v1/card', '/api/card'];
+        $lastError = null;
+
+        foreach ($prefixes as $prefix) {
+            $path = $prefix.$pathSuffix;
+            try {
+                $pending = $this->httpForCredentials($credentials);
+                if ($idempotencyKey !== null && $idempotencyKey !== '') {
+                    $pending = $pending->withHeaders([
+                        'Idempotency-Key' => Str::limit($idempotencyKey, 200, ''),
+                    ]);
+                }
+
+                $response = match (strtoupper($method)) {
+                    'GET' => $pending->get($path, is_array($bodyOrQuery) ? $bodyOrQuery : []),
+                    'POST' => $pending->post($path, is_array($bodyOrQuery) ? $bodyOrQuery : []),
+                    default => throw new \InvalidArgumentException('CajuPay cartão: método HTTP inválido.'),
+                };
+
+                if ($response->status() === 404 && $prefix === '/v1/card') {
+                    $lastError = '404';
+                    continue;
+                }
+
+                if (! $response->successful()) {
+                    throw new \RuntimeException('CajuPay cartão: '.$this->formatApiErrorMessage(
+                        (string) $response->body(),
+                        'Erro na API de cartão.'
+                    ));
+                }
+
+                $data = $response->json();
+                if (! is_array($data)) {
+                    throw new \RuntimeException('CajuPay cartão: resposta inválida.');
+                }
+
+                return $data;
+            } catch (\RuntimeException $e) {
+                throw $e;
+            } catch (\Throwable $e) {
+                $lastError = $e->getMessage();
+                if ($prefix === '/v1/card') {
+                    continue;
+                }
+                throw new \RuntimeException('CajuPay cartão: '.$e->getMessage(), 0, $e);
+            }
+        }
+
+        throw new \RuntimeException('CajuPay cartão: endpoint não encontrado'.($lastError ? " ({$lastError})" : '').'.');
     }
 }

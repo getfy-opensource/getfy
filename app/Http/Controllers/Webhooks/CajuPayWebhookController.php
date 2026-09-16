@@ -217,6 +217,20 @@ class CajuPayWebhookController extends Controller
                     ProcessPaymentWebhook::dispatchSync(self::SLUG, $dispatchId !== '' ? $dispatchId : (string) $order->gateway_id, 'order.paid', 'paid', $webhookMeta);
                     break;
                 }
+                if ($order !== null && is_array($object)) {
+                    try {
+                        app(CajuPaySubscriptionService::class)->persistCardTokenAndMaybeCreateRemote(
+                            $order,
+                            array_merge($payload, ['object' => $object])
+                        );
+                        $order->refresh();
+                    } catch (\Throwable $e) {
+                        Log::debug('CajuPayWebhook: persist card_token', [
+                            'order_id' => $order->id,
+                            'message' => $e->getMessage(),
+                        ]);
+                    }
+                }
                 if ($dispatchId !== '') {
                     ProcessPaymentWebhook::dispatchSync(self::SLUG, $dispatchId, 'order.paid', 'paid', $webhookMeta);
                 }
