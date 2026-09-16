@@ -268,6 +268,7 @@ const {
     submitCajuPaySdkFlow,
     beforeCajuPayWalletPrime,
     onCajuPayWalletPaymentCompleted,
+    onCajuPayPaymentFailed,
 } = cajupay;
 
 /** Método selecionado para exibir o bloco de ação (pix, boleto, card ou null). */
@@ -946,6 +947,7 @@ async function submitCard(ev) {
                                     :before-wallet-prime="beforeCajuPayWalletPrime"
                                     :payer-ready-for-prime="cajupayPayerReadyForPrime"
                                     @wallet-payment-completed="onCajuPayWalletPaymentCompleted"
+                                    @payment-failed="onCajuPayPaymentFailed"
                                 />
                                 <div class="flex gap-2">
                                     <button

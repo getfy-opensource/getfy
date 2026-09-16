@@ -1,7 +1,7 @@
 import { ref, computed, watch, onBeforeUnmount, nextTick, onMounted } from 'vue';
 import axios from 'axios';
 import { router } from '@inertiajs/vue3';
-import { prefetchCajuPaySdk } from '@/composables/useCajuPaySdk';
+import { prefetchCajuPaySdk, cajuPayRefusalMessage, isCajuPaySoftAuthError } from '@/composables/useCajuPaySdk';
 
 function getCsrfToken() {
     const match = typeof document !== 'undefined' && document.cookie ? document.cookie.match(/XSRF-TOKEN=([^;]+)/) : null;
@@ -218,13 +218,16 @@ export function useApiCajuPayCheckout(options) {
             const data = res?.data || {};
             if (data.status === 'completed' && data.redirect_url) {
                 stopCajuPayPolling();
+                cardSubmitting.value = false;
                 router.visit(data.redirect_url);
                 return;
             }
             if (['rejected', 'cancelled', 'failed'].includes(data.status)) {
                 stopCajuPayPolling();
-                cajupayError.value = 'Pagamento recusado. Tente novamente ou use outro método.';
-                onError({ payment: [cajupayError.value] });
+                cardSubmitting.value = false;
+                const msg = 'Pagamento recusado. Tente novamente ou use outro método.';
+                cajupayError.value = msg;
+                onError({ payment: [msg] });
                 return;
             }
         } catch (_) {
@@ -315,25 +318,31 @@ export function useApiCajuPayCheckout(options) {
                 startCajuPayPolling(cajupayPollingToken.value);
             }
         } catch (e) {
-            const msg = e?.response?.data?.message || e?.message || 'Falha ao processar pagamento.';
-            const code = String(e?.code || e?.error || e?.response?.data?.code || '').toLowerCase();
-            const soft = msg.toLowerCase();
-            if (
-                code === 'authentication_required'
-                || soft.includes('authentication_required')
-                || soft.includes('awaiting_authentication')
-                || soft.includes('requires_action')
-            ) {
+            if (isCajuPaySoftAuthError(e) || isCajuPaySoftAuthError({ message: e?.message, code: e?.code, status: e?.status })) {
                 if (!cajupayPolling.value && cajupayPollingToken.value) {
                     startCajuPayPolling(cajupayPollingToken.value);
                 }
                 return;
             }
+            const msg = cajuPayRefusalMessage(e?.response?.data || e);
             cajupayError.value = msg;
             onError({ payment: [msg] });
         } finally {
-            cardSubmitting.value = false;
+            if (!cajupayPolling.value) {
+                cardSubmitting.value = false;
+            }
         }
+    }
+
+    function onCajuPayPaymentFailed(payload) {
+        if (isCajuPaySoftAuthError(payload)) {
+            return;
+        }
+        stopCajuPayPolling();
+        cardSubmitting.value = false;
+        const msg = cajuPayRefusalMessage(payload?.message ? payload : (payload?.raw || payload));
+        cajupayError.value = msg;
+        onError({ payment: [msg] });
     }
 
     watch(paymentMethod, (method, prev) => {
@@ -388,5 +397,6 @@ export function useApiCajuPayCheckout(options) {
         submitCajuPaySdkFlow,
         beforeCajuPayWalletPrime,
         onCajuPayWalletPaymentCompleted,
+        onCajuPayPaymentFailed,
     };
 }

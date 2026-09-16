@@ -13,7 +13,7 @@ import CheckoutPixInfo from './CheckoutPixInfo.vue';
 import AsaasCard from './gateways/asaas/Card.vue';
 import CajuPaySdkMount from './CajuPaySdkMount.vue';
 import CajuPayParceladoMount from './CajuPayParceladoMount.vue';
-import { buildCajuPayConsumer, prefetchCajuPaySdk } from '@/composables/useCajuPaySdk';
+import { buildCajuPayConsumer, prefetchCajuPaySdk, cajuPayRefusalMessage, isCajuPaySoftAuthError } from '@/composables/useCajuPaySdk';
 import {
     CHECKOUT_PAGARME_TOKENIZE_FORM_ID,
     PAGARME_TOKENIZE_FORM_ACTION,
@@ -1953,6 +1953,7 @@ async function pollCajuPayOrderStatus() {
         const data = res?.data || {};
         if (data.status === 'completed' && data.redirect_url) {
             stopCajuPayPolling();
+            cardTokenizing.value = false;
             cardApproved.value = true;
             cajupayApprovedRedirectUrl.value = data.redirect_url;
             const oid = data.order_id;
@@ -1979,7 +1980,7 @@ async function pollCajuPayOrderStatus() {
         }
         if (['rejected', 'cancelled', 'failed'].includes(data.status)) {
             stopCajuPayPolling();
-            cajupayError.value = 'Pagamento recusado. Tente novamente ou use outro método.';
+            showCajuPayPaymentRefused('Pagamento recusado. Tente novamente ou use outro método.');
             return;
         }
     } catch (_) {
@@ -3289,6 +3290,28 @@ async function onCajuPayWalletPaymentCompleted() {
     }
 }
 
+/** Doc Caju: onError / onStatus(phase=error) + webhook failed → UI de recusa. */
+function showCajuPayPaymentRefused(messageOrPayload) {
+    const msg = typeof messageOrPayload === 'string'
+        ? messageOrPayload
+        : cajuPayRefusalMessage(messageOrPayload);
+    if (isCajuPaySoftAuthError(messageOrPayload) || isCajuPaySoftAuthError({ message: msg })) {
+        return;
+    }
+    stopCajuPayPolling();
+    cardTokenizing.value = false;
+    cajupayError.value = msg;
+    cardFormError.value = msg;
+    cardRefusedTitle.value = 'Pagamento recusado';
+    cardRefusedMessage.value = msg;
+    cardRefusedPrimaryLabel.value = 'Tentar novamente';
+    showCardRefusedModal.value = true;
+}
+
+function onCajuPayPaymentFailed(payload) {
+    showCajuPayPaymentRefused(payload?.message || payload);
+}
+
 async function submitCajuPaySdkFlow(paymentMethod) {
     cajupayError.value = '';
     cardFormError.value = '';
@@ -3358,28 +3381,22 @@ async function submitCajuPaySdkFlow(paymentMethod) {
             startCajuPayPolling(pollingToken);
         }
     } catch (e) {
-        const msg = e?.response?.data?.message || e?.message || 'Falha ao processar pagamento.';
-        const code = String(e?.code || e?.error || e?.response?.data?.code || '').toLowerCase();
-        const soft = msg.toLowerCase();
-        // Doc Caju módulo 06: authentication_required / challenge 3DS é do SDK
-        // (modal do banco + reconfirm). Não tratar como recusa no host.
-        if (
-            code === 'authentication_required'
-            || soft.includes('authentication_required')
-            || soft.includes('awaiting_authentication')
-            || soft.includes('requires_action')
-        ) {
+        // Rinne: AWAITING_3DS / requires_action após confirm — SDK abre modal e segue.
+        // Não marcar recusa; manter polling até paid/failed.
+        if (isCajuPaySoftAuthError(e) || isCajuPaySoftAuthError({ message: e?.message, code: e?.code, status: e?.status })) {
             if (!cajupayPolling.value) {
                 startCajuPayPolling(cajupayPollingToken.value);
             }
             return;
         }
-        cajupayError.value = msg;
-        cardFormError.value = msg;
-        showCardRefusedModal.value = true;
-        cardRefusedMessage.value = msg;
+        showCajuPayPaymentRefused(e);
     } finally {
-        cardTokenizing.value = false;
+        // Soft-auth (3DS em curso): deixa "Processando" até polling fechar.
+        if (!showCardRefusedModal.value && cajupayPolling.value) {
+            /* keep cardTokenizing while waiting 3DS / webhook */
+        } else {
+            cardTokenizing.value = false;
+        }
     }
 }
 
@@ -4369,6 +4386,7 @@ function submit() {
                         :save-card="Boolean(subscriptionPlanId)"
                         container-id="cajupay-method"
                         @wallet-payment-completed="onCajuPayWalletPaymentCompleted"
+                        @payment-failed="onCajuPayPaymentFailed"
                     />
                     <div
                         v-if="isCajuPaySdkFlow && !cajupaySessionToken && cajupayMissingFieldsHint && !cajupaySessionLoading"

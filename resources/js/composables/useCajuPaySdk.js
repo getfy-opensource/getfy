@@ -159,11 +159,81 @@ export function loadCajuPaySdk(options = {}) {
 }
 
 /**
+ * Mensagem de recusa a partir de onError / onStatus(error) / reject do confirm.
+ *
+ * @param {any} payload
+ * @returns {string}
+ */
+export function cajuPayRefusalMessage(payload) {
+    if (payload == null) {
+        return 'Pagamento recusado. Tente novamente ou use outro método.';
+    }
+    if (typeof payload === 'string' && payload.trim() !== '') {
+        return payload.trim();
+    }
+    const err = payload?.error;
+    const candidates = [
+        typeof err === 'string' ? err : null,
+        err?.message,
+        err?.error,
+        payload?.message,
+        payload?.error_message,
+        payload?.failure_message,
+    ];
+    for (const c of candidates) {
+        if (typeof c === 'string' && c.trim() !== '') {
+            return c.trim();
+        }
+    }
+    return 'Pagamento recusado. Tente novamente ou use outro método.';
+}
+
+/**
+ * 3DS / challenge em andamento — não tratar como recusa no host (doc módulo 06).
+ * Rinne: confirm pode devolver AWAITING_3DS / requires_action; o SDK abre o modal
+ * e reconfirma. Frictionless pode ir direto a aprovado sem UI.
+ *
+ * @param {any} payload
+ * @returns {boolean}
+ */
+export function isCajuPaySoftAuthError(payload) {
+    if (payload == null) {
+        return false;
+    }
+    const code = String(
+        payload?.code
+        || payload?.error?.code
+        || payload?.error_code
+        || payload?.failure_code
+        || payload?.status
+        || payload?.phase
+        || payload?.requires_action
+        || payload?.next_action?.type
+        || ''
+    ).toLowerCase();
+    const msg = cajuPayRefusalMessage(payload).toLowerCase();
+    const blob = `${code} ${msg}`;
+    return (
+        code === 'authentication_required'
+        || code === 'awaiting_3ds'
+        || code === 'requires_action'
+        || code === 'awaiting_authentication'
+        || blob.includes('authentication_required')
+        || blob.includes('awaiting_authentication')
+        || blob.includes('awaiting_3ds')
+        || blob.includes('requires_action')
+        || blob.includes('awaiting_card_details')
+        || (blob.includes('awaiting') && blob.includes('card'))
+        || (blob.includes('3ds') && (blob.includes('await') || blob.includes('challeng') || blob.includes('required')))
+    );
+}
+
+/**
  * Monta o checkout SDK em modo `embeddedOnly` no container indicado e
  * retorna o controller (com `.confirm()`, `.setPayer()`).
  *
  * @param {string} containerSelector  Seletor CSS do container (ex.: '#cajupay-method').
- * @param {{ token: string, defaultMethod?: string, initialPayer?: object, baseUrl?: string, saveCard?: boolean, onStatus?: (event: any) => void }} opts
+ * @param {{ token: string, defaultMethod?: string, initialPayer?: object, baseUrl?: string, saveCard?: boolean, onStatus?: (event: any) => void, onError?: (event: any) => void }} opts
  * @returns {Promise<{ confirm: () => Promise<any>, setPayer?: (p: object) => any, [k: string]: any }>}
  */
 export async function mountCajuPayCheckout(containerSelector, opts) {
@@ -192,6 +262,7 @@ export async function mountCajuPayCheckout(containerSelector, opts) {
         preparePaymentUIOnMount: false,
         initialPayer: opts.initialPayer || undefined,
         onStatus: typeof opts.onStatus === 'function' ? opts.onStatus : undefined,
+        onError: typeof opts.onError === 'function' ? opts.onError : undefined,
     };
     // Assinaturas: pede card_token (save_card) quando o SDK/sessão suportarem.
     if (opts.saveCard === true) {
@@ -257,8 +328,10 @@ export async function confirmCajuPayController(controller) {
         return await controller.confirm();
     } catch (err) {
         const msg = err?.message || err?.error || err?.toString?.() || 'Falha ao confirmar pagamento na CajuPay.';
-        const e = new Error(msg);
+        const e = new Error(typeof msg === 'string' ? msg : 'Falha ao confirmar pagamento na CajuPay.');
         e.cause = err;
+        e.code = err?.code || err?.error?.code || err?.error_code || undefined;
+        e.error = err?.error || err;
         throw e;
     }
 }

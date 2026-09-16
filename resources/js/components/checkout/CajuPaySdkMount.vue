@@ -1,6 +1,13 @@
 <script setup>
 import { onBeforeUnmount, ref, watch, computed, defineExpose } from 'vue';
-import { mountCajuPayCheckout, confirmCajuPayController, cajupayDefaultMethodFor, setCajuPayPayer } from '@/composables/useCajuPaySdk';
+import {
+    mountCajuPayCheckout,
+    confirmCajuPayController,
+    cajupayDefaultMethodFor,
+    setCajuPayPayer,
+    cajuPayRefusalMessage,
+    isCajuPaySoftAuthError,
+} from '@/composables/useCajuPaySdk';
 
 const props = defineProps({
     paymentMethod: { type: String, required: true },
@@ -24,7 +31,7 @@ const props = defineProps({
     saveCard: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['wallet-payment-completed']);
+const emit = defineEmits(['wallet-payment-completed', 'payment-failed']);
 
 const error = ref('');
 const loading = ref(false);
@@ -97,6 +104,19 @@ function destroyController() {
     }
 }
 
+function reportPaymentFailed(payload) {
+    if (isCajuPaySoftAuthError(payload)) {
+        return;
+    }
+    const message = cajuPayRefusalMessage(payload);
+    error.value = message;
+    // Priming / mount: erro de carga do widget — não é recusa de cobrança.
+    if (cardPrimingInFlight.value || loading.value || !cardFieldReady.value) {
+        return;
+    }
+    emit('payment-failed', { message, raw: payload });
+}
+
 async function tryMount() {
     if (!props.sessionToken) {
         if (controller.value) destroyController();
@@ -115,8 +135,7 @@ async function tryMount() {
             defaultMethod: cajupayDefaultMethodFor(props.paymentMethod),
             initialPayer: props.initialPayer,
             saveCard: props.saveCard === true,
-            // Captura o evento que indica que o input do cartão está pronto. A doc da
-            // CajuPay garante a phase "awaiting_card_details" para isso.
+            // Doc Caju: onStatus phase "error" + onError → recusa no host.
             onStatus: (event) => {
                 const phase = event?.phase || event?.status || '';
                 if (phase === 'awaiting_card_details' || phase === 'awaiting_wallet_confirmation') {
@@ -125,6 +144,13 @@ async function tryMount() {
                 if (phase === 'completed') {
                     emit('wallet-payment-completed', event);
                 }
+                // confirming / AWAITING_3DS: SDK abre challenge — não é recusa.
+                if (phase === 'error' && !isCajuPaySoftAuthError(event)) {
+                    reportPaymentFailed(event);
+                }
+            },
+            onError: (event) => {
+                reportPaymentFailed(event);
             },
         });
         mountedToken.value = props.sessionToken;
