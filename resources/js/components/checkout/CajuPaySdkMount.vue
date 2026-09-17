@@ -117,12 +117,25 @@ function reportPaymentFailed(payload) {
     emit('payment-failed', { message, raw: payload });
 }
 
-async function tryMount() {
+function isTransientSdkLoadError(err) {
+    const msg = String(err?.message || err?.error || err || '').toLowerCase();
+    return (
+        msg.includes('failed to fetch')
+        || msg.includes('network')
+        || msg.includes('evervault')
+        || msg.includes('rinne_js')
+        || msg.includes('load_failed')
+        || msg.includes('buscar configura')
+        || msg.includes('public-settings')
+    );
+}
+
+async function tryMount(attempt = 0) {
     if (!props.sessionToken) {
         if (controller.value) destroyController();
         return;
     }
-    if (mountedToken.value === props.sessionToken) {
+    if (mountedToken.value === props.sessionToken && attempt === 0) {
         return;
     }
     error.value = '';
@@ -166,7 +179,16 @@ async function tryMount() {
             cardFieldReady.value = true;
         }
     } catch (e) {
+        // ERR_NETWORK_CHANGED / Failed to fetch no Rinne/Evervault — tenta de novo.
+        if (attempt < 2 && isTransientSdkLoadError(e)) {
+            mountedToken.value = '';
+            await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+            return tryMount(attempt + 1);
+        }
         error.value = e?.message || 'Não foi possível carregar o checkout CajuPay.';
+        if (isTransientSdkLoadError(e)) {
+            error.value = 'Falha de conexão ao carregar o formulário. Recarregue a página e tente novamente.';
+        }
         controller.value = null;
     } finally {
         loading.value = false;

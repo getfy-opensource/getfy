@@ -25,6 +25,9 @@
     RewriteRule ^\.env(\..*)?$ - [F,L,NC]
     RewriteRule ^\.git - [F,L,NC]
 
+    # Apple Pay domain association — via Laravel (text/plain no browser)
+    RewriteRule ^\.well-known/apple-developer-merchantid-domain-association$ index.php [L]
+
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]

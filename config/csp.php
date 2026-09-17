@@ -121,8 +121,9 @@ $connectSources = array_merge([
     'https://keys.evervault.com',
     'https://api.evervault.com',
     'https://*.evervault.com',
-    // Apple Pay (gateway + APIs Apple)
+    // Apple Pay (gateway + relay do QR em browsers não-Safari)
     'https://apple-pay-gateway.apple.com',
+    'https://paymentrelayservice.apple.com',
     'https://*.apple.com',
     // Efí — tokenização de cartão (payment-token-efi)
     'https://tokenizer.sejaefi.com.br',
@@ -180,6 +181,9 @@ $frameSources = [
     'https://ui-components.evervault.com',
     'https://*.evervault.com',
     'https://checkout.pagar.me',
+    // Apple Pay (botão / QR em Chrome·Edge·Firefox no Windows)
+    'https://applepay.cdn-apple.com',
+    'https://*.apple.com',
     // Meta Pixel (iframe / fbevents framing)
     'https://www.facebook.com',
     'https://*.facebook.com',

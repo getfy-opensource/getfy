@@ -46,11 +46,14 @@ class ContentSecurityPolicyTest extends TestCase
         $this->assertStringContainsString('https://www.facebook.com', $frameSrc);
         $this->assertStringContainsString('https://*.facebook.com', $frameSrc);
         $this->assertStringContainsString('https://ui-components.evervault.com', $frameSrc);
+        $this->assertStringContainsString('https://applepay.cdn-apple.com', $frameSrc);
 
         $fontSrc = implode(' ', config('csp.font_src', []));
         $this->assertStringContainsString('https://applepay.cdn-apple.com', $fontSrc);
         $styleSrc = implode(' ', config('csp.style_src', []));
         $this->assertStringContainsString('https://applepay.cdn-apple.com', $styleSrc);
+
+        $this->assertStringContainsString('https://paymentrelayservice.apple.com', $connectSrc);
     }
 
     public function test_production_response_includes_cajupay_in_csp_header(): void

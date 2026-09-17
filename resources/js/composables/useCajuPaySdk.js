@@ -10,8 +10,53 @@ const SDK_URL = 'https://cdn.cajupay.com.br/sdk/v1/cajupay-sdk.min.js';
 const SDK_BASE_URL = 'https://api.cajupay.com.br';
 /** Bump ao exigir APIs novas do CDN (layout stacked, formulário seguro/3DS, wallets). */
 const SDK_SCRIPT_VERSION = '20260916-card-layout-stacked';
+/** Apple Pay JS — obrigatório no Windows/Chrome/Edge para o fluxo QR → iPhone (iOS 18+). */
+const APPLE_PAY_JS_SDK_URL = 'https://applepay.cdn-apple.com/jsapi/1.latest/apple-pay-sdk.js';
 
 let sdkPromise = null;
+let applePayJsPromise = null;
+
+/**
+ * Injeta o Apple Pay JS SDK (idempotente). Sem isso, em browsers não-Safari o Caju
+ * costuma cair em "Apple Pay não está disponível neste dispositivo".
+ *
+ * @returns {Promise<void>}
+ */
+export function ensureApplePayJsSdk() {
+    if (typeof document === 'undefined') {
+        return Promise.resolve();
+    }
+    if (typeof window !== 'undefined' && window.ApplePaySession) {
+        return Promise.resolve();
+    }
+    if (applePayJsPromise) {
+        return applePayJsPromise;
+    }
+    const existing = document.querySelector(`script[data-cajupay-apple-pay-sdk][src="${APPLE_PAY_JS_SDK_URL}"]`);
+    if (existing) {
+        applePayJsPromise = existing.dataset.loaded === '1'
+            ? Promise.resolve()
+            : new Promise((resolve) => {
+                existing.addEventListener('load', () => resolve(), { once: true });
+                existing.addEventListener('error', () => resolve(), { once: true });
+            });
+        return applePayJsPromise;
+    }
+    applePayJsPromise = new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = APPLE_PAY_JS_SDK_URL;
+        script.async = true;
+        script.crossOrigin = 'anonymous';
+        script.setAttribute('data-cajupay-apple-pay-sdk', '1');
+        script.onload = () => {
+            script.dataset.loaded = '1';
+            resolve();
+        };
+        script.onerror = () => resolve();
+        document.head.appendChild(script);
+    });
+    return applePayJsPromise;
+}
 
 /**
  * Pré-carrega o script do SDK (preload + load) o quanto antes — ex.: ao abrir o checkout,
@@ -37,13 +82,21 @@ export function prefetchCajuPaySdk(options = {}) {
         // DNS/TLS cedo: CDN do script + API das sessões/confirm.
         ensureLink('preconnect', 'https://cdn.cajupay.com.br', { crossorigin: 'anonymous' });
         ensureLink('preconnect', 'https://api.cajupay.com.br', { crossorigin: 'anonymous' });
-        // Formulário Cartão Brasil (Rinne) carregado pelo SDK após mount/confirm.
+        // Formulário Cartão Brasil (Rinne/Evervault) carregado pelo SDK após mount/confirm.
         ensureLink('preconnect', 'https://pkgs.rinne.com.br', { crossorigin: 'anonymous' });
+        ensureLink('preconnect', 'https://api.rinne.com.br', { crossorigin: 'anonymous' });
         ensureLink('preconnect', 'https://js.evervault.com', { crossorigin: 'anonymous' });
+        ensureLink('preconnect', 'https://keys.evervault.com', { crossorigin: 'anonymous' });
         ensureLink('dns-prefetch', 'https://cdn.cajupay.com.br');
         ensureLink('dns-prefetch', 'https://api.cajupay.com.br');
         ensureLink('dns-prefetch', 'https://pkgs.rinne.com.br');
+        ensureLink('dns-prefetch', 'https://api.rinne.com.br');
         ensureLink('dns-prefetch', 'https://js.evervault.com');
+        ensureLink('dns-prefetch', 'https://keys.evervault.com');
+        ensureLink('preconnect', 'https://applepay.cdn-apple.com', { crossorigin: 'anonymous' });
+        ensureLink('dns-prefetch', 'https://applepay.cdn-apple.com');
+        // Windows/Chrome/Edge: Apple Pay via QR no iPhone exige este SDK ANTES do botão.
+        ensureApplePayJsSdk();
         if (!document.querySelector('link[data-cajupay-preload]')) {
             const link = document.createElement('link');
             link.rel = 'preload';
@@ -239,6 +292,11 @@ export function isCajuPaySoftAuthError(payload) {
 export async function mountCajuPayCheckout(containerSelector, opts) {
     if (!opts || !opts.token) {
         throw new Error('CajuPay: token público da sessão é obrigatório.');
+    }
+    const method = opts.defaultMethod || 'card';
+    // Apple Pay no Windows/Chrome: carregar apple-pay-sdk.js antes do mount (fluxo QR).
+    if (method === 'apple_pay') {
+        await ensureApplePayJsSdk();
     }
     const sdk = await loadCajuPaySdk();
     if (!sdk?.init) {

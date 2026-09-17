@@ -44,7 +44,10 @@
     # Raiz (/) – redireciona diretamente para /login (evita 404)
     RewriteRule ^/?$ /login [R=302,L]
 
-    # Apple Pay / ACME: servir public/.well-known quando document root é a raiz do projeto
+    # Apple Pay: association via Laravel (Content-Type text/plain)
+    RewriteRule ^\.well-known/apple-developer-merchantid-domain-association$ public/index.php [L]
+
+    # Apple Pay / ACME: demais arquivos em public/.well-known
     RewriteRule ^\.well-known/(.*)$ public/.well-known/$1 [L]
 
     # /storage/* – arquivo local via symlink, se existir
