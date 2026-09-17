@@ -202,9 +202,9 @@ return [
     'script_src' => $scriptSources,
     /** script-src-elem: browsers modernos aplicam esta diretiva a <script src>. */
     'script_src_elem' => $scriptSources,
-    'style_src' => ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+    'style_src' => ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://applepay.cdn-apple.com'],
     'img_src' => ["'self'", 'data:', 'https:', 'blob:', 'https://www.googleadservices.com', 'https://googleads.g.doubleclick.net', 'https://www.google.com'],
-    'font_src' => ["'self'", 'https://fonts.gstatic.com'],
+    'font_src' => ["'self'", 'https://fonts.gstatic.com', 'https://applepay.cdn-apple.com'],
     'connect_src' => $connectSources,
     'frame_src' => $frameSources,
     'media_src' => ["'self'", 'https:', 'blob:'],
