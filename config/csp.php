@@ -29,6 +29,8 @@ $scriptSources = [
     // Evervault (Rinne carrega js.evervault.com para campos PCI do cartão)
     'https://js.evervault.com',
     'https://*.evervault.com',
+    // Apple Pay (SDK CajuPay / Payment Request)
+    'https://applepay.cdn-apple.com',
     'https://www.paypal.com',
     'https://www.sandbox.paypal.com',
     'https://*.paypal.com',
@@ -119,6 +121,9 @@ $connectSources = array_merge([
     'https://keys.evervault.com',
     'https://api.evervault.com',
     'https://*.evervault.com',
+    // Apple Pay (gateway + APIs Apple)
+    'https://apple-pay-gateway.apple.com',
+    'https://*.apple.com',
     // Efí — tokenização de cartão (payment-token-efi)
     'https://tokenizer.sejaefi.com.br',
     'https://cobrancas.api.efipay.com.br',

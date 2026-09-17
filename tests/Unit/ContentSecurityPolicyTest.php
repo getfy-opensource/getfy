@@ -18,6 +18,7 @@ class ContentSecurityPolicyTest extends TestCase
         $this->assertStringContainsString('https://pkgs.rinne.com.br', $scriptSrc);
         $this->assertStringContainsString('https://*.rinne.com.br', $scriptSrc);
         $this->assertStringContainsString('https://js.evervault.com', $scriptSrc);
+        $this->assertStringContainsString('https://applepay.cdn-apple.com', $scriptSrc);
         $this->assertStringContainsString('https://cdn.utmify.com.br', $scriptSrc);
         $this->assertStringContainsString('https://challenges.cloudflare.com', $scriptSrc);
         $this->assertStringContainsString('https://www.googleadservices.com', $scriptSrc);
@@ -26,6 +27,8 @@ class ContentSecurityPolicyTest extends TestCase
         $this->assertStringContainsString('https://*.rinne.com.br', $connectSrc);
         $this->assertStringContainsString('https://keys.evervault.com', $connectSrc);
         $this->assertStringContainsString('https://api.evervault.com', $connectSrc);
+        $this->assertStringContainsString('https://apple-pay-gateway.apple.com', $connectSrc);
+        $this->assertStringContainsString('https://*.apple.com', $connectSrc);
         $this->assertStringContainsString('https://tokenizer.sejaefi.com.br', $connectSrc);
         $this->assertStringContainsString('https://www.google-analytics.com', $connectSrc);
         $this->assertStringContainsString('https://www.googleadservices.com', $connectSrc);
@@ -60,6 +63,8 @@ class ContentSecurityPolicyTest extends TestCase
         $this->assertStringContainsString('https://api.cajupay.com.br', $csp);
         $this->assertStringContainsString('https://pkgs.rinne.com.br', $csp);
         $this->assertStringContainsString('https://js.evervault.com', $csp);
+        $this->assertStringContainsString('https://applepay.cdn-apple.com', $csp);
+        $this->assertStringContainsString('https://apple-pay-gateway.apple.com', $csp);
         $this->assertStringContainsString('https://www.google-analytics.com', $csp);
         $this->assertStringContainsString('https://*.ecs.us-west-2.on.aws', $csp);
         $this->assertStringContainsString('https://www.facebook.com', $csp);
