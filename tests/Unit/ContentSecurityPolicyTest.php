@@ -28,6 +28,8 @@ class ContentSecurityPolicyTest extends TestCase
         $this->assertStringContainsString('https://keys.evervault.com', $connectSrc);
         $this->assertStringContainsString('https://api.evervault.com', $connectSrc);
         $this->assertStringContainsString('https://apple-pay-gateway.apple.com', $connectSrc);
+        $this->assertStringContainsString('https://apple.com', $connectSrc);
+        $this->assertStringContainsString('https://paymentrelayservice.apple.com', $connectSrc);
         $this->assertStringContainsString('https://*.apple.com', $connectSrc);
         $this->assertStringContainsString('https://tokenizer.sejaefi.com.br', $connectSrc);
         $this->assertStringContainsString('https://www.google-analytics.com', $connectSrc);
@@ -73,6 +75,7 @@ class ContentSecurityPolicyTest extends TestCase
         $this->assertStringContainsString('https://js.evervault.com', $csp);
         $this->assertStringContainsString('https://applepay.cdn-apple.com', $csp);
         $this->assertStringContainsString('https://apple-pay-gateway.apple.com', $csp);
+        $this->assertStringContainsString('https://apple.com', $csp);
         $this->assertStringContainsString('https://www.google-analytics.com', $csp);
         $this->assertStringContainsString('https://*.ecs.us-west-2.on.aws', $csp);
         $this->assertStringContainsString('https://www.facebook.com', $csp);

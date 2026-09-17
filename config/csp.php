@@ -121,7 +121,9 @@ $connectSources = array_merge([
     'https://keys.evervault.com',
     'https://api.evervault.com',
     'https://*.evervault.com',
-    // Apple Pay (gateway + relay do QR em browsers não-Safari)
+    // Apple Pay (gateway + relay do QR; apex apple.com é exigido pelo PaymentRequest)
+    'https://apple.com',
+    'https://www.apple.com',
     'https://apple-pay-gateway.apple.com',
     'https://paymentrelayservice.apple.com',
     'https://*.apple.com',
