@@ -926,12 +926,13 @@ onMounted(() => {
     // Não forçar showEditForm = true aqui: o watch em form.payment_method já abre o form quando o usuário escolhe PIX/Boleto.
     // Se forçássemos aqui, ao carregar com draft salvo + primeiro método = boleto/pix, os dados "fixos" e o botão Editar dados nunca apareceriam.
 
-    // Warmup CajuPay só após idle (não compete com a interatividade inicial).
+    // Prefetch imediato dos scripts (SDK / Rinne / Apple / Google); sessões logo em seguida.
     if (hasAnyCajuPaySdkMethod.value || hasCajuPayCardMethod.value) {
+        prefetchCajuPaySdk().catch(() => {});
         setTimeout(() => {
             if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
             warmupCajuPaySdk();
-        }, 2500);
+        }, 400);
     }
     persistCheckoutCountry();
 });
@@ -1442,16 +1443,16 @@ const cajupayPayerReadyForPrime = computed(() => {
  * Pré-preenchimento do widget no mount. No cartão NÃO enviamos `name` — o SDK
  * copia isso para o campo "nome do titular", e o nome do comprador (ex.: rascunho
  * "teste") não deve aparecer no cartão.
+ * Preferir cajupayInitialPayerFor(method) nos mounts paralelos.
  */
-const cajupayMountInitialPayer = computed(() => {
+function cajupayInitialPayerFor(method) {
     const email = (form.email || '').trim();
     const document = (form.cpf || '').replace(/\D/g, '');
-    const method = cajupayActiveSdkMethod.value || form.payment_method;
     if (method === 'card') {
         return { email, document };
     }
     return { name: (form.name || '').trim(), email, document };
-});
+}
 
 /** Dados reais do pagador para setPayer (priming / confirm) — inclui nome. */
 const cajupaySyncPayer = computed(() => ({
@@ -1475,7 +1476,7 @@ const checkoutChargeAmount = computed(() => {
 
 const cajupaySessionToken = ref('');
 const cajupayPollingToken = ref('');
-const cajupayMountRef = ref(null);
+const cajupayMountRefs = Object.create(null);
 const cajupayError = ref('');
 const cajupayPolling = ref(false);
 const cajupaySessionLoading = ref(false);
@@ -1492,8 +1493,8 @@ const cajupayMethodsAvailable = ref([]);
 /** True após POST /checkout/cajupay/confirm-order com sucesso (wallets materializam antes do 1º confirm do SDK). */
 const cajupayOrderMaterialized = ref(false);
 /**
- * Mantém o painel/mount do SDK no DOM (v-show) ao trocar pra PIX etc. — evita remontar
- * do zero ao voltar pro cartão. Método “preso” no mount enquanto o painel está oculto.
+ * Mantém o painel/mount do SDK no DOM ao trocar pra PIX etc. — evita remontar
+ * do zero ao voltar. Métodos aquecidos (card/apple/google) ficam em background.
  */
 const cajupayPanelKeepAlive = ref(false);
 const cajupayActiveSdkMethod = ref('');
@@ -1503,6 +1504,42 @@ let cajupayCacheFingerprint = '';
 let cajupayWarmupStarted = false;
 /** Promessas em voo por método — evita “return null” enquanto o warmup ainda cria a sessão. */
 const cajupaySessionInflight = {};
+
+/** Métodos CajuPay SDK disponíveis neste checkout (pra warmup paralelo). */
+const cajupayWarmMethods = computed(() =>
+    ['card', 'apple_pay', 'google_pay'].filter((id) => isCajuPaySdkMethodId(id))
+);
+
+function setCajupayMountRef(method, el) {
+    if (el) {
+        cajupayMountRefs[method] = el;
+    } else {
+        delete cajupayMountRefs[method];
+    }
+}
+
+function getCajupayMount() {
+    const method = form.payment_method;
+    return cajupayMountRefs[method] || null;
+}
+
+function cajupayTokenForMethod(method) {
+    if (cajupayActiveSdkMethod.value === method && cajupaySessionToken.value) {
+        return cajupaySessionToken.value;
+    }
+    const entry = cajupaySessionCache.value[method];
+    if (!entry?.token) {
+        return '';
+    }
+    if (entry.fingerprint !== cajupaySessionFingerprint()) {
+        return '';
+    }
+    return entry.token;
+}
+
+function isCajupayMethodPanelActive(method) {
+    return isCajuPaySdkFlow.value && form.payment_method === method;
+}
 
 const parceladoPayAccountId = ref('');
 const parceladoPaymentLinkToken = ref('');
@@ -1825,19 +1862,32 @@ function validateCajuPayCustomerFields() {
     return true;
 }
 
-async function ensureCajuPaySession({ silent = false, methodOverride = null } = {}) {
+async function ensureCajuPaySession({ silent = false, methodOverride = null, activate = null } = {}) {
     const method = methodOverride || form.payment_method;
     const forCurrentUi = !methodOverride || methodOverride === form.payment_method;
+    const doActivate = activate === null
+        ? (
+            forCurrentUi
+            || (method === 'card' && (!cajupaySessionToken.value || cajupayActiveSdkMethod.value === 'card' || !cajupayActiveSdkMethod.value))
+        )
+        : !!activate;
 
     if (!methodOverride && !isCajuPaySdkFlow.value) return null;
     if (!isCajuPaySdkMethodId(method)) return null;
 
-    if (restoreCajuPaySession(method)) {
+    if (doActivate && restoreCajuPaySession(method)) {
         return cajupaySessionToken.value;
+    }
+    if (!doActivate) {
+        const entry = cajupaySessionCache.value[method];
+        if (entry?.token && entry.fingerprint === cajupaySessionFingerprint()) {
+            cajupayPanelKeepAlive.value = true;
+            return entry.token;
+        }
     }
 
     // Já temos token do método ativo (ex.: keep-alive) — não recria.
-    if (cajupaySessionToken.value && cajupayActiveSdkMethod.value === method) {
+    if (doActivate && cajupaySessionToken.value && cajupayActiveSdkMethod.value === method) {
         return cajupaySessionToken.value;
     }
 
@@ -1846,7 +1896,9 @@ async function ensureCajuPaySession({ silent = false, methodOverride = null } = 
     }
     if (!cajupayMinimumFieldsReady()) return null;
 
-    cajupaySessionLoading.value = true;
+    if (doActivate || forCurrentUi) {
+        cajupaySessionLoading.value = true;
+    }
     if (!silent && forCurrentUi) cajupayError.value = '';
 
     const request = (async () => {
@@ -1879,18 +1931,16 @@ async function ensureCajuPaySession({ silent = false, methodOverride = null } = 
                     order_materialized: false,
                 },
             };
+            cajupayPanelKeepAlive.value = true;
 
             // Warmup de cartão (mesmo com PIX na UI): ativa token + keep-alive pra montar
-            // o widget em background (painel invisível, sem display:none).
-            const shouldActivate = forCurrentUi
-                || (method === 'card' && (!cajupaySessionToken.value || cajupayActiveSdkMethod.value === 'card' || !cajupayActiveSdkMethod.value));
-            if (shouldActivate) {
+            // o widget em background. Warmup de wallet (activate:false) só popula o cache.
+            if (doActivate) {
                 cajupaySessionToken.value = data.token;
                 cajupayPollingToken.value = data.polling_token || '';
                 cajupayMethodsAvailable.value = Array.isArray(data.methods_available) ? data.methods_available : [];
                 cajupayOrderMaterialized.value = false;
                 cajupayActiveSdkMethod.value = method;
-                cajupayPanelKeepAlive.value = true;
 
                 if (
                     forCurrentUi
@@ -1909,7 +1959,9 @@ async function ensureCajuPaySession({ silent = false, methodOverride = null } = 
             }
             return null;
         } finally {
-            cajupaySessionLoading.value = false;
+            if (doActivate || forCurrentUi) {
+                cajupaySessionLoading.value = false;
+            }
             delete cajupaySessionInflight[method];
         }
     })();
@@ -1925,20 +1977,26 @@ function scheduleEnsureCajuPaySession() {
     }, 120);
 }
 
-/** Pré-carrega script + sessão + mount do cartão em background (mesmo com PIX selecionado). */
+/** Pré-carrega scripts + sessões (card/apple/google) e monta em background. */
 function warmupCajuPaySdk() {
     if (!hasAnyCajuPaySdkMethod.value) return;
     // Script em paralelo com a criação da sessão (não espera um pelo outro).
     prefetchCajuPaySdk().catch(() => {});
     if (cajupayWarmupStarted) return;
     cajupayWarmupStarted = true;
+    cajupayPanelKeepAlive.value = true;
+
     if (isCajuPaySdkFlow.value) {
         ensureCajuPaySession({ silent: true });
-        return;
-    }
-    if (hasCajuPayCardMethod.value) {
-        // Sem delay: monta sessão de cartão já na entrada da página.
+    } else if (hasCajuPayCardMethod.value) {
         ensureCajuPaySession({ silent: true, methodOverride: 'card' });
+    }
+
+    // Sessões de wallet só no cache — mount em background sem priming/Order.
+    for (const method of ['apple_pay', 'google_pay']) {
+        if (!isCajuPaySdkMethodId(method)) continue;
+        if (form.payment_method === method) continue;
+        ensureCajuPaySession({ silent: true, methodOverride: method, activate: false });
     }
 }
 
@@ -3338,12 +3396,14 @@ async function submitCajuPaySdkFlow(paymentMethod) {
             }
             await nextTick();
             const start = Date.now();
-            while (!cajupayMountRef.value?.isReady?.() && Date.now() - start < 8000) {
+            while (!getCajupayMount()?.isReady?.() && Date.now() - start < 12000) {
                 await new Promise((r) => setTimeout(r, 150));
             }
         }
 
-        if (!cajupayMountRef.value?.isReady?.()) {
+        const mount = getCajupayMount();
+        if (!mount?.isReady?.()) {
+            mount?.remount?.();
             throw new Error('Aguarde o checkout CajuPay terminar de carregar e tente novamente.');
         }
 
@@ -3367,7 +3427,7 @@ async function submitCajuPaySdkFlow(paymentMethod) {
         // payload do POST público (SDK mandou); o initial_payer da sessão server-side é
         // só pré-preenchimento opcional. Funciona pra TODOS os métodos sem destruir o
         // iframe do cartão (vs. remount, que perderia PAN/CVC).
-        cajupayMountRef.value?.setPayer?.({
+        mount?.setPayer?.({
             name: form.name,
             email: form.email,
             document: (form.cpf || '').replace(/\D/g, ''),
@@ -3376,7 +3436,7 @@ async function submitCajuPaySdkFlow(paymentMethod) {
                 : undefined,
         });
 
-        await cajupayMountRef.value.confirm();
+        await mount.confirm();
         if (!cajupayPolling.value) {
             startCajuPayPolling(pollingToken);
         }
@@ -4348,7 +4408,8 @@ function submit() {
             <!-- Background mount: NÃO usar display:none (v-show). O SDK/iframe não
                  termina o priming escondido assim — ao voltar pro cartão parecia “lento”.
                  Mantemos o painel no fluxo visual só quando ativo; senão fica absoluto
-                 invisível com largura real pra montar/primar em background. -->
+                 invisível com largura real pra montar/primar em background.
+                 Apple/Google: sessão + mount aquecem cedo; priming (Order) só no método ativo. -->
             <div
                 v-if="cajupayPanelKeepAlive || isCajuPaySdkFlow"
                 class="space-y-2 rounded-xl border border-gray-200 bg-white p-3 sm:space-y-3 sm:border-2 sm:border-gray-100 sm:bg-gray-50/50 sm:p-4"
@@ -4358,14 +4419,14 @@ function submit() {
                 :aria-hidden="isCajuPaySdkFlow ? undefined : 'true'"
                 data-checkout="form-cajupay-panel"
             >
-                <div class="flex items-center gap-2 text-gray-700">
-                    <CreditCard v-if="(cajupayActiveSdkMethod || form.payment_method) === 'card'" class="h-5 w-5 shrink-0 text-gray-500" />
+                <div v-if="isCajuPaySdkFlow" class="flex items-center gap-2 text-gray-700">
+                    <CreditCard v-if="form.payment_method === 'card'" class="h-5 w-5 shrink-0 text-gray-500" />
                     <Shield v-else class="h-5 w-5 shrink-0 text-gray-500" />
                     <span class="text-sm font-medium">
                         {{
-                            (cajupayActiveSdkMethod || form.payment_method) === 'card'
+                            form.payment_method === 'card'
                                 ? (t('checkout.dados_cartao') || 'Dados do cartão')
-                                : (cajupayActiveSdkMethod || form.payment_method) === 'apple_pay'
+                                : form.payment_method === 'apple_pay'
                                     ? labelForPaymentMethodId('apple_pay')
                                     : labelForPaymentMethodId('google_pay')
                         }}
@@ -4375,19 +4436,30 @@ function submit() {
                     {{ cajupayError }}
                 </p>
                 <div class="-mx-1 min-w-0 sm:mx-0">
-                    <CajuPaySdkMount
-                        ref="cajupayMountRef"
-                        :payment-method="cajupayActiveSdkMethod || form.payment_method"
-                        :session-token="cajupaySessionToken"
-                        :initial-payer="cajupayMountInitialPayer"
-                        :sync-payer="cajupaySyncPayer"
-                        :before-wallet-prime="beforeCajuPayWalletPrime"
-                        :payer-ready-for-prime="cajupayPayerReadyForPrime"
-                        :save-card="Boolean(subscriptionPlanId)"
-                        container-id="cajupay-method"
-                        @wallet-payment-completed="onCajuPayWalletPaymentCompleted"
-                        @payment-failed="onCajuPayPaymentFailed"
-                    />
+                    <div
+                        v-for="method in cajupayWarmMethods"
+                        :key="method"
+                        :class="isCajupayMethodPanelActive(method)
+                            ? 'relative'
+                            : 'pointer-events-none fixed left-0 top-0 z-[-1] w-[min(100vw,26rem)] -translate-x-[110%] opacity-0'"
+                        :aria-hidden="isCajupayMethodPanelActive(method) ? undefined : 'true'"
+                    >
+                        <CajuPaySdkMount
+                            v-if="cajupayTokenForMethod(method)"
+                            :ref="(el) => setCajupayMountRef(method, el)"
+                            :payment-method="method"
+                            :session-token="cajupayTokenForMethod(method)"
+                            :initial-payer="cajupayInitialPayerFor(method)"
+                            :sync-payer="cajupaySyncPayer"
+                            :before-wallet-prime="beforeCajuPayWalletPrime"
+                            :payer-ready-for-prime="cajupayPayerReadyForPrime"
+                            :prime-enabled="method === 'card' || isCajupayMethodPanelActive(method)"
+                            :save-card="Boolean(subscriptionPlanId)"
+                            :container-id="`cajupay-method-${method}`"
+                            @wallet-payment-completed="onCajuPayWalletPaymentCompleted"
+                            @payment-failed="onCajuPayPaymentFailed"
+                        />
+                    </div>
                     <div
                         v-if="isCajuPaySdkFlow && !cajupaySessionToken && cajupayMissingFieldsHint && !cajupaySessionLoading"
                         class="mt-2 flex items-start gap-2 text-sm text-gray-600"
@@ -4396,7 +4468,7 @@ function submit() {
                         <span>{{ cajupayMissingFieldsHint }}</span>
                     </div>
                     <div
-                        v-else-if="isCajuPaySdkFlow && !cajupaySessionToken && cajupaySessionLoading"
+                        v-else-if="isCajuPaySdkFlow && !cajupayTokenForMethod(form.payment_method) && cajupaySessionLoading"
                         class="mt-1 h-32 animate-pulse rounded-lg bg-gray-100/80 sm:h-36"
                         aria-hidden="true"
                     />

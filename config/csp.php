@@ -31,6 +31,8 @@ $scriptSources = [
     'https://*.evervault.com',
     // Apple Pay (SDK CajuPay / Payment Request)
     'https://applepay.cdn-apple.com',
+    // Google Pay JS API (pré-load no checkout CajuPay)
+    'https://pay.google.com',
     'https://www.paypal.com',
     'https://www.sandbox.paypal.com',
     'https://*.paypal.com',
@@ -127,6 +129,10 @@ $connectSources = array_merge([
     'https://apple-pay-gateway.apple.com',
     'https://paymentrelayservice.apple.com',
     'https://*.apple.com',
+    // Google Pay
+    'https://pay.google.com',
+    'https://payments.google.com',
+    'https://*.google.com',
     // Efí — tokenização de cartão (payment-token-efi)
     'https://tokenizer.sejaefi.com.br',
     'https://cobrancas.api.efipay.com.br',
@@ -186,6 +192,9 @@ $frameSources = [
     // Apple Pay (botão / QR em Chrome·Edge·Firefox no Windows)
     'https://applepay.cdn-apple.com',
     'https://*.apple.com',
+    // Google Pay
+    'https://pay.google.com',
+    'https://*.google.com',
     // Meta Pixel (iframe / fbevents framing)
     'https://www.facebook.com',
     'https://*.facebook.com',

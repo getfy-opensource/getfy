@@ -12,9 +12,14 @@ const SDK_BASE_URL = 'https://api.cajupay.com.br';
 const SDK_SCRIPT_VERSION = '20260916-card-layout-stacked';
 /** Apple Pay JS — obrigatório no Windows/Chrome/Edge para o fluxo QR → iPhone (iOS 18+). */
 const APPLE_PAY_JS_SDK_URL = 'https://applepay.cdn-apple.com/jsapi/1.latest/apple-pay-sdk.js';
+/** Google Pay JS API — o SDK Caju carrega sob demanda; pré-carregar acelera o botão. */
+const GOOGLE_PAY_JS_URL = 'https://pay.google.com/gp/p/js/pay.js';
+/** Formulário seguro Cartão Brasil (Rinne) — URL usada pelo SDK após mount/confirm. */
+const RINNE_JS_URL = 'https://pkgs.rinne.com.br/rinne-js';
 
 let sdkPromise = null;
 let applePayJsPromise = null;
+let googlePayJsPromise = null;
 
 /**
  * Injeta o Apple Pay JS SDK (idempotente). Sem isso, em browsers não-Safari o Caju
@@ -59,8 +64,63 @@ export function ensureApplePayJsSdk() {
 }
 
 /**
+ * Injeta o Google Pay JS (idempotente). Reduz a latência do 1º mount google_pay.
+ *
+ * @returns {Promise<void>}
+ */
+export function ensureGooglePayJsSdk() {
+    if (typeof document === 'undefined') {
+        return Promise.resolve();
+    }
+    if (typeof window !== 'undefined' && window.google?.payments?.api?.PaymentsClient) {
+        return Promise.resolve();
+    }
+    if (googlePayJsPromise) {
+        return googlePayJsPromise;
+    }
+    const existing = document.querySelector(`script[data-cajupay-google-pay-sdk][src="${GOOGLE_PAY_JS_URL}"]`);
+    if (existing) {
+        googlePayJsPromise = existing.dataset.loaded === '1'
+            ? Promise.resolve()
+            : new Promise((resolve) => {
+                existing.addEventListener('load', () => resolve(), { once: true });
+                existing.addEventListener('error', () => resolve(), { once: true });
+            });
+        return googlePayJsPromise;
+    }
+    googlePayJsPromise = new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = GOOGLE_PAY_JS_URL;
+        script.async = true;
+        script.setAttribute('data-cajupay-google-pay-sdk', '1');
+        script.onload = () => {
+            script.dataset.loaded = '1';
+            resolve();
+        };
+        script.onerror = () => resolve();
+        document.head.appendChild(script);
+    });
+    return googlePayJsPromise;
+}
+
+function ensureScriptPreload(url, key) {
+    if (typeof document === 'undefined' || !url) {
+        return;
+    }
+    if (document.querySelector(`link[data-cajupay-preload="${key}"]`)) {
+        return;
+    }
+    const link = document.createElement('link');
+    link.rel = 'preload';
+    link.as = 'script';
+    link.href = url;
+    link.setAttribute('data-cajupay-preload', key);
+    document.head.appendChild(link);
+}
+
+/**
  * Pré-carrega o script do SDK (preload + load) o quanto antes — ex.: ao abrir o checkout,
- * mesmo antes do cliente escolher cartão.
+ * mesmo antes do cliente escolher cartão. Também aquece Rinne, Apple Pay e Google Pay.
  *
  * @param {{ requireParcelado?: boolean }} [options]
  * @returns {Promise<typeof window.CajuPaySDK>}
@@ -87,24 +147,23 @@ export function prefetchCajuPaySdk(options = {}) {
         ensureLink('preconnect', 'https://api.rinne.com.br', { crossorigin: 'anonymous' });
         ensureLink('preconnect', 'https://js.evervault.com', { crossorigin: 'anonymous' });
         ensureLink('preconnect', 'https://keys.evervault.com', { crossorigin: 'anonymous' });
+        ensureLink('preconnect', 'https://pay.google.com', { crossorigin: 'anonymous' });
         ensureLink('dns-prefetch', 'https://cdn.cajupay.com.br');
         ensureLink('dns-prefetch', 'https://api.cajupay.com.br');
         ensureLink('dns-prefetch', 'https://pkgs.rinne.com.br');
         ensureLink('dns-prefetch', 'https://api.rinne.com.br');
         ensureLink('dns-prefetch', 'https://js.evervault.com');
         ensureLink('dns-prefetch', 'https://keys.evervault.com');
+        ensureLink('dns-prefetch', 'https://pay.google.com');
         ensureLink('preconnect', 'https://applepay.cdn-apple.com', { crossorigin: 'anonymous' });
         ensureLink('dns-prefetch', 'https://applepay.cdn-apple.com');
-        // Windows/Chrome/Edge: Apple Pay via QR no iPhone exige este SDK ANTES do botão.
+        // Scripts pesados em paralelo (não esperam o clique no método).
+        ensureScriptPreload(href, 'sdk');
+        ensureScriptPreload(RINNE_JS_URL, 'rinne');
+        ensureScriptPreload(APPLE_PAY_JS_SDK_URL, 'apple-pay');
+        ensureScriptPreload(GOOGLE_PAY_JS_URL, 'google-pay');
         ensureApplePayJsSdk();
-        if (!document.querySelector('link[data-cajupay-preload]')) {
-            const link = document.createElement('link');
-            link.rel = 'preload';
-            link.as = 'script';
-            link.href = href;
-            link.setAttribute('data-cajupay-preload', '1');
-            document.head.appendChild(link);
-        }
+        ensureGooglePayJsSdk();
     }
     return loadCajuPaySdk(options);
 }
@@ -294,9 +353,9 @@ export async function mountCajuPayCheckout(containerSelector, opts) {
         throw new Error('CajuPay: token público da sessão é obrigatório.');
     }
     const method = opts.defaultMethod || 'card';
-    // Apple Pay no Windows/Chrome: carregar apple-pay-sdk.js antes do mount (fluxo QR).
-    if (method === 'apple_pay') {
-        await ensureApplePayJsSdk();
+    // Wallets: SDKs nativos antes do mount (Apple QR no Windows; Google Pay JS).
+    if (method === 'apple_pay' || method === 'google_pay') {
+        await Promise.all([ensureApplePayJsSdk(), ensureGooglePayJsSdk()]);
     }
     const sdk = await loadCajuPaySdk();
     if (!sdk?.init) {

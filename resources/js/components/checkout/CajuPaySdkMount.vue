@@ -27,6 +27,11 @@ const props = defineProps({
     beforeWalletPrime: { type: Function, default: null },
     /** Espelha validateCajuPayCustomerFields no host — bloqueia priming da wallet sem pedido. */
     payerReadyForPrime: { type: Boolean, default: false },
+    /**
+     * Quando false (warmup em background), monta o SDK/scripts sem a 1ª confirm().
+     * Assim Apple/Google aquecem sem materializar Order até o método estar ativo.
+     */
+    primeEnabled: { type: Boolean, default: true },
     /** Assinatura: pede persistência de cartão (card_token) no SDK/sessão. */
     saveCard: { type: Boolean, default: false },
 });
@@ -48,6 +53,8 @@ const cardFieldReady = ref(false);
 // Flag pra impedir que a 1ª confirm() automática seja interpretada como erro normal
 // (ela pode lançar `awaiting_card_details` como rejection em alguns SDKs antigos).
 const cardPrimingInFlight = ref(false);
+let recoveryTimer = null;
+let mountGeneration = 0;
 
 const containerSelector = computed(() => `#${props.containerId}`);
 // Métodos que precisam do priming (1ª confirm() automática pra renderizar widget):
@@ -58,7 +65,7 @@ const isCardMethod = computed(() => props.paymentMethod === 'card');
 const isWalletMethod = computed(() => props.paymentMethod === 'apple_pay' || props.paymentMethod === 'google_pay');
 
 const showWalletPreparing = computed(() => {
-    if (!isWalletMethod.value || !props.sessionToken) {
+    if (!isWalletMethod.value || !props.sessionToken || !props.primeEnabled) {
         return false;
     }
     if (cardFieldReady.value) {
@@ -86,6 +93,28 @@ function payerForSync() {
     const sync = props.syncPayer && typeof props.syncPayer === 'object' ? props.syncPayer : null;
     const initial = props.initialPayer && typeof props.initialPayer === 'object' ? props.initialPayer : {};
     return sync || initial;
+}
+
+function clearRecoveryTimer() {
+    if (recoveryTimer) {
+        clearTimeout(recoveryTimer);
+        recoveryTimer = null;
+    }
+}
+
+function scheduleRecoveryRetry(delayMs = 2500) {
+    clearRecoveryTimer();
+    if (!props.sessionToken) {
+        return;
+    }
+    recoveryTimer = setTimeout(() => {
+        recoveryTimer = null;
+        if (!props.sessionToken || cardFieldReady.value || cardPrimingInFlight.value || loading.value) {
+            return;
+        }
+        mountedToken.value = '';
+        tryMount(0);
+    }, delayMs);
 }
 
 function destroyController() {
@@ -127,6 +156,11 @@ function isTransientSdkLoadError(err) {
         || msg.includes('load_failed')
         || msg.includes('buscar configura')
         || msg.includes('public-settings')
+        || msg.includes('err_network')
+        || msg.includes('timeout')
+        || msg.includes('abort')
+        || msg.includes('não está pronto')
+        || msg.includes('nao esta pronto')
     );
 }
 
@@ -135,14 +169,21 @@ async function tryMount(attempt = 0) {
         if (controller.value) destroyController();
         return;
     }
-    if (mountedToken.value === props.sessionToken && attempt === 0) {
+    if (mountedToken.value === props.sessionToken && attempt === 0 && controller.value) {
+        if (needsPriming.value && props.primeEnabled && !cardFieldReady.value && !cardPrimingInFlight.value) {
+            await primeCardField();
+        }
         return;
     }
     error.value = '';
     loading.value = true;
+    const generation = ++mountGeneration;
     if (controller.value) destroyController();
     try {
         await new Promise((r) => setTimeout(r, 0));
+        if (generation !== mountGeneration) {
+            return;
+        }
         controller.value = await mountCajuPayCheckout(containerSelector.value, {
             token: props.sessionToken,
             defaultMethod: cajupayDefaultMethodFor(props.paymentMethod),
@@ -166,32 +207,42 @@ async function tryMount(attempt = 0) {
                 reportPaymentFailed(event);
             },
         });
+        if (generation !== mountGeneration) {
+            return;
+        }
         mountedToken.value = props.sessionToken;
 
         // Para CARD / APPLE PAY / GOOGLE PAY: dispara a 1ª confirm() automaticamente —
         // sem isso o widget NÃO aparece (input do cartão / botão da wallet). Essa
         // chamada cria a cobrança no PSP e monta o widget. NÃO submete pagamento ainda
         // — isso é a 2ª chamada (vem do clique do Pagar via .confirm() exposto).
-        // Para PIX, basta um confirm no clique do Pagar (sem priming).
-        if (needsPriming.value) {
+        // Warmup de wallet (primeEnabled=false): só monta scripts/SDK, sem Order.
+        if (needsPriming.value && props.primeEnabled) {
             await primeCardField();
-        } else {
+        } else if (!needsPriming.value) {
             cardFieldReady.value = true;
         }
+        clearRecoveryTimer();
     } catch (e) {
+        if (generation !== mountGeneration) {
+            return;
+        }
         // ERR_NETWORK_CHANGED / Failed to fetch no Rinne/Evervault — tenta de novo.
-        if (attempt < 2 && isTransientSdkLoadError(e)) {
+        if (attempt < 4 && isTransientSdkLoadError(e)) {
             mountedToken.value = '';
-            await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+            await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
             return tryMount(attempt + 1);
         }
         error.value = e?.message || 'Não foi possível carregar o checkout CajuPay.';
         if (isTransientSdkLoadError(e)) {
-            error.value = 'Falha de conexão ao carregar o formulário. Recarregue a página e tente novamente.';
+            error.value = 'Falha de conexão ao carregar o pagamento. Tentando novamente…';
+            scheduleRecoveryRetry(2000 + attempt * 500);
         }
         controller.value = null;
     } finally {
-        loading.value = false;
+        if (generation === mountGeneration) {
+            loading.value = false;
+        }
     }
 }
 
@@ -202,6 +253,7 @@ async function tryMount(attempt = 0) {
  */
 async function primeCardField() {
     if (!controller.value || cardPrimingInFlight.value || cardFieldReady.value) return;
+    if (!props.primeEnabled) return;
 
     if (isWalletMethod.value && !props.payerReadyForPrime) {
         error.value = 'Preencha e-mail e os dados obrigatórios acima para usar a carteira.';
@@ -232,12 +284,14 @@ async function primeCardField() {
         await controller.value.confirm();
         cardFieldReady.value = true;
         error.value = '';
+        clearRecoveryTimer();
     } catch (e) {
         const msg = (e?.message || e?.error || '').toString().toLowerCase();
         // "awaiting_card_details" / similar = estado normal pós-priming, não é erro real.
         if (msg.includes('awaiting') || msg.includes('card_details')) {
             cardFieldReady.value = true;
             error.value = '';
+            clearRecoveryTimer();
         } else if (msg.includes('payer_name') || msg.includes('payer_email') || msg.includes('payer_document')) {
             // Cliente ainda não preencheu os dados; mostra hint suave em vez de erro
             // alarmante. O watcher de initialPayer vai re-tentar quando os campos forem preenchidos.
@@ -251,6 +305,9 @@ async function primeCardField() {
                 : props.paymentMethod === 'google_pay' ? 'Google Pay'
                 : 'Esse método';
             error.value = `${label} não está disponível para esta conta CajuPay no momento. Selecione outra forma de pagamento (ex.: Cartão).`;
+        } else if (isTransientSdkLoadError(e)) {
+            error.value = 'Falha de conexão ao carregar o pagamento. Tentando novamente…';
+            scheduleRecoveryRetry(2000);
         } else if (!cardFieldReady.value) {
             // Erro real (ex.: PSP recusou criar cobrança) — surface ao usuário.
             const label = isCardMethod.value
@@ -259,10 +316,18 @@ async function primeCardField() {
                 : props.paymentMethod === 'google_pay' ? 'Google Pay'
                 : 'pagamento';
             error.value = e?.message || `Falha ao iniciar o ${label}.`;
+            scheduleRecoveryRetry(4000);
         }
     } finally {
         cardPrimingInFlight.value = false;
     }
+}
+
+function remount() {
+    clearRecoveryTimer();
+    mountedToken.value = '';
+    error.value = '';
+    tryMount(0);
 }
 
 watch(() => props.sessionToken, () => { tryMount(); }, { immediate: true });
@@ -273,15 +338,24 @@ watch(() => props.paymentMethod, () => {
     }
 });
 
+watch(
+    () => props.primeEnabled,
+    (enabled) => {
+        if (!enabled || !props.sessionToken || !controller.value) return;
+        if (cardFieldReady.value || cardPrimingInFlight.value) return;
+        primeCardField();
+    }
+);
+
 // Re-tenta o priming (card/wallets) quando o cliente preenche/atualiza os dados
 // (debounced). Só dispara se o priming ainda não deu certo. Sem isso, se o cliente
 // seleciona o método sem ter preenchido nada, o widget nunca aparece mesmo depois
 // que ele preenche.
 let primeRetryTimer = null;
 watch(
-    () => [props.payerReadyForPrime, props.initialPayer, props.syncPayer],
+    () => [props.payerReadyForPrime, props.primeEnabled, props.initialPayer, props.syncPayer],
     () => {
-        if (!needsPriming.value) return;
+        if (!needsPriming.value || !props.primeEnabled) return;
         if (!controller.value) return;
         if (cardFieldReady.value) return;
         if (isWalletMethod.value && !props.payerReadyForPrime) return;
@@ -293,6 +367,8 @@ watch(
 
 onBeforeUnmount(() => {
     clearTimeout(primeRetryTimer);
+    clearRecoveryTimer();
+    mountGeneration += 1;
     destroyController();
 });
 
@@ -301,13 +377,17 @@ async function confirm() {
         throw new Error('CajuPay: aguarde o checkout terminar de carregar.');
     }
     // Para card / wallets, garante que a 1ª confirm() (priming do widget) terminou
-    // antes de disparar a 2ª (submissão real). Espera até 8s pra cardFieldReady=true.
+    // antes de disparar a 2ª (submissão real). Espera até 15s pra cardFieldReady=true.
     if (needsPriming.value && !cardFieldReady.value) {
+        if (props.primeEnabled && !cardPrimingInFlight.value) {
+            await primeCardField();
+        }
         const start = Date.now();
-        while (!cardFieldReady.value && Date.now() - start < 8000) {
+        while (!cardFieldReady.value && Date.now() - start < 15000) {
             await new Promise((r) => setTimeout(r, 100));
         }
         if (!cardFieldReady.value) {
+            remount();
             throw new Error('CajuPay: o método de pagamento ainda não está pronto. Aguarde 1-2 segundos e clique novamente.');
         }
     }
@@ -336,6 +416,7 @@ defineExpose({
     isReady: () => !!controller.value,
     setPayer,
     isCardFieldReady: () => cardFieldReady.value,
+    remount,
 });
 </script>
 
@@ -366,6 +447,15 @@ defineExpose({
             }"
             :aria-busy="loading || showWalletPreparing"
         />
-        <p v-if="error" class="mt-2 text-sm text-red-600" role="alert">{{ error }}</p>
+        <div v-if="error && primeEnabled" class="mt-2 space-y-1">
+            <p class="text-sm text-red-600" role="alert">{{ error }}</p>
+            <button
+                type="button"
+                class="text-xs font-medium text-gray-600 underline decoration-gray-400 hover:text-gray-800"
+                @click="remount"
+            >
+                Tentar carregar novamente
+            </button>
+        </div>
     </div>
 </template>
