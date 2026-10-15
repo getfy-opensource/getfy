@@ -2,6 +2,7 @@
 import { computed, ref, onMounted, watch, onUnmounted } from 'vue';
 import { Link, usePage, Head, router } from '@inertiajs/vue3';
 import PwaInstallPrompt from '@/components/member-area/PwaInstallPrompt.vue';
+import PullToRefresh from '@/components/layout/PullToRefresh.vue';
 import MemberAreaAiChatFab from '@/components/member-area/MemberAreaAiChatFab.vue';
 import MemberAreaNotificationsPanel from '@/components/member-area/MemberAreaNotificationsPanel.vue';
 import Button from '@/components/ui/Button.vue';
@@ -947,6 +948,7 @@ watch(cinemaMode, (active) => {
             </main>
         </div>
         <PwaInstallPrompt v-if="slug" :app-name="appName" :slug="slug" />
+        <PullToRefresh color="var(--ma-primary)" />
         <MemberAreaAiChatFab />
         <MemberAreaNotificationsPanel
             :open="notificationsPanelOpen"

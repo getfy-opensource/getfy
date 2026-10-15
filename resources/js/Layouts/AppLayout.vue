@@ -7,6 +7,7 @@ import AppSidebar from '@/components/layout/AppSidebar.vue';
 import AppHeader from '@/components/layout/AppHeader.vue';
 import MobileBottomNav from '@/components/layout/MobileBottomNav.vue';
 import PwaInstallPrompt from '@/components/layout/PwaInstallPrompt.vue';
+import PullToRefresh from '@/components/layout/PullToRefresh.vue';
 import NotificationsPanel from '@/components/layout/NotificationsPanel.vue';
 import Backdrop from '@/components/layout/Backdrop.vue';
 import FlashToast from '@/components/layout/FlashToast.vue';
@@ -68,6 +69,7 @@ watchEffect(() => {
             </div>
             <FlashToast />
             <PwaInstallPrompt />
+            <PullToRefresh />
             <NotificationsPanel
                 :open="showNotificationsPanel"
                 @update:open="showNotificationsPanel = $event"
