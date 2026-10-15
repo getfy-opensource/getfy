@@ -165,6 +165,9 @@ return [
                 ['key' => 'secret_key', 'label' => 'Secret Key', 'type' => 'password'],
                 ['key' => 'public_key', 'label' => 'Public Key', 'type' => 'text'],
                 ['key' => 'sandbox', 'label' => 'Sandbox', 'type' => 'boolean'],
+                // Opcional: libera o Financeiro (saldo, recebíveis, taxa real, transferência, antecipação).
+                ['key' => 'finance_secret_key', 'label' => 'Chave financeira (escopos Financeiro e Recebedores)', 'type' => 'password', 'optional' => true],
+                ['key' => 'finance_recipient_id', 'label' => 'ID do recebedor principal (só se a conta tiver vários)', 'type' => 'text', 'optional' => true],
             ],
         ],
         'paypal' => [

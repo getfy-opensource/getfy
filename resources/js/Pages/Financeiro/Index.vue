@@ -64,6 +64,7 @@ function onReload() {
             <p class="leading-relaxed">
                 Saques e aprovações de parceiros dependem da
                 <strong>CajuPay</strong> configurada. Conecte em Integrações para liberar o painel abaixo.
+                Vende pela <strong>Pagar.me</strong>? Cadastre a chave financeira em Integrações → Gateways → Pagar.me.
             </p>
         </div>
 
@@ -129,6 +130,7 @@ function onReload() {
             pix-base-url="/financeiro/pix"
             :partner-summary="summary"
             :show-commissions-table="false"
+            :can-manage="canManageFinanceiro"
             @reload="onReload"
         />
             </div>

@@ -72,6 +72,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'member.area.access' => \App\Http\Middleware\EnsureMemberAreaAccess::class,
             'member.area.signed' => \App\Http\Middleware\SignedOrMemberAreaRedirect::class,
             'admin.tenant' => \App\Http\Middleware\EnsureAdminHasTenant::class,
+            'pagarme.finance.write' => \App\Http\Middleware\EnsurePagarmeFinanceWrite::class,
             'checkout.abuse' => \App\Http\Middleware\PreventCheckoutAbuse::class,
             'checkout.reuse-pix' => \App\Http\Middleware\ReusePendingPixCheckout::class,
             'partner.product' => \App\Http\Middleware\EnsurePartnerProductAccess::class,
@@ -177,6 +178,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('orders:cancel-stale-pending')->hourly();
         $schedule->command('commissions:release')->hourly();
         $schedule->command('payouts:reconcile')->everyFiveMinutes()->withoutOverlapping(4);
+        $schedule->command('pagarme:sync-finance')->everyFifteenMinutes()->withoutOverlapping(14);
         $schedule->command('coproducers:expire-invites')->daily();
         $schedule->command('schedule:heartbeat')->everyMinute();
         $schedule->job(new \App\Jobs\QueueHeartbeatJob)->everyMinute();

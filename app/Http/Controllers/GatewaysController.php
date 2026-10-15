@@ -6,8 +6,10 @@ use App\Gateways\GatewayRegistry;
 use App\Gateways\CajuPay\CajuPayDriver;
 use App\Models\GatewayCredential;
 use App\Models\GatewayFeeSetting;
+use App\Models\PagarmeAccount;
 use App\Models\Setting;
 use App\Services\CajuPayPixParceladoService;
+use App\Services\PagarmeAccountLinker;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -76,7 +78,7 @@ class GatewaysController extends Controller
                     $str = (string) $keyDef['options'][0]['value'];
                 }
                 $credentialValues[$key] = $str;
-            } elseif (in_array($key, ['secret_key', 'webhook_secret', 'webhook_signing_secret'], true) && $raw !== null && (string) $raw !== '') {
+            } elseif (in_array($key, ['secret_key', 'webhook_secret', 'webhook_signing_secret', 'finance_secret_key'], true) && $raw !== null && (string) $raw !== '') {
                 $credentialValues[$key] = $this->maskCredentialSecret((string) $raw) ?? '';
             } else {
                 $credentialValues[$key] = $raw !== null && $raw !== '' ? (string) $raw : '';
@@ -247,7 +249,7 @@ class GatewaysController extends Controller
                 continue;
             }
             $trimmed = is_string($v) ? trim($v) : '';
-            if (in_array($key, ['secret_key', 'webhook_secret', 'webhook_signing_secret'], true) && $trimmed === '' && ! empty($existingCredentials[$key])) {
+            if (in_array($key, ['secret_key', 'webhook_secret', 'webhook_signing_secret', 'finance_secret_key'], true) && $trimmed === '' && ! empty($existingCredentials[$key])) {
                 $credentials[$key] = $existingCredentials[$key];
                 continue;
             }
@@ -324,6 +326,8 @@ class GatewaysController extends Controller
         $credential->setEncryptedCredentials($credentials);
         $credential->save();
 
+        $finance = $slug === 'pagarme' ? $this->linkPagarmeFinance((int) $tenantId, $credentials, $existingCredentials) : null;
+
         $cajupayMetaDriver = ($slug === 'cajupay' && $isConnected && $driver instanceof CajuPayDriver)
             ? $driver
             : null;
@@ -336,12 +340,46 @@ class GatewaysController extends Controller
             $message = 'Credenciais salvas. Webhook configurado automaticamente na CajuPay.';
         }
 
+        if ($finance !== null && $finance['warning'] !== null) {
+            $message .= ' Financeiro: '.$finance['warning'];
+        } elseif ($finance !== null && $finance['connected'] && ! empty($credentials['finance_secret_key'])) {
+            $message .= ' Financeiro Pagar.me conectado.';
+        }
+
         return response()->json(array_merge([
             'success' => true,
             'is_connected' => $isConnected,
             'message' => $message,
             'webhook_warning' => $webhookWarning,
-        ], $cajupayMeta));
+        ], $cajupayMeta, $finance === null ? [] : [
+            'finance_connected' => $finance['connected'],
+            'finance_warning' => $finance['warning'],
+        ]));
+    }
+
+    /**
+     * Chave financeira da Pagar.me (opcional): liga o tenant à conta. Só consulta a API quando a chave ou o
+     * recebedor mudou, ou o tenant ainda não está ligado.
+     *
+     * @param  array<string, mixed>  $credentials
+     * @param  array<string, mixed>  $existing
+     * @return array{connected: bool, warning: string|null}
+     */
+    private function linkPagarmeFinance(int $tenantId, array $credentials, array $existing): array
+    {
+        $key = trim((string) ($credentials['finance_secret_key'] ?? ''));
+        $recipientId = trim((string) ($credentials['finance_recipient_id'] ?? ''));
+        $linked = PagarmeAccount::forTenant($tenantId);
+        if ($key === '') {
+            return ['connected' => (bool) $linked, 'warning' => null];
+        }
+        $changed = $key !== trim((string) ($existing['finance_secret_key'] ?? ''))
+            || $recipientId !== trim((string) ($existing['finance_recipient_id'] ?? ''));
+        if (! $changed && $linked) {
+            return ['connected' => true, 'warning' => null];
+        }
+
+        return app(PagarmeAccountLinker::class)->link($tenantId, $key, $recipientId !== '' ? $recipientId : null);
     }
 
     public function test(Request $request, string $slug): JsonResponse
@@ -395,7 +433,7 @@ class GatewaysController extends Controller
             }
         }
 
-        foreach (['public_key', 'secret_key', 'webhook_secret', 'webhook_signing_secret', 'webhook_endpoint_id', 'auth_mode'] as $preserveKey) {
+        foreach (['public_key', 'secret_key', 'webhook_secret', 'webhook_signing_secret', 'webhook_endpoint_id', 'auth_mode', 'finance_secret_key'] as $preserveKey) {
             if (
                 (! isset($credentials[$preserveKey]) || $credentials[$preserveKey] === '' || $credentials[$preserveKey] === null)
                 && ! empty($existingCredentials[$preserveKey])

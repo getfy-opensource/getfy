@@ -17,6 +17,8 @@ return [
         'billing_renew_window_days' => (int) env('GETFY_CLOUD_BILLING_RENEW_WINDOW_DAYS', 7),
     ],
     'auto_migrate' => filter_var(env('APP_AUTO_MIGRATE', false), FILTER_VALIDATE_BOOLEAN),
+    // Financeiro Pagar.me: transferir, antecipar e mudar a transferência automática pelo admin. Leitura funciona sem a flag.
+    'pagarme_finance_write' => filter_var(env('GETFY_PAGARME_FINANCE_WRITE', false), FILTER_VALIDATE_BOOLEAN),
     'cron_secret' => env('CRON_SECRET', null),
 
     /*

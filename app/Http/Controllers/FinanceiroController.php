@@ -2,16 +2,20 @@
 
 namespace App\Http\Controllers;
 
-use App\Plugins\PluginExtensionRegistry;
 use App\Models\CommissionEntry;
 use App\Models\GatewayCredential;
+use App\Models\PagarmeAccount;
 use App\Models\WalletTransaction;
+use App\Plugins\PluginExtensionRegistry;
+use App\Services\PagarmeFinanceSummaryService;
 use App\Services\PartnerPayoutApprovalService;
 use App\Services\PayoutService;
+use App\Services\TeamAccessService;
 use App\Services\WalletLedgerService;
 use App\Support\WalletBucket;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -27,6 +31,11 @@ class FinanceiroController extends Controller
     {
         $user = $request->user();
         $tenantId = (int) $user->tenant_id;
+
+        $pagarmeAccount = PagarmeAccount::forTenant($tenantId);
+        if ($pagarmeAccount) {
+            return $this->pagarmeIndex($request, $pagarmeAccount);
+        }
 
         $credential = GatewayCredential::forTenant($tenantId)
             ->where('gateway_slug', 'cajupay')
@@ -85,6 +94,56 @@ class FinanceiroController extends Controller
             'partner_payouts' => $this->partnerPayouts->listForTenant($tenantId),
             'plugin_financeiro_tabs' => PluginExtensionRegistry::getFinanceiroTabs(),
         ]);
+    }
+
+    /**
+     * Financeiro com a Pagar.me: números do tenant (recebíveis dele) e a conta, que pode ser compartilhada por
+     * vários tenants. Transferir/antecipar: dono ou equipe com financeiro.manage (FinanceiroPagarmeController).
+     */
+    private function pagarmeIndex(Request $request, PagarmeAccount $account): Response
+    {
+        $user = $request->user();
+        $tenantId = (int) $user->tenant_id;
+        $summary = app(PagarmeFinanceSummaryService::class);
+        $canManage = $user->isAdmin() || $user->isInfoprodutor() || app(TeamAccessService::class)->can($user, 'financeiro.manage');
+
+        $to = $this->dateOrNull($request->query('period_to'))?->endOfDay() ?? now()->endOfDay();
+        $from = $this->dateOrNull($request->query('period_from'))?->startOfDay() ?? $to->copy()->subDays(29)->startOfDay();
+        if ($from->gt($to)) {
+            [$from, $to] = [$to->copy()->startOfDay(), $from->copy()->endOfDay()];
+        }
+        $filters = [
+            'status' => $request->query('status'),
+            'method' => $request->query('method'),
+            'from' => $this->dateOrNull($request->query('from'))?->toDateString(),
+            'to' => $this->dateOrNull($request->query('to'))?->toDateString(),
+        ];
+
+        return Inertia::render('Financeiro/Pagarme', [
+            'period' => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
+            'overview' => $summary->overview($tenantId, $from, $to),
+            'by_method' => $summary->byMethod($tenantId, $from, $to),
+            'schedule' => $summary->schedule($tenantId),
+            'payables' => $summary->payables($tenantId, $filters),
+            'filters' => $filters,
+            'account' => $summary->account($account, $canManage),
+            'shared_tenants_count' => count($account->tenantIds()),
+            'can_manage' => $canManage,
+            'write_enabled' => (bool) config('getfy.pagarme_finance_write'),
+            'plugin_financeiro_tabs' => PluginExtensionRegistry::getFinanceiroTabs(),
+        ]);
+    }
+
+    private function dateOrNull(mixed $value): ?Carbon
+    {
+        if (! is_string($value) || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return null;
+        }
+        try {
+            return Carbon::createFromFormat('Y-m-d', $value);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     public function updatePix(Request $request): JsonResponse

@@ -427,6 +427,20 @@ Route::middleware(['auth', 'admin.tenant', 'role:admin|infoprodutor|team', 'audi
         Route::post('/financeiro/saques-parceiros/{payout}/reject', [\App\Http\Controllers\FinanceiroPartnerPayoutsController::class, 'reject'])
             ->middleware('throttle:payout')
             ->name('financeiro.partner-payouts.reject');
+
+        // Conta Pagar.me do próprio tenant (chave financeira em Integrações → Gateways → Pagar.me).
+        Route::post('/financeiro/pagarme/sync', [\App\Http\Controllers\FinanceiroPagarmeController::class, 'sync'])
+            ->middleware('throttle:6,1')
+            ->name('financeiro.pagarme.sync');
+        Route::middleware(['pagarme.finance.write', 'throttle:20,1'])->group(function () {
+            $c = \App\Http\Controllers\FinanceiroPagarmeController::class;
+            Route::post('/financeiro/pagarme/transfers', [$c, 'transfer'])->name('financeiro.pagarme.transfers');
+            Route::get('/financeiro/pagarme/anticipations/limits', [$c, 'anticipationLimits'])->name('financeiro.pagarme.anticipations.limits');
+            Route::post('/financeiro/pagarme/anticipations/simulate', [$c, 'simulateAnticipation'])->name('financeiro.pagarme.anticipations.simulate');
+            Route::post('/financeiro/pagarme/anticipations', [$c, 'anticipate'])->name('financeiro.pagarme.anticipations.store');
+            Route::post('/financeiro/pagarme/anticipations/{anticipation}/cancel', [$c, 'cancelAnticipation'])->name('financeiro.pagarme.anticipations.cancel');
+            Route::patch('/financeiro/pagarme/transfer-settings', [$c, 'updateTransferSettings'])->name('financeiro.pagarme.transfer-settings');
+        });
     });
 
     Route::middleware('team.permission:vendas.view')->group(function () {

@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Webhooks;
 use App\Gateways\GatewayRegistry;
 use App\Http\Controllers\Controller;
 use App\Jobs\ProcessPaymentWebhook;
+use App\Jobs\SyncPagarmeChargePayables;
 use App\Models\GatewayCredential;
 use App\Models\Order;
+use App\Models\PagarmeAccount;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -50,6 +52,7 @@ class PagarmeWebhookController extends Controller
 
         if (str_contains($type, 'refunded')) {
             ProcessPaymentWebhook::dispatchSync(self::SLUG, $chargeId, 'order.refunded', 'refunded', is_array($payload) ? $payload : []);
+            $this->schedulePayablesSync($order);
 
             return response()->json(['received' => true]);
         }
@@ -78,8 +81,23 @@ class PagarmeWebhookController extends Controller
         }
 
         ProcessPaymentWebhook::dispatchSync(self::SLUG, $chargeId, $event, $status, is_array($payload) ? $payload : []);
+        if ($status === 'paid') {
+            $this->schedulePayablesSync($order);
+        }
 
         return response()->json(['received' => true]);
+    }
+
+    /**
+     * Taxa real: lê os recebíveis da cobrança na API (a Pagar.me cria os payables logo após o pagamento).
+     */
+    private function schedulePayablesSync(Order $order): void
+    {
+        if (! PagarmeAccount::forTenant((int) $order->tenant_id)) {
+            return;
+        }
+
+        SyncPagarmeChargePayables::dispatch($order->id)->delay(now()->addMinutes(2));
     }
 
     /**
