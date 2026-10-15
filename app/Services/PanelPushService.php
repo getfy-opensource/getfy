@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\PanelNotification;
 use App\Models\PanelPushSubscription;
+use App\Models\User;
 use App\Support\PanelPushPreferences;
 use App\Support\VapidKeysManager;
 use Illuminate\Support\Facades\Cache;
@@ -84,15 +85,6 @@ class PanelPushService
         string $category = 'pix',
         ?string $notificationTag = null
     ): int {
-        $vapidPair = app(VapidKeysManager::class)->resolveKeyPair();
-        $vapidPublic = $vapidPair['public'];
-        $vapidPrivate = $vapidPair['private'];
-
-        if (! $vapidPublic || ! $vapidPrivate) {
-            Log::warning('PanelPushService: VAPID não configurado (defina PWA_VAPID_PUBLIC e PWA_VAPID_PRIVATE no .env)', ['tenant_id' => $tenantId]);
-            return 0;
-        }
-
         $subscriptions = PanelPushSubscription::where('tenant_id', $tenantId)->get();
         $subscriptions = $subscriptions->filter(function (PanelPushSubscription $sub) use ($category) {
             $prefs = PanelPushPreferences::normalize($sub->preferences);
@@ -101,6 +93,56 @@ class PanelPushService
         })->values();
         if ($subscriptions->isEmpty()) {
             Log::warning('PanelPushService: nenhuma inscrição push para o tenant (usuário deve permitir notificações no painel)', ['tenant_id' => $tenantId]);
+            return 0;
+        }
+
+        return $this->deliver($subscriptions, $tenantId, $title, $body, $url, $notificationTag);
+    }
+
+    /**
+     * Push de teste (botão da central de notificações): só os dispositivos do próprio usuário, ignora as
+     * preferências por categoria e não grava no histórico.
+     *
+     * @return array{sent: int, subscriptions: int}
+     */
+    public function sendTestToUser(User $user): array
+    {
+        $subscriptions = PanelPushSubscription::where('user_id', $user->id)
+            ->where('tenant_id', $user->tenant_id)
+            ->get();
+        if ($subscriptions->isEmpty()) {
+            return ['sent' => 0, 'subscriptions' => 0];
+        }
+
+        $sent = $this->deliver(
+            $subscriptions,
+            $user->tenant_id,
+            'Notificação de teste',
+            'Se você está vendo isto, as notificações push estão funcionando neste dispositivo.',
+            '/dashboard',
+            'panel-push-test',
+        );
+
+        return ['sent' => $sent, 'subscriptions' => $subscriptions->count()];
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, PanelPushSubscription>  $subscriptions
+     */
+    private function deliver(
+        \Illuminate\Support\Collection $subscriptions,
+        ?int $tenantId,
+        string $title,
+        string $body,
+        ?string $url,
+        ?string $notificationTag
+    ): int {
+        $vapidPair = app(VapidKeysManager::class)->resolveKeyPair();
+        $vapidPublic = $vapidPair['public'];
+        $vapidPrivate = $vapidPair['private'];
+
+        if (! $vapidPublic || ! $vapidPrivate) {
+            Log::warning('PanelPushService: VAPID não configurado (defina PWA_VAPID_PUBLIC e PWA_VAPID_PRIVATE no .env)', ['tenant_id' => $tenantId]);
             return 0;
         }
 
@@ -144,7 +186,7 @@ class PanelPushService
         $failedCount = 0;
         $expiredCount = 0;
         try {
-            $webPush = new WebPush($auth);
+            $webPush = $this->makeWebPush($auth);
             foreach ($subscriptions as $sub) {
                 $keys = $sub->keys ?? [];
                 $authKey = trim((string) ($keys['auth'] ?? ''));
@@ -273,5 +315,13 @@ class PanelPushService
         }
 
         return 'panel_push_sent.'.($tenantId ?? '0').'.'.$eventKey;
+    }
+
+    /**
+     * @param  array<string, mixed>  $auth
+     */
+    public function makeWebPush(array $auth): WebPush
+    {
+        return new WebPush($auth);
     }
 }

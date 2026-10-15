@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\PanelPushSubscription;
 use App\Services\MemberAreaResolver;
+use App\Services\PanelPushService;
 use App\Support\PanelPushPreferences;
 use App\Support\PwaIcon;
 use Illuminate\Http\JsonResponse;
@@ -137,6 +138,32 @@ class PanelPwaController extends Controller
         return response()->json([
             'success' => true,
             'preferences' => $preferences,
+        ]);
+    }
+
+    public function pushTest(Request $request, PanelPushService $push): JsonResponse
+    {
+        $user = $request->user();
+        if (! $user->canAccessPanel()) {
+            return response()->json(['message' => 'Acesso negado.'], 403);
+        }
+
+        $result = $push->sendTestToUser($user);
+
+        if ($result['subscriptions'] === 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Nenhum dispositivo com notificações ativas. Ative as notificações neste navegador primeiro.',
+                ...$result,
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => $result['sent'] > 0,
+            'message' => $result['sent'] > 0
+                ? 'Notificação de teste enviada para '.$result['sent'].' '.($result['sent'] === 1 ? 'dispositivo' : 'dispositivos').'.'
+                : 'Não foi possível entregar a notificação de teste. Tente reativar as notificações.',
+            ...$result,
         ]);
     }
 

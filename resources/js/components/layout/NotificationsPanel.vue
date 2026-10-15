@@ -1,10 +1,10 @@
 <script setup>
 import { ref, watch, computed } from 'vue';
-import { X, Bell, Check, ExternalLink } from 'lucide-vue-next';
+import { X, Bell, BellRing, Check, ExternalLink } from 'lucide-vue-next';
 import axios from 'axios';
 import { router } from '@inertiajs/vue3';
 import { usePanelPushSubscribe } from '@/composables/usePanelPushSubscribe';
-import { pushErrorMessage } from '@/lib/pushSubscription';
+import { pushErrorMessage, pushTestResult } from '@/lib/pushSubscription';
 import { usePage } from '@inertiajs/vue3';
 import Toggle from '@/components/ui/Toggle.vue';
 
@@ -64,6 +64,8 @@ const meta = ref({ current_page: 1, last_page: 1, total: 0 });
 const activatingPush = ref(false);
 const pushPreferences = ref({ pix: true, boleto: true, card: true });
 const savingPreferences = ref(false);
+const sendingTestPush = ref(false);
+const testPushFeedback = ref(null);
 
 async function fetchNotifications() {
     if (!props.open) return;
@@ -198,6 +200,17 @@ async function activateNotifications() {
 
 const hasUnread = computed(() => unreadCount.value > 0);
 
+async function sendTestPush() {
+    sendingTestPush.value = true;
+    testPushFeedback.value = null;
+    try {
+        testPushFeedback.value = pushTestResult(await axios.post('/painel/push-test'));
+    } catch (e) {
+        testPushFeedback.value = pushTestResult(null, e);
+    }
+    sendingTestPush.value = false;
+}
+
 async function reactivateNotifications() {
     activatingPush.value = true;
     try {
@@ -318,6 +331,25 @@ async function reactivateNotifications() {
                         >
                             Notificações push não configuradas no servidor (chaves VAPID).
                         </p>
+
+                        <template v-if="pushEnabled && pushActive">
+                            <button
+                                type="button"
+                                class="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-800 transition hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                                :disabled="sendingTestPush"
+                                @click="sendTestPush"
+                            >
+                                <BellRing class="h-4 w-4" />
+                                {{ sendingTestPush ? 'Enviando...' : 'Enviar notificação de teste' }}
+                            </button>
+                            <p
+                                v-if="testPushFeedback"
+                                class="mt-1 text-xs"
+                                :class="testPushFeedback.ok ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-300/90'"
+                            >
+                                {{ testPushFeedback.message }}
+                            </p>
+                        </template>
 
                         <div
                             v-if="pushEnabled && (pushActive || pushSubscribed)"

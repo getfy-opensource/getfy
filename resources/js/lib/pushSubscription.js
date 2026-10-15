@@ -308,3 +308,26 @@ export function pushErrorMessage(reason) {
     };
     return messages[reason] || 'Não foi possível ativar as notificações.';
 }
+
+/**
+ * Resultado do botão "Enviar notificação de teste" (POST /painel/push-test) para exibir no painel.
+ * Recebe a resposta do axios ou o erro lançado.
+ */
+export function pushTestResult(response, error = null) {
+    if (error) {
+        const status = error?.response?.status;
+        if (status === 429) {
+            return { ok: false, message: 'Muitos testes seguidos — aguarde um minuto e tente de novo.' };
+        }
+        return {
+            ok: false,
+            message: error?.response?.data?.message || 'Não foi possível enviar a notificação de teste.',
+        };
+    }
+    const data = response?.data ?? {};
+    const ok = data.success === true;
+    return {
+        ok,
+        message: data.message || (ok ? 'Notificação de teste enviada.' : 'Não foi possível enviar a notificação de teste.'),
+    };
+}

@@ -313,6 +313,7 @@ Route::middleware(['auth', 'admin.tenant', 'role:admin|infoprodutor|team', 'team
 Route::middleware(['auth', 'admin.tenant', 'role:admin|infoprodutor|team', 'audit.log'])->group(function () {
     Route::post('/painel/push-subscribe', [\App\Http\Controllers\PanelPwaController::class, 'pushSubscribe'])->name('panel.pwa.push-subscribe')->middleware('throttle:10,1');
     Route::patch('/painel/push-preferences', [\App\Http\Controllers\PanelPwaController::class, 'updatePushPreferences'])->name('panel.pwa.push-preferences');
+    Route::post('/painel/push-test', [\App\Http\Controllers\PanelPwaController::class, 'pushTest'])->name('panel.pwa.push-test')->middleware('throttle:5,1');
     Route::get('/painel/notifications', [\App\Http\Controllers\PanelNotificationsController::class, 'index'])->name('panel.notifications.index');
     Route::patch('/painel/notifications/{notification}/read', [\App\Http\Controllers\PanelNotificationsController::class, 'markRead'])->name('panel.notifications.mark-read');
     Route::post('/painel/notifications/mark-read', [\App\Http\Controllers\PanelNotificationsController::class, 'markReadBatch'])->name('panel.notifications.mark-read-batch');
